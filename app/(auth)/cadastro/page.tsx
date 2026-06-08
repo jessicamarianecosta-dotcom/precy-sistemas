@@ -64,7 +64,7 @@ export default function CadastroPage() {
       }
 
       if (authData.user) {
-        await supabase.from('companies').insert({
+        await (supabase as any).from('companies').insert({
           user_id: authData.user.id,
           name: data.company_name,
           email: data.email,
