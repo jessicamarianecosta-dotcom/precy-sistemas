@@ -35,7 +35,7 @@ export function useDashboard(companyId: string | null) {
       ])
 
       /* ── Previous month for delta ── */
-      const [{ data: prevIncomes }, { data: prevExpenses }] = await Promise.all([
+      const [{ data: prevIncomesData }, { data: prevExpensesData }] = await Promise.all([
         supabase.from('transactions').select('amount')
           .eq('company_id', companyId).eq('type', 'income')
           .gte('date', prevStart).lte('date', prevEnd) as any,
@@ -94,10 +94,10 @@ export function useDashboard(companyId: string | null) {
       /* ── Totals ── */
       const revenue      = (incomes     as any[] ?? []).reduce((s, t) => s + Number(t.amount), 0)
       const expensesTotal= (expenses    as any[] ?? []).reduce((s, t) => s + Number(t.amount), 0)
-      const prevRevenue  = (prevIncomes as any[] ?? []).reduce((s, t) => s + Number(t.amount), 0)
-      const prevExpenses = (prevExpenses as any[] ?? []).reduce((s, t) => s + Number(t.amount), 0)
+      const prevRevenue  = (prevIncomesData  as any[] ?? []).reduce((s, t) => s + Number(t.amount), 0)
+      const prevExpTotal = (prevExpensesData as any[] ?? []).reduce((s, t) => s + Number(t.amount), 0)
       const profit       = revenue - expensesTotal
-      const prevProfit   = prevRevenue - prevExpenses
+      const prevProfit   = prevRevenue - prevExpTotal
 
       // % deltas (null when previous is 0)
       const revenueDelta  = prevRevenue   > 0 ? ((revenue      - prevRevenue)  / prevRevenue)  * 100 : null
