@@ -184,8 +184,7 @@ export default function ConfiguracoesPage() {
 
   const saveProfile = useMutation({
     mutationFn: async (d: ProfileForm) => {
-      await supabase
-        .from('profiles')
+      await (supabase.from('profiles') as any)
         .update({
           name: d.name,
           updated_at: new Date().toISOString(),
@@ -204,8 +203,7 @@ export default function ConfiguracoesPage() {
 
   const saveCompany = useMutation({
     mutationFn: async (d: CompanyForm) => {
-      await supabase
-        .from('companies')
+      await (supabase.from('companies') as any)
         .update({
           ...d,
           updated_at: new Date().toISOString(),
@@ -286,6 +284,11 @@ export default function ConfiguracoesPage() {
               <strong>
                 {(subscription as any)?.plan ?? 'basic'}
               </strong>
+            </p>
+
+            <p className="mt-2 text-sm">
+              Aba atual:{' '}
+              <strong>{tab}</strong>
             </p>
 
             <div className="mt-4 flex gap-2">
