@@ -61,11 +61,13 @@ export default function CadastroPage() {
 
       if (authData.user) {
         // Criar empresa automaticamente
-        await supabase.from('companies').insert({
-          user_id: authData.user.id,
-          name: data.company_name,
-          email: data.email,
-        })
+        await supabase.from('companies').insert([
+          {
+            user_id: authData.user.id,
+            name: data.company_name,
+            email: data.email,
+          },
+        ])
 
         setSuccess(true)
         setTimeout(() => router.push('/dashboard'), 2000)
