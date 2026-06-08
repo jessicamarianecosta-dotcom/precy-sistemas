@@ -25,7 +25,7 @@ export const STRIPE_PLANS = {
       process.env
         .STRIPE_PRICE_ID_PRO ?? '',
 
-    amount: 4900,
+    amount: 3700,
 
     interval: 'month' as const,
   },

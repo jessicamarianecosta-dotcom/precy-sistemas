@@ -64,14 +64,30 @@ export default function CadastroPage() {
       }
 
       if (authData.user) {
+        // Criar empresa
         await (supabase as any).from('companies').insert({
           user_id: authData.user.id,
           name: data.company_name,
           email: data.email,
         })
 
+        // Login automático para garantir sessão/cookie antes do redirect
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: data.email,
+          password: data.password,
+        })
+
+        if (signInError) {
+          // Se o signIn falhar (ex: confirmação de e-mail ativa), mostrar sucesso e redirecionar mesmo assim
+          setSuccess(true)
+          setTimeout(() => router.push('/dashboard'), 1500)
+          return
+        }
+
+        // Sessão confirmada: refresh para o middleware reconhecer os cookies e redirecionar
         setSuccess(true)
-        setTimeout(() => router.push('/dashboard'), 2000)
+        router.refresh()
+        router.push('/dashboard')
       }
     } catch {
       setError('Erro inesperado. Tente novamente.')

@@ -59,11 +59,11 @@ const benefits = [
 const plans = [
   {
     name: 'Basic',
-    badge: 'Grátis por 7 dias',
-    price: 'Grátis',
-    period: '7 dias de trial',
-    description: 'Perfeito para começar e conhecer o sistema.',
-    cta: 'Começar grátis',
+    badge: '7 dias grátis para testar',
+    price: 'R$ 17',
+    period: '/mês',
+    description: 'Perfeito para começar e organizar seu negócio.',
+    cta: 'Começar grátis por 7 dias',
     ctaHref: '/cadastro',
     highlight: false,
     features: [
@@ -79,10 +79,10 @@ const plans = [
   {
     name: 'Pro',
     badge: 'Mais popular',
-    price: 'R$ 49',
+    price: 'R$ 37',
     period: '/mês',
     description: 'Para quem quer crescer sem limites.',
-    cta: 'Assinar Pro',
+    cta: 'Começar grátis por 7 dias',
     ctaHref: '/cadastro',
     highlight: true,
     features: [
