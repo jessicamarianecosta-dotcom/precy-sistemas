@@ -5,8 +5,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { Header } from '@/components/layout/Header'
 import {
-  User, Building2, CreditCard, DollarSign,
-  Plus, Trash2, Loader2, Save, CheckCircle
+  User,
+  Building2,
+  CreditCard,
+  DollarSign,
+  Trash2,
+  Loader2,
+  Save,
+  CheckCircle,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useForm } from 'react-hook-form'
@@ -155,7 +161,7 @@ export default function ConfiguracoesPage() {
         name: profile.name ?? '',
       })
     }
-  }, [profile])
+  }, [profile, profForm])
 
   useEffect(() => {
     if (company) {
@@ -168,7 +174,7 @@ export default function ConfiguracoesPage() {
         work_hours_per_month: company.work_hours_per_month ?? 160,
       })
     }
-  }, [company])
+  }, [company, coForm])
 
   function showSaved() {
     setSaved(true)
@@ -279,6 +285,24 @@ export default function ConfiguracoesPage() {
           <p className="mt-2 text-sm opacity-70">
             Página funcionando corretamente.
           </p>
+
+          <div className="mt-4">
+            <p className="text-sm">
+              Total custos fixos:{' '}
+              <strong>{fmt(totalFixedCosts)}</strong>
+            </p>
+
+            {saved && (
+              <div
+                className={clsx(
+                  'mt-4 flex items-center gap-2 rounded-lg border p-3 text-sm'
+                )}
+              >
+                <CheckCircle size={16} />
+                Alterações salvas com sucesso.
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
