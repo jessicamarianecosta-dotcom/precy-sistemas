@@ -30,7 +30,11 @@ export default function CadastroPage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
-  const { register, handleSubmit, formState: { errors } } = useForm<CadastroForm>({
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<CadastroForm>({
     resolver: zodResolver(cadastroSchema),
   })
 
@@ -61,7 +65,7 @@ export default function CadastroPage() {
 
       if (authData.user) {
         // Criar empresa automaticamente
-        await supabase.from('companies').insert([
+        await (supabase.from('companies') as any).insert([
           {
             user_id: authData.user.id,
             name: data.company_name,
@@ -109,45 +113,64 @@ export default function CadastroPage() {
           <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
             Seu nome
           </label>
+
           <input
             type="text"
             placeholder="Seu nome completo"
             className="input"
             {...register('name')}
           />
-          {errors.name && <p className="mt-1 text-xs text-error">{errors.name.message}</p>}
+
+          {errors.name && (
+            <p className="mt-1 text-xs text-error">
+              {errors.name.message}
+            </p>
+          )}
         </div>
 
         <div>
           <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
             Nome do seu negócio
           </label>
+
           <input
             type="text"
             placeholder="Ex: Ateliê da Maria"
             className="input"
             {...register('company_name')}
           />
-          {errors.company_name && <p className="mt-1 text-xs text-error">{errors.company_name.message}</p>}
+
+          {errors.company_name && (
+            <p className="mt-1 text-xs text-error">
+              {errors.company_name.message}
+            </p>
+          )}
         </div>
 
         <div>
           <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
             E-mail
           </label>
+
           <input
             type="email"
             placeholder="sua@empresa.com"
             className="input"
             {...register('email')}
           />
-          {errors.email && <p className="mt-1 text-xs text-error">{errors.email.message}</p>}
+
+          {errors.email && (
+            <p className="mt-1 text-xs text-error">
+              {errors.email.message}
+            </p>
+          )}
         </div>
 
         <div>
           <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
             Senha
           </label>
+
           <div className="relative">
             <input
               type={showPassword ? 'text' : 'password'}
@@ -155,28 +178,44 @@ export default function CadastroPage() {
               className="input pr-10"
               {...register('password')}
             />
+
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
             >
-              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              {showPassword ? (
+                <EyeOff size={16} />
+              ) : (
+                <Eye size={16} />
+              )}
             </button>
           </div>
-          {errors.password && <p className="mt-1 text-xs text-error">{errors.password.message}</p>}
+
+          {errors.password && (
+            <p className="mt-1 text-xs text-error">
+              {errors.password.message}
+            </p>
+          )}
         </div>
 
         <div>
           <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
             Confirmar senha
           </label>
+
           <input
             type="password"
             placeholder="Repita a senha"
             className="input"
             {...register('confirmPassword')}
           />
-          {errors.confirmPassword && <p className="mt-1 text-xs text-error">{errors.confirmPassword.message}</p>}
+
+          {errors.confirmPassword && (
+            <p className="mt-1 text-xs text-error">
+              {errors.confirmPassword.message}
+            </p>
+          )}
         </div>
 
         {error && (
@@ -195,20 +234,29 @@ export default function CadastroPage() {
           ) : (
             <UserPlus size={16} />
           )}
+
           {isLoading ? 'Criando conta...' : 'Criar conta grátis'}
         </button>
       </form>
 
       <p className="mt-6 text-center text-sm text-text-secondary dark:text-stone-400">
         Já tem conta?{' '}
-        <Link href="/login" className="text-primary font-medium hover:underline">
+        <Link
+          href="/login"
+          className="text-primary font-medium hover:underline"
+        >
           Entrar
         </Link>
       </p>
 
       <p className="mt-3 text-center text-xs text-text-muted dark:text-stone-500">
         Ao criar sua conta, você concorda com nossos{' '}
-        <Link href="/termos" className="text-primary hover:underline">termos de uso</Link>
+        <Link
+          href="/termos"
+          className="text-primary hover:underline"
+        >
+          termos de uso
+        </Link>
       </p>
     </div>
   )
