@@ -29,6 +29,7 @@ export function PlansSection() {
     { label: 'Suporte prioritário', basic: false, pro: true },
     { label: 'IA de precificação', basic: false, pro: 'Em breve' },
     { label: 'WhatsApp integrado', basic: false, pro: 'Em breve' },
+    { label: 'Agenda de entregas', basic: false, pro: 'Em breve' },
   ]
 
   return (
@@ -62,7 +63,7 @@ export function PlansSection() {
                 🌱 7 dias grátis para testar
               </span>
               <h3 className="text-xl font-bold text-[#2C2018] dark:text-stone-100 mb-1">Basic</h3>
-              <p className="text-sm text-[#7A6855] dark:text-stone-400">Para quem está começando a organizar o negócio</p>
+              <p className="text-sm text-[#7A6855] dark:text-stone-400">Para quem está começando a organizar o negócio.</p>
             </div>
             <div className="flex items-end gap-1 mb-6">
               <span className="text-4xl font-bold text-[#2C2018] dark:text-stone-100">R$ 17</span>
@@ -105,7 +106,7 @@ export function PlansSection() {
                 🚀 7 dias grátis para testar
               </span>
               <h3 className="text-xl font-bold text-[#2C2018] dark:text-stone-100 mb-1">Pro</h3>
-              <p className="text-sm text-[#7A6855] dark:text-stone-400">Para crescer sem limites</p>
+              <p className="text-sm text-[#7A6855] dark:text-stone-400">Para crescer sem limites.</p>
             </div>
 
             <div className="flex items-end gap-1 mb-1">
@@ -122,7 +123,8 @@ export function PlansSection() {
             <ul className="space-y-2.5">
               {[
                 'Tudo do Basic',
-                'Produtos e pedidos ilimitados',
+                'Produtos ilimitados',
+                'Pedidos ilimitados',
                 'Relatórios avançados',
                 'Sem marca d\'água nos PDFs',
                 'Suporte prioritário',
