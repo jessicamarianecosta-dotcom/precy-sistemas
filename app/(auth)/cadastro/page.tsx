@@ -16,17 +16,21 @@ export default function ClientesPage() {
 
       if (!user) return
 
-      const { data: company } = await supabase
+      const response = await (supabase as any)
         .from('companies')
         .select('id')
         .eq('user_id', user.id)
         .single()
 
-      if (company) setCompanyId((company as any).id)
+      const company = response?.data
+
+      if (company?.id) {
+        setCompanyId(company.id)
+      }
     }
 
     load()
-  }, [supabase])
+  }, [])
 
   return (
     <div className="p-6">
