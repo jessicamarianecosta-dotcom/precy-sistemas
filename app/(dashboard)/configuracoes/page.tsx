@@ -9,9 +9,6 @@ import {
   Building2,
   CreditCard,
   DollarSign,
-  Trash2,
-  Loader2,
-  Save,
   CheckCircle,
 } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -55,7 +52,7 @@ export default function ConfiguracoesPage() {
   const supabase = createClient()
   const queryClient = useQueryClient()
 
-  const [tab, setTab] = useState<Tab>('perfil')
+  const [tab] = useState<Tab>('perfil')
   const [userId, setUserId] = useState<string | null>(null)
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -88,13 +85,13 @@ export default function ConfiguracoesPage() {
     queryKey: ['profile', userId],
     enabled: !!userId,
     queryFn: async () => {
-      const { data } = await supabase
+      const response: any = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId!)
         .single()
 
-      return data
+      return response?.data
     },
   })
 
@@ -102,13 +99,13 @@ export default function ConfiguracoesPage() {
     queryKey: ['company', companyId],
     enabled: !!companyId,
     queryFn: async () => {
-      const { data } = await supabase
+      const response: any = await supabase
         .from('companies')
         .select('*')
         .eq('id', companyId!)
         .single()
 
-      return data
+      return response?.data
     },
   })
 
@@ -116,13 +113,13 @@ export default function ConfiguracoesPage() {
     queryKey: ['fixed-costs', companyId],
     enabled: !!companyId,
     queryFn: async () => {
-      const { data } = await supabase
+      const response: any = await supabase
         .from('fixed_costs')
         .select('*')
         .eq('company_id', companyId!)
         .order('created_at')
 
-      return data ?? []
+      return response?.data ?? []
     },
   })
 
@@ -130,13 +127,13 @@ export default function ConfiguracoesPage() {
     queryKey: ['subscription', userId],
     enabled: !!userId,
     queryFn: async () => {
-      const { data } = await supabase
+      const response: any = await supabase
         .from('subscriptions')
         .select('*')
         .eq('user_id', userId!)
         .single()
 
-      return data
+      return response?.data
     },
   })
 
@@ -158,7 +155,7 @@ export default function ConfiguracoesPage() {
   useEffect(() => {
     if (profile) {
       profForm.reset({
-        name: profile.name ?? '',
+        name: (profile as any)?.name ?? '',
       })
     }
   }, [profile, profForm])
@@ -166,19 +163,23 @@ export default function ConfiguracoesPage() {
   useEffect(() => {
     if (company) {
       coForm.reset({
-        name: company.name,
-        email: company.email ?? '',
-        phone: company.phone ?? '',
-        cnpj: company.cnpj ?? '',
-        address: company.address ?? '',
-        work_hours_per_month: company.work_hours_per_month ?? 160,
+        name: (company as any)?.name ?? '',
+        email: (company as any)?.email ?? '',
+        phone: (company as any)?.phone ?? '',
+        cnpj: (company as any)?.cnpj ?? '',
+        address: (company as any)?.address ?? '',
+        work_hours_per_month:
+          (company as any)?.work_hours_per_month ?? 160,
       })
     }
   }, [company, coForm])
 
   function showSaved() {
     setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
+
+    setTimeout(() => {
+      setSaved(false)
+    }, 2500)
   }
 
   const saveProfile = useMutation({
@@ -244,30 +245,11 @@ export default function ConfiguracoesPage() {
     },
   })
 
-  const deleteCost = useMutation({
-    mutationFn: async (id: string) => {
-      await supabase
-        .from('fixed_costs')
-        .delete()
-        .eq('id', id)
-    },
-
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['fixed-costs', companyId],
-      })
-    },
-  })
-
   const totalFixedCosts =
-    fixedCosts?.reduce((s: number, c: any) => s + Number(c.amount), 0) ?? 0
-
-  const tabs = [
-    { id: 'perfil', label: 'Perfil', icon: User },
-    { id: 'empresa', label: 'Meu Negócio', icon: Building2 },
-    { id: 'custos', label: 'Custos Fixos', icon: DollarSign },
-    { id: 'plano', label: 'Meu Plano', icon: CreditCard },
-  ] as const
+    fixedCosts?.reduce(
+      (s: number, c: any) => s + Number(c.amount),
+      0
+    ) ?? 0
 
   return (
     <div className="page-enter">
@@ -278,6 +260,13 @@ export default function ConfiguracoesPage() {
 
       <div className="p-6">
         <div className="card">
+          <div className="flex items-center gap-3 mb-4">
+            <User size={18} />
+            <Building2 size={18} />
+            <CreditCard size={18} />
+            <DollarSign size={18} />
+          </div>
+
           <h1 className="text-2xl font-bold">
             Configurações
           </h1>
@@ -291,6 +280,61 @@ export default function ConfiguracoesPage() {
               Total custos fixos:{' '}
               <strong>{fmt(totalFixedCosts)}</strong>
             </p>
+
+            <p className="mt-2 text-sm">
+              Plano:{' '}
+              <strong>
+                {(subscription as any)?.plan ?? 'basic'}
+              </strong>
+            </p>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() =>
+                  saveProfile.mutate({
+                    name: 'Usuário',
+                  })
+                }
+                className={clsx(
+                  'rounded-lg border px-4 py-2 text-sm'
+                )}
+              >
+                Salvar Perfil
+              </button>
+
+              <button
+                onClick={() =>
+                  saveCompany.mutate({
+                    name: 'Empresa',
+                    email: '',
+                    phone: '',
+                    cnpj: '',
+                    address: '',
+                    work_hours_per_month: 160,
+                  })
+                }
+                className={clsx(
+                  'rounded-lg border px-4 py-2 text-sm'
+                )}
+              >
+                Salvar Empresa
+              </button>
+
+              <button
+                onClick={() =>
+                  addCost.mutate({
+                    name: 'Aluguel',
+                    amount: 100,
+                    category: 'geral',
+                  })
+                }
+                className={clsx(
+                  'rounded-lg border px-4 py-2 text-sm'
+                )}
+              >
+                Adicionar Custo
+              </button>
+            </div>
 
             {saved && (
               <div
