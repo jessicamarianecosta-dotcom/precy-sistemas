@@ -122,7 +122,7 @@ export default function ProdutosPage() {
       <Header title="Produtos" subtitle="Gerencie seu catálogo de produtos" />
       <div className="p-4 sm:p-6 space-y-4">
         {/* Toolbar */}
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
           <div className="relative w-full sm:w-72">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
             <input type="text" placeholder="Buscar produtos..." className="input pl-9"
@@ -143,7 +143,7 @@ export default function ProdutosPage() {
               description="Cadastre seus produtos para usar em pedidos e orçamentos."
               action={{ label: '+ Novo Produto', onClick: () => setShowModal(true) }} />
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto -mx-0 w-full">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border dark:border-border-dark">
@@ -189,12 +189,12 @@ export default function ProdutosPage() {
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeModal} />
-          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-lg animate-scaleIn max-h-[90vh] overflow-y-auto">
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-lg animate-scaleIn max-h-[92dvh] sm:max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white dark:bg-surface-dark p-6 pb-4 border-b border-border dark:border-border-dark rounded-t-2xl z-10 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-text-primary dark:text-stone-100">{editingId ? 'Editar Produto' : 'Novo Produto'}</h2>
               <button onClick={closeModal} className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted"><X size={16} /></button>
             </div>
-            <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="p-3 sm:p-5 lg:p-6 space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Nome *</label>
@@ -232,7 +232,7 @@ export default function ProdutosPage() {
                   <textarea rows={2} className="input resize-none" placeholder="Descrição opcional" {...register('description')} />
                 </div>
               </div>
-              <div className="flex gap-3 pt-2">
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
                 <button type="button" onClick={closeModal} className="btn-secondary flex-1">Cancelar</button>
                 <button type="submit" disabled={saveMutation.isPending} className="btn-primary flex-1 flex items-center justify-center gap-2">
                   {saveMutation.isPending && <Loader2 size={15} className="animate-spin" />}

@@ -372,8 +372,8 @@ export default function PedidosPage() {
         subtitle="Kanban e acompanhamento de pedidos"
       />
 
-      <div className="p-6 space-y-4">
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+      <div className="p-3 sm:p-5 lg:p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="relative">
               <Search
@@ -426,7 +426,7 @@ export default function PedidosPage() {
             }}
           />
         ) : (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 overflow-x-auto pb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             {STATUS_COLUMNS.map((col) => {
               const colOrders =
                 filtered.filter(
@@ -438,7 +438,7 @@ export default function PedidosPage() {
                 <div
                   key={col.id}
                   className={clsx(
-                    'rounded-2xl border p-3 min-h-[400px]',
+                    'rounded-2xl border p-3 min-h-[200px] sm:min-h-[320px]',
                     col.color
                   )}
                   onDragOver={(e) =>
@@ -573,7 +573,7 @@ export default function PedidosPage() {
               onSubmit={handleSubmit((d) =>
                 saveMutation.mutate(d)
               )}
-              className="p-6 space-y-4"
+              className="p-3 sm:p-5 lg:p-6 space-y-4"
             >
               <select
                 className="input"

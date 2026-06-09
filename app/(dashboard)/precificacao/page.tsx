@@ -255,10 +255,10 @@ export default function PrecificacaoPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 lg:items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:items-start">
 
           {/* ════════════════ COLUNA ESQUERDA — Calculadora ════════════════ */}
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
 
             {/* Tipo de produto */}
             <div className="card">
@@ -534,7 +534,7 @@ export default function PrecificacaoPage() {
           </div>
 
           {/* ════════════════ COLUNA DIREITA — Resultados ════════════════ */}
-          <div className="space-y-4 lg:sticky lg:top-4">
+          <div className="space-y-4 lg:sticky lg:top-4 order-first lg:order-last">
 
             {/* Preço ideal */}
             <div className="card relative overflow-hidden" style={{

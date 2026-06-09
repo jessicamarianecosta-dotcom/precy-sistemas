@@ -241,8 +241,8 @@ export default function ClientesPage() {
         </div>
 
         {/* ── Toolbar ── */}
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-          <div className="relative w-full sm:w-72">
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+          <div className="relative w-full sm:w-64">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
             <input
               type="text"
@@ -287,7 +287,7 @@ export default function ClientesPage() {
               }
             />
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto -mx-0 w-full">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border dark:border-border-dark">
@@ -437,7 +437,7 @@ export default function ClientesPage() {
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={closeModal}
           />
-          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-lg animate-scaleIn max-h-[92vh] flex flex-col">
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-lg animate-scaleIn max-h-[92dvh] sm:max-h-[90vh] flex flex-col">
             {/* Header modal */}
             <div className="flex items-center justify-between p-6 pb-4 border-b border-border dark:border-border-dark flex-shrink-0">
               <div>

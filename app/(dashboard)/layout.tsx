@@ -8,20 +8,16 @@ export default async function DashboardLayout({
   children: React.ReactNode
 }) {
   const supabase = createClient()
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
-  if (!session) {
-    redirect('/login')
-  }
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) redirect('/login')
 
   return (
-    <div className="min-h-screen bg-background dark:bg-background-dark flex">
+    <div className="min-h-screen bg-background dark:bg-background-dark">
       <Sidebar />
 
-      <main className="flex-1 ml-60 min-h-screen overflow-x-hidden transition-all duration-300">
+      {/* Main area — shifts right on lg when sidebar is visible */}
+      <main className="min-h-screen overflow-x-hidden
+        lg:ml-60 transition-all duration-300">
         {children}
       </main>
     </div>

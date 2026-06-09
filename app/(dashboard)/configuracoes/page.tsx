@@ -311,10 +311,10 @@ export default function ConfiguracoesPage() {
     <div className="page-enter min-h-screen bg-background dark:bg-background-dark">
       <Header title="Configurações" subtitle="Personalize o sistema de acordo com o seu negócio." />
 
-      <div className="p-4 sm:p-6 max-w-3xl mx-auto space-y-5">
+      <div className="p-3 sm:p-5 lg:p-6 max-w-3xl mx-auto space-y-4">
 
         {/* ── Tabs ── */}
-        <div className="flex gap-1 bg-white dark:bg-surface-dark border border-border dark:border-border-dark rounded-2xl p-1.5 shadow-card">
+        <div className="flex gap-1 bg-white dark:bg-surface-dark border border-border dark:border-border-dark rounded-2xl p-1.5 shadow-card overflow-x-auto no-scrollbar">
           {tabs.map(t => {
             const Icon = t.icon
             const active = tab === t.id

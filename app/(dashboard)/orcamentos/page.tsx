@@ -458,7 +458,7 @@ export default function OrcamentosPage() {
         subtitle="Crie e envie orçamentos profissionais em PDF"
       />
 
-      <div className="p-6 space-y-4">
+      <div className="p-3 sm:p-5 lg:p-6 space-y-4">
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm text-text-secondary dark:text-stone-400">
             {budgets?.length ?? 0}{' '}
@@ -501,7 +501,7 @@ export default function OrcamentosPage() {
               }}
             />
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto -mx-0 w-full">
               <table className="w-full">
                 <tbody>
                   {budgets.map((b: any) => {
@@ -631,7 +631,7 @@ export default function OrcamentosPage() {
               onSubmit={handleSubmit((d) =>
                 saveMutation.mutate(d)
               )}
-              className="p-6 space-y-4"
+              className="p-3 sm:p-5 lg:p-6 space-y-4"
             >
               <button
                 type="submit"

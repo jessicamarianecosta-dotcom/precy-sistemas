@@ -128,7 +128,7 @@ export default function FinanceiroPage() {
         </div>
 
         {/* Toolbar */}
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
           <div className="flex gap-2">
             {[{v:'all',l:'Todos'},{v:'income',l:'Receitas'},{v:'expense',l:'Despesas'}].map(btn => (
               <button key={btn.v} onClick={() => setFilterType(btn.v)}
@@ -152,7 +152,7 @@ export default function FinanceiroPage() {
               description="Registre receitas e despesas para controlar suas finanças."
               action={{ label: '+ Nova Transação', onClick: () => setShowModal(true) }} />
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto -mx-0 w-full">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border dark:border-border-dark">
@@ -210,7 +210,7 @@ export default function FinanceiroPage() {
               <h2 className="text-lg font-semibold text-text-primary dark:text-stone-100">Nova Transação</h2>
               <button onClick={() => setShowModal(false)} className="p-2 rounded-xl hover:bg-primary-50 text-text-muted"><X size={16} /></button>
             </div>
-            <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="p-3 sm:p-5 lg:p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Tipo *</label>
                 <select className="input" {...register('type')}>
@@ -236,7 +236,7 @@ export default function FinanceiroPage() {
                 <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Descrição</label>
                 <input className="input" placeholder="Descrição opcional" {...register('description')} />
               </div>
-              <div className="flex gap-3 pt-2">
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
                 <button type="button" onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancelar</button>
                 <button type="submit" disabled={saveMutation.isPending} className="btn-primary flex-1 flex items-center justify-center gap-2">
                   {saveMutation.isPending && <Loader2 size={15} className="animate-spin" />}

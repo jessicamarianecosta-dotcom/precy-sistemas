@@ -143,7 +143,7 @@ export default function LandingPage() {
       </nav>
 
       {/* ── HERO ── */}
-      <section className="relative overflow-hidden pt-16 pb-20 px-4 sm:px-6">
+      <section className="relative overflow-hidden pt-10 sm:pt-16 pb-16 sm:pb-20 px-4 sm:px-6">
         {/* Gradient bg blob */}
         <div aria-hidden
           className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] rounded-full opacity-[0.07] blur-3xl"
@@ -277,7 +277,7 @@ export default function LandingPage() {
               Do cálculo de preço ao orçamento profissional — o Precy+ reúne tudo para você crescer com organização.
             </p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {features.map(f => (
               <div key={f.title}
                 className="group rounded-2xl border border-[#EDE8E2] dark:border-[#3A3028] bg-white dark:bg-[#2A2220] p-6 hover:border-[#8B6C4F] hover:shadow-[0_4px_24px_rgba(139,108,79,0.12)] transition-all duration-300 cursor-default">
@@ -310,7 +310,7 @@ export default function LandingPage() {
               Simples assim — em 3 passos
             </h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 relative">
             {/* Linha conectora */}
             <div className="hidden md:block absolute top-10 left-1/3 right-1/3 h-0.5"
               style={{ background: 'linear-gradient(90deg, rgba(139,108,79,0.2), rgba(139,108,79,0.5), rgba(139,108,79,0.2))' }} />
@@ -342,7 +342,7 @@ export default function LandingPage() {
               Quem usa, aprova
             </h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {testimonials.map(t => (
               <div key={t.name}
                 className="rounded-2xl border border-[#EDE8E2] dark:border-[#3A3028] bg-white dark:bg-[#2A2220] p-6 space-y-4 hover:border-[#8B6C4F] hover:shadow-[0_4px_24px_rgba(139,108,79,0.1)] transition-all duration-300">

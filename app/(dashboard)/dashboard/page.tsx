@@ -237,7 +237,7 @@ export default function DashboardPage() {
         subtitle={companyName || 'Carregando...'}
       />
 
-      <div className="p-4 sm:p-6 space-y-5">
+      <div className="p-3 sm:p-5 lg:p-6 space-y-4">
         {isLoading ? (
           <SkeletonDashboard />
         ) : isError ? (
@@ -248,7 +248,7 @@ export default function DashboardPage() {
         ) : (
           <>
             {/* ─── METRIC CARDS ─── */}
-            <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
               {metricCards.map(card => {
                 const Icon = card.icon
                 return (
@@ -281,7 +281,7 @@ export default function DashboardPage() {
 
             {/* ─── ALERTAS ─── */}
             {alerts.length > 0 && (
-              <div className="card p-4">
+              <div className="card p-3 sm:p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <Activity size={15} className="text-primary" />
                   <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">

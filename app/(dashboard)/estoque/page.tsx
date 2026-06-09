@@ -133,7 +133,7 @@ export default function EstoquePage() {
 
         {/* Alertas */}
         {(criticalCount > 0 || attentionCount > 0) && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
             {criticalCount > 0 && (
               <div className="card border-error/30 bg-error-light dark:bg-error/10 p-4 flex items-center gap-3">
                 <AlertTriangle size={18} className="text-error flex-shrink-0" />
@@ -156,7 +156,7 @@ export default function EstoquePage() {
         )}
 
         {/* Toolbar */}
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
           <div className="flex gap-2 flex-wrap">
             <div className="relative">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
@@ -184,7 +184,7 @@ export default function EstoquePage() {
               description="Cadastre seus materiais e controle o estoque de forma inteligente."
               action={{ label: '+ Novo Item', onClick: () => setShowModal(true) }} />
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto -mx-0 w-full">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border dark:border-border-dark">
@@ -241,7 +241,7 @@ export default function EstoquePage() {
               <h2 className="text-lg font-semibold text-text-primary dark:text-stone-100">{editingId ? 'Editar Item' : 'Novo Item'}</h2>
               <button onClick={closeModal} className="p-2 rounded-xl hover:bg-primary-50 text-text-muted"><X size={16} /></button>
             </div>
-            <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="p-3 sm:p-5 lg:p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Nome *</label>
@@ -275,7 +275,7 @@ export default function EstoquePage() {
                   <input className="input" placeholder="Nome do fornecedor" {...register('supplier')} />
                 </div>
               </div>
-              <div className="flex gap-3 pt-2">
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
                 <button type="button" onClick={closeModal} className="btn-secondary flex-1">Cancelar</button>
                 <button type="submit" disabled={saveMutation.isPending} className="btn-primary flex-1 flex items-center justify-center gap-2">
                   {saveMutation.isPending && <Loader2 size={15} className="animate-spin" />}

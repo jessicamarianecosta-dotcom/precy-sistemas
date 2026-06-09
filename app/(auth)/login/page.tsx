@@ -131,7 +131,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={isLoading}
-          className="btn-primary w-full flex items-center justify-center gap-2 py-3"
+          className="btn-primary w-full flex items-center justify-center gap-2 py-3 min-h-[44px]"
         >
           {isLoading ? (
             <Loader2 size={16} className="animate-spin" />
