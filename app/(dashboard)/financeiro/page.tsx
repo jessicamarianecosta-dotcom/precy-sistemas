@@ -757,7 +757,7 @@ export default function FinanceiroPage() {
 
             {/* Header */}
 
-            <div className="p-6 border-b border-border dark:border-border-dark flex items-center justify-between">
+            <div className="p-4 sm:p-6 border-b border-border dark:border-border-dark flex items-center justify-between">
 
               <div>
                 <h2 className="text-2xl font-bold text-text-primary dark:text-stone-100">

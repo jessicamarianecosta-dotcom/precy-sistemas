@@ -613,7 +613,7 @@ export default function OrcamentosPage() {
           />
 
           <div className="relative bg-white rounded-2xl shadow-modal w-full max-w-2xl">
-            <div className="p-6 border-b flex items-center justify-between">
+            <div className="p-4 sm:p-6 border-b border-border dark:border-border-dark flex items-center justify-between">
               <h2 className="text-lg font-semibold">
                 Novo Orçamento
               </h2>

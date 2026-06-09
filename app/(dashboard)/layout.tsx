@@ -1,4 +1,5 @@
 import { Sidebar } from '@/components/layout/Sidebar'
+import { MainContent } from '@/components/layout/MainContent'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 
@@ -14,12 +15,7 @@ export default async function DashboardLayout({
   return (
     <div className="min-h-screen bg-background dark:bg-background-dark">
       <Sidebar />
-
-      {/* Main area — shifts right on lg when sidebar is visible */}
-      <main className="min-h-screen overflow-x-hidden
-        lg:ml-60 transition-all duration-300">
-        {children}
-      </main>
+      <MainContent>{children}</MainContent>
     </div>
   )
 }
