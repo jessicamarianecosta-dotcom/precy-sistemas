@@ -33,6 +33,10 @@ import {
   DollarSign,
   FileText,
   Package,
+  Edit2,
+  ChevronDown,
+  CreditCard,
+  Clock,
 } from 'lucide-react'
 
 import { useForm } from 'react-hook-form'
@@ -116,7 +120,11 @@ const schema = z.object({
 
   due_date: z.string().optional(),
 
-  priority: z.string().default('normal'),
+  priority:         z.string().default('normal'),
+  payment_method:   z.string().optional(),
+  signal_amount:    z.coerce.number().min(0).default(0),
+  product_id:       z.string().optional(),
+  order_date:       z.string().optional(),
 })
 
 type FormData = z.infer<typeof schema>
@@ -156,6 +164,10 @@ export default function PedidosPage() {
 
   const [dragging, setDragging] =
     useState<string | null>(null)
+
+  /* product picker */
+  const [productSearch,     setProductSearch]     = useState('')
+  const [showProductPicker, setShowProductPicker] = useState(false)
 
   /* ─────────────────────────────────────────────
      QUERIES
@@ -203,6 +215,20 @@ export default function PedidosPage() {
     },
   })
 
+  /* produtos para o picker */
+  const { data: productsList } = useQuery({
+    queryKey: ['products-picker', companyId],
+    enabled:  !!companyId,
+    queryFn:  async () => {
+      const { data } = await (supabase.from('products') as any)
+        .select('id, name, final_price, category, description')
+        .eq('company_id', companyId!)
+        .eq('is_active', true)
+        .order('name')
+      return data ?? []
+    },
+  })
+
   /* ─────────────────────────────────────────────
      FORM
   ───────────────────────────────────────────── */
@@ -227,7 +253,11 @@ export default function PedidosPage() {
       total: 0,
       notes: '',
       due_date: '',
-      priority: 'normal',
+      priority:        'normal',
+      payment_method: '',
+      signal_amount:  0,
+      product_id:     '',
+      order_date:     '',
     },
   })
 
@@ -404,6 +434,24 @@ export default function PedidosPage() {
   /* ─────────────────────────────────────────────
      DND
   ───────────────────────────────────────────── */
+
+  /* ── Abrir pedido para edição ── */
+  function openOrder(order: Record<string, unknown>) {
+    setEditingId(order.id as string)
+    const fields = [
+      'customer_id','service_name','description','status',
+      'payment_status','subtotal','discount','total','notes',
+      'due_date','priority','payment_method','signal_amount',
+      'product_id','order_date',
+    ]
+    fields.forEach(k => {
+      const val = order[k]
+      if (val !== undefined && val !== null) {
+        setValue(k as never, val as never)
+      }
+    })
+    setShowModal(true)
+  }
 
   function handleDrop(
     e: React.DragEvent,
@@ -585,18 +633,22 @@ export default function PedidosPage() {
                               </span>
                             </div>
 
-                            <button
-                              onClick={() =>
-                                deleteMutation.mutate(
-                                  order.id
-                                )
-                              }
-                              className="text-text-muted hover:text-error"
-                            >
-                              <Trash2
-                                size={14}
-                              />
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); openOrder(order); }}
+                                className="p-1 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"
+                                title="Editar pedido"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(order.id); }}
+                                className="p-1 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"
+                                title="Excluir pedido"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
                           </div>
 
                           <h4 className="font-semibold text-sm">
@@ -669,293 +721,271 @@ export default function PedidosPage() {
         )}
       </div>
 
-      {/* MODAL */}
+      {/* ══════════════════════════════════
+          MODAL NOVO / EDITAR PEDIDO
+      ══════════════════════════════════ */}
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setShowModal(false); setShowProductPicker(false) }} />
 
-          <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() =>
-              setShowModal(false)
-            }
-          />
-
-          <div className="relative bg-white dark:bg-surface-dark rounded-3xl shadow-modal w-full max-w-2xl max-h-[92vh] overflow-y-auto">
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-2xl max-h-[95dvh] sm:max-h-[92vh] flex flex-col animate-scaleIn overflow-hidden">
 
             {/* Header */}
-
-            <div className="p-4 sm:p-6 border-b border-border dark:border-border-dark flex items-center justify-between">
-
+            <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border dark:border-border-dark flex-shrink-0">
               <div>
-                <h2 className="text-2xl font-bold">
-                  Novo Pedido
+                <h2 className="text-base font-semibold text-text-primary dark:text-stone-100">
+                  {editingId ? 'Editar Pedido' : 'Novo Pedido'}
                 </h2>
-
-                <p className="text-sm text-text-muted mt-1">
-                  Cadastro rápido de produção
-                </p>
+                {editingId && (
+                  <p className="text-xs text-text-muted dark:text-stone-500 mt-0.5">
+                    Altere os campos e salve para atualizar.
+                  </p>
+                )}
               </div>
-
-              <button
-                onClick={() =>
-                  setShowModal(false)
-                }
-                className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5"
-              >
-                <X size={18} />
+              <button onClick={() => { setShowModal(false); reset(); setEditingId(null); setShowProductPicker(false) }}
+                className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted">
+                <X size={16} />
               </button>
             </div>
 
-            {/* FORM */}
+            {/* Body scrollable */}
+            <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="flex-1 overflow-y-auto">
+              <div className="p-4 sm:p-5 space-y-5">
 
-            <form
-              onSubmit={handleSubmit((d) =>
-                saveMutation.mutate(d)
-              )}
-              className="p-6 space-y-6"
-            >
+                {/* ── S1: Cliente ── */}
+                <section className="space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2">
+                    <User size={12} /> Cliente
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Cliente *</label>
+                      <select className="input" {...register('customer_id')}>
+                        <option value="">Selecione um cliente...</option>
+                        {(customers ?? []).map((c: Record<string, string>) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                      {errors.customer_id && <p className="mt-1 text-xs text-error">{errors.customer_id.message}</p>}
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Observações do cliente</label>
+                      <textarea rows={2} className="input resize-none" placeholder="Preferências, instruções especiais..." {...register('notes')} />
+                    </div>
+                  </div>
+                </section>
 
-              {/* CLIENTE */}
+                <div className="h-px bg-border dark:bg-border-dark" />
 
-              <div className="space-y-2">
+                {/* ── S2: Produto / Serviço ── */}
+                <section className="space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2">
+                    <Package size={12} /> Produto / Serviço
+                  </h3>
 
-                <label className="text-sm font-semibold flex items-center gap-2">
-                  <User size={14} />
-                  Cliente
-                </label>
+                  {/* Product picker */}
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
+                      Nome do produto / serviço *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        className="input pr-9"
+                        placeholder="Buscar nos cadastrados ou digitar manualmente..."
+                        {...register('service_name')}
+                        onFocus={() => setShowProductPicker(true)}
+                        onChange={e => {
+                          setProductSearch(e.target.value)
+                          register('service_name').onChange(e)
+                        }}
+                        autoComplete="off"
+                      />
+                      <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
 
-                <select
-                  className="input h-12"
-                  {...register(
-                    'customer_id'
-                  )}
-                >
-                  <option value="">
-                    Selecione um cliente
-                  </option>
+                      {showProductPicker && (
+                        <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-white dark:bg-surface-dark border border-border dark:border-border-dark rounded-xl shadow-modal max-h-48 overflow-y-auto">
+                          {(productsList ?? [])
+                            .filter((p: Record<string, unknown>) =>
+                              productSearch === '' ||
+                              (p.name as string).toLowerCase().includes(productSearch.toLowerCase())
+                            )
+                            .slice(0, 8)
+                            .map((p: Record<string, unknown>) => (
+                              <button
+                                key={p.id as string}
+                                type="button"
+                                className="w-full text-left px-3 py-2.5 hover:bg-primary-50 dark:hover:bg-primary/10 flex items-center justify-between gap-3 border-b border-border dark:border-border-dark last:border-0 transition-colors"
+                                onClick={() => {
+                                  setValue('service_name', p.name as string)
+                                  setValue('product_id',   p.id   as string)
+                                  setValue('subtotal',     Number(p.final_price) || 0)
+                                  setValue('total',        Number(p.final_price) || 0)
+                                  if (p.description) setValue('description', p.description as string)
+                                  setProductSearch(p.name as string)
+                                  setShowProductPicker(false)
+                                }}
+                              >
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{p.name as string}</p>
+                                  <p className="text-[10px] text-text-muted dark:text-stone-500">{p.category as string}</p>
+                                </div>
+                                <span className="text-sm font-bold text-primary flex-shrink-0">
+                                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(p.final_price))}
+                                </span>
+                              </button>
+                            ))}
+                          {(productsList ?? []).length === 0 && (
+                            <p className="text-xs text-text-muted dark:text-stone-500 text-center py-3">Nenhum produto cadastrado</p>
+                          )}
+                          <div className="px-3 py-2 bg-primary-50/50 dark:bg-primary/5">
+                            <p className="text-[10px] text-text-muted dark:text-stone-500">💡 Ou continue digitando para inserir manualmente</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {errors.service_name && <p className="mt-1 text-xs text-error">{errors.service_name.message}</p>}
+                  </div>
 
-                  {customers?.map(
-                    (c: any) => (
-                      <option
-                        key={c.id}
-                        value={c.id}
-                      >
-                        {c.name}
-                      </option>
-                    )
-                  )}
-                </select>
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Descrição do pedido</label>
+                    <textarea rows={2} className="input resize-none" placeholder="Detalhes, especificações, cores..." {...register('description')} />
+                  </div>
+                </section>
 
-                {errors.customer_id && (
-                  <p className="text-xs text-error">
-                    {
-                      errors
-                        .customer_id
-                        .message
-                    }
-                  </p>
-                )}
+                <div className="h-px bg-border dark:bg-border-dark" />
+
+                {/* ── S3: Valores ── */}
+                <section className="space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2">
+                    <DollarSign size={12} /> Valores
+                  </h3>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Subtotal (R$)</label>
+                      <input type="number" step="0.01" min="0" className="input" placeholder="0,00" {...register('subtotal')} />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Desconto (R$)</label>
+                      <input type="number" step="0.01" min="0" className="input" placeholder="0,00" {...register('discount')} />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Total Final (R$)</label>
+                      <input type="number" step="0.01" min="0" className="input bg-primary-50 dark:bg-primary/10 font-bold text-primary" readOnly {...register('total')} />
+                    </div>
+                  </div>
+                </section>
+
+                <div className="h-px bg-border dark:bg-border-dark" />
+
+                {/* ── S4 + S5: Prazos e Status ── */}
+                <section className="space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2">
+                    <Clock size={12} /> Prazos &amp; Status
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Data do pedido</label>
+                      <input type="date" className="input" {...register('order_date')} />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Prazo de entrega</label>
+                      <input type="date" className="input" {...register('due_date')} />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Status</label>
+                      <select className="input" {...register('status')}>
+                        <option value="pending">Pendente</option>
+                        <option value="production">Produção</option>
+                        <option value="ready">Pronto</option>
+                        <option value="delivered">Entregue</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Prioridade</label>
+                      <select className="input" {...register('priority')}>
+                        <option value="low">Baixa</option>
+                        <option value="normal">Normal</option>
+                        <option value="high">Alta</option>
+                        <option value="urgent">Urgente</option>
+                      </select>
+                    </div>
+                  </div>
+                </section>
+
+                <div className="h-px bg-border dark:bg-border-dark" />
+
+                {/* ── S6: Pagamento ── */}
+                <section className="space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2">
+                    <CreditCard size={12} /> Pagamento
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Status pagamento</label>
+                      <select className="input" {...register('payment_status')}>
+                        <option value="pending">Pendente</option>
+                        <option value="partial">Parcial</option>
+                        <option value="paid">Pago</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Forma de pagamento</label>
+                      <select className="input" {...register('payment_method')}>
+                        <option value="">Selecionar...</option>
+                        <option value="pix">PIX</option>
+                        <option value="dinheiro">Dinheiro</option>
+                        <option value="cartao_credito">Cartão Crédito</option>
+                        <option value="cartao_debito">Cartão Débito</option>
+                        <option value="transferencia">Transferência</option>
+                        <option value="boleto">Boleto</option>
+                        <option value="parcelado">Parcelado</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Sinal recebido (R$)</label>
+                      <input type="number" step="0.01" min="0" className="input" placeholder="0,00" {...register('signal_amount')} />
+                      {(() => {
+                        const sig   = Number(watch('signal_amount') || 0)
+                        const total = Number(watch('total') || 0)
+                        const rest  = Math.max(0, total - sig)
+                        return sig > 0 ? (
+                          <p className="mt-1 text-[10px] text-text-muted dark:text-stone-500">
+                            Restante: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(rest)}
+                          </p>
+                        ) : null
+                      })()}
+                    </div>
+                  </div>
+                </section>
+
+                {/* ── S7: Anexos (estrutura futura) ── */}
+                <section className="rounded-xl border border-dashed border-border dark:border-border-dark p-4 text-center">
+                  <FileText size={20} className="text-text-muted mx-auto mb-2" />
+                  <p className="text-xs font-medium text-text-secondary dark:text-stone-400">Anexos</p>
+                  <p className="text-[10px] text-text-muted dark:text-stone-500 mt-0.5">Upload de arte, PDF e imagens — em breve</p>
+                </section>
+
               </div>
 
-              {/* SERVIÇO */}
-
-              <div className="space-y-2">
-
-                <label className="text-sm font-semibold flex items-center gap-2">
-                  <Package size={14} />
-                  Produto / Serviço
-                </label>
-
-                <input
-                  className="input h-12"
-                  placeholder="Ex: Banner, Cartão, Adesivo..."
-                  {...register(
-                    'service_name'
-                  )}
-                />
-
-                {errors.service_name && (
-                  <p className="text-xs text-error">
-                    {
-                      errors
-                        .service_name
-                        .message
-                    }
-                  </p>
-                )}
-              </div>
-
-              {/* DESCRIÇÃO */}
-
-              <div className="space-y-2">
-
-                <label className="text-sm font-semibold flex items-center gap-2">
-                  <FileText size={14} />
-                  Descrição do pedido
-                </label>
-
-                <textarea
-                  rows={4}
-                  className="input resize-none"
-                  placeholder="Ex: 1000 cartões frente e verso..."
-                  {...register(
-                    'description'
-                  )}
-                />
-              </div>
-
-              {/* VALORES */}
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold flex items-center gap-2">
-                    <DollarSign
-                      size={14}
-                    />
-                    Valor
-                  </label>
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="input h-12"
-                    placeholder="0,00"
-                    {...register(
-                      'subtotal'
-                    )}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold">
-                    Desconto
-                  </label>
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="input h-12"
-                    placeholder="0,00"
-                    {...register(
-                      'discount'
-                    )}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold">
-                    Total Final
-                  </label>
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    readOnly
-                    className="input h-12 font-bold text-primary"
-                    {...register(
-                      'total'
-                    )}
-                  />
-                </div>
-              </div>
-
-              {/* PRAZO */}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-                <div className="space-y-2">
-
-                  <label className="text-sm font-semibold">
-                    Prazo de entrega
-                  </label>
-
-                  <input
-                    type="date"
-                    className="input h-12"
-                    {...register(
-                      'due_date'
-                    )}
-                  />
-                </div>
-
-                <div className="space-y-2">
-
-                  <label className="text-sm font-semibold">
-                    Pagamento
-                  </label>
-
-                  <select
-                    className="input h-12"
-                    {...register(
-                      'payment_status'
-                    )}
-                  >
-                    <option value="pending">
-                      Pendente
-                    </option>
-
-                    <option value="paid">
-                      Pago
-                    </option>
-                  </select>
-                </div>
-              </div>
-
-              {/* OBS */}
-
-              <div className="space-y-2">
-
-                <label className="text-sm font-semibold">
-                  Observações internas
-                </label>
-
-                <textarea
-                  rows={3}
-                  className="input resize-none"
-                  placeholder="Detalhes adicionais..."
-                  {...register('notes')}
-                />
-              </div>
-
-              {/* FOOTER */}
-
-              <div className="flex flex-col sm:flex-row gap-3 pt-2">
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowModal(false)
-                  }
-                  className="btn-secondary flex-1 h-12"
-                >
+              {/* Footer */}
+              <div className="flex flex-col sm:flex-row gap-3 p-4 sm:p-5 border-t border-border dark:border-border-dark bg-white dark:bg-surface-dark sticky bottom-0">
+                <button type="button" onClick={() => { setShowModal(false); reset(); setEditingId(null) }}
+                  className="btn-secondary flex-1">
                   Cancelar
                 </button>
-
-                <button
-                  type="submit"
-                  disabled={
-                    saveMutation.isPending
-                  }
-                  className="btn-primary flex-1 h-12 flex items-center justify-center gap-2"
-                >
-                  {saveMutation.isPending && (
-                    <Loader2
-                      size={15}
-                      className="animate-spin"
-                    />
-                  )}
-
-                  {saveMutation.isPending
-                    ? 'Salvando...'
-                    : 'Criar Pedido'}
+                <button type="submit" disabled={saveMutation.isPending}
+                  className="btn-primary flex-1 flex items-center justify-center gap-2">
+                  {saveMutation.isPending && <Loader2 size={15} className="animate-spin" />}
+                  {saveMutation.isPending ? 'Salvando...' : editingId ? 'Salvar alterações' : 'Criar pedido'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
     </div>
   )
 }
