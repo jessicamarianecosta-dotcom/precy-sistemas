@@ -216,27 +216,121 @@ export default function PrecificacaoPage() {
   /* ── Save mutation ── */
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (!companyId || !productName.trim()) throw new Error('Dados incompletos')
-      await (supabase.from('products') as any).insert({
-        company_id:            companyId,
-        name:                  productName.trim(),
-        category,
-        unit,
-        production_time_hours: productType === 'produced' ? productionHours : 0,
-        material_cost:         productType === 'produced' ? materialCost : purchaseCost,
-        markup_percentage:     markup,
-        final_price:           idealPrice,
-        is_active:             true,
-      })
+      if (!companyId || !productName.trim()) {
+        throw new Error('Dados incompletos')
+      }
+
+      /* ─────────────────────────────
+         1. SALVAR PRODUTO
+      ───────────────────────────── */
+      const { data: product, error: productError } = await (supabase
+        .from('products') as any)
+        .insert({
+          company_id: companyId,
+
+          name: productName.trim(),
+
+          category,
+
+          unit,
+
+          production_time_hours:
+            productType === 'produced'
+              ? productionHours
+              : 0,
+
+          material_cost:
+            productType === 'produced'
+              ? materialCost
+              : purchaseCost,
+
+          extra_cost: extraCost,
+
+          markup_percentage: markup,
+
+          final_price: idealPrice,
+
+          product_type: productType,
+
+          is_active: true,
+        })
+        .select()
+        .single()
+
+      if (productError) {
+        console.error(productError)
+        throw productError
+      }
+
+      /* ─────────────────────────────
+         2. SALVAR MATERIAIS UTILIZADOS
+      ───────────────────────────── */
+      if (
+        productType === 'produced' &&
+        materials.length > 0
+      ) {
+        const materialRows = materials.map(m => ({
+          company_id: companyId,
+
+          product_id: product.id,
+
+          inventory_id: m.inventory_id,
+
+          material_name: m.name,
+
+          quantity: m.quantity,
+
+          unit: m.unit,
+
+          unit_cost: m.cost_per_unit,
+
+          subtotal: m.subtotal,
+        }))
+
+        const { error: materialsError } = await (supabase
+          .from('product_materials') as any)
+          .insert(materialRows)
+
+        if (materialsError) {
+          console.error(materialsError)
+          throw materialsError
+        }
+      }
+
+      return product
     },
+
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['products', companyId] })
+      queryClient.invalidateQueries({
+        queryKey: ['products', companyId],
+      })
+
+      queryClient.invalidateQueries({
+        queryKey: ['inventory-picker', companyId],
+      })
+
       setSavedOk(true)
-      setTimeout(() => setSavedOk(false), 3000)
+
+      setTimeout(() => {
+        setSavedOk(false)
+      }, 3000)
+
+      setProductName('')
+      setCategory('geral')
+      setUnit('un')
+      setMarkup(100)
+      setProductionHours(1)
+      setPurchaseCost(0)
+      setExtraCost(0)
+      setMaterials([])
+    },
+
+    onError: error => {
+      console.error(error)
     },
   })
 
-  /* ═══════════════════════════════ RENDER ═══ */
+/* ═══════════════════════════════ RENDER ═══ */
   return (
     <div className="page-enter">
       <Header title="Precificação" subtitle="Calcule o preço ideal e cadastre seu produto" />
