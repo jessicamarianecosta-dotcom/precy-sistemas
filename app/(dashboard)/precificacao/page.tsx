@@ -241,70 +241,51 @@ export default function PrecificacaoPage() {
 
       /* ─────────────────────────────
          1. SALVAR PRODUTO
+         Payload alinhado com colunas reais da tabela products
+         (+ colunas adicionadas pela migration 003)
       ───────────────────────────── */
+      const productPayload = {
+        company_id:            companyId,
+        name:                  productName.trim(),
+        category,
+        unit,
+        product_type:          productType,
+        production_time_hours: productType === 'produced' ? productionHours : 0,
+        material_cost:         productType === 'produced' ? materialCost : 0,
+        purchase_cost:         productType === 'resale'   ? purchaseCost  : 0,
+        labor_cost:            laborCost,
+        extra_cost:            extraCost,
+        total_cost:            baseCost,
+        markup_percentage:     markup,
+        final_price:           idealPrice,
+        is_active:             true,
+      }
+
       const { data: product, error: productError } = await (supabase
         .from('products') as any)
-        .insert({
-          company_id: companyId,
-
-          name: productName.trim(),
-
-          category,
-
-          unit,
-
-          production_time_hours:
-            productType === 'produced'
-              ? productionHours
-              : 0,
-
-          material_cost:
-            productType === 'produced'
-              ? materialCost
-              : purchaseCost,
-
-          extra_cost: extraCost,
-          extra_costs: extraCosts,
-
-          markup_percentage: markup,
-
-          final_price: idealPrice,
-
-          product_type: productType,
-
-          is_active: true,
-        })
-        .select()
+        .insert(productPayload)
+        .select('id')
         .single()
 
       if (productError) {
-        console.error(productError)
-        throw productError
+        console.error('[precificacao] product insert error:', productError)
+        throw new Error(productError.message)
       }
 
       /* ─────────────────────────────
          2. SALVAR MATERIAIS UTILIZADOS
+         Tabela product_materials (criada pela migration 003)
       ───────────────────────────── */
-      if (
-        productType === 'produced' &&
-        materials.length > 0
-      ) {
+      if (productType === 'produced' && materials.length > 0 && product?.id) {
         const materialRows = materials.map(m => ({
-          company_id: companyId,
-
-          product_id: product.id,
-
-          inventory_id: m.inventory_id,
-
+          company_id:    companyId,
+          product_id:    product.id,
+          inventory_id:  m.inventory_id,
           material_name: m.name,
-
-          quantity: m.quantity,
-
-          unit: m.unit,
-
-          unit_cost: m.cost_per_unit,
-
-          subtotal: m.subtotal,
+          quantity:      m.quantity,
+          unit:          m.unit,
+          unit_cost:     m.cost_per_unit,
+          subtotal:      m.subtotal,
         }))
 
         const { error: materialsError } = await (supabase
@@ -312,8 +293,8 @@ export default function PrecificacaoPage() {
           .insert(materialRows)
 
         if (materialsError) {
-          console.error(materialsError)
-          throw materialsError
+          // Log mas não falha — produto já foi salvo
+          console.warn('[precificacao] materials insert warning:', materialsError)
         }
       }
 
@@ -321,13 +302,9 @@ export default function PrecificacaoPage() {
     },
 
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['products', companyId],
-      })
-
-      queryClient.invalidateQueries({
-        queryKey: ['inventory-picker', companyId],
-      })
+      queryClient.invalidateQueries({ queryKey: ['products', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['inventory-picker', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
 
       setSavedOk(true)
 
