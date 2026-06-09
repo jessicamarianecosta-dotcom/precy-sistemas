@@ -87,6 +87,30 @@ function fmt(v: number) {
    Page
 ───────────────────────────────────────────── */
 
+/* ─────────────────────────────────────────────
+   Categorias pré-definidas
+───────────────────────────────────────────── */
+
+const PRESET_CATEGORIES = [
+  { value: 'papel',       label: 'Papel'       },
+  { value: 'adesivo',     label: 'Adesivo'     },
+  { value: 'tinta',       label: 'Tinta'       },
+  { value: 'embalagem',   label: 'Embalagem'   },
+  { value: 'tecido',      label: 'Tecido'      },
+  { value: 'acrilico',    label: 'Acrílico'    },
+  { value: 'vinil',       label: 'Vinil'       },
+  { value: 'sublimacao',  label: 'Sublimação'  },
+  { value: 'madeira',     label: 'Madeira'     },
+  { value: 'mdf',         label: 'MDF'         },
+  { value: 'metal',       label: 'Metal'       },
+  { value: 'plastico',    label: 'Plástico'    },
+  { value: 'transfer',    label: 'Transfer'    },
+  { value: 'caneca',      label: 'Caneca'      },
+  { value: 'camiseta',    label: 'Camiseta'    },
+  { value: 'geral',       label: 'Geral'       },
+  { value: 'outro',       label: 'Outro'       },
+] as const
+
 export default function EstoquePage() {
   const supabase = createClient()
 
@@ -105,6 +129,9 @@ export default function EstoquePage() {
   const [search, setSearch] = useState('')
 
   const [filterStatus, setFilterStatus] = useState('all')
+  /* categoria híbrida */
+  const [isCustomCategory,  setIsCustomCategory]  = useState(false)
+  const [customCategories,  setCustomCategories]  = useState<string[]>([])
 
   /* ─────────────────────────────────────────────
      Query
@@ -136,6 +163,7 @@ export default function EstoquePage() {
     handleSubmit,
     reset,
     setValue,
+    watch,
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -179,22 +207,21 @@ export default function EstoquePage() {
       }
     },
 
-    onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: ['inventory', companyId],
-      })
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['inventory', companyId] })
+      qc.invalidateQueries({ queryKey: ['dashboard', companyId] })
 
-      qc.invalidateQueries({
-        queryKey: ['dashboard', companyId],
-      })
+      // Persistir nova categoria se for customizada
+      const savedCat = variables.category
+      if (
+        savedCat &&
+        !PRESET_CATEGORIES.some(c => c.value === savedCat) &&
+        !customCategories.includes(savedCat)
+      ) {
+        setCustomCategories(prev => [...prev, savedCat])
+      }
 
-      toast(
-        'success',
-        editingId
-          ? 'Item atualizado!'
-          : 'Item adicionado ao estoque!'
-      )
-
+      toast('success', editingId ? 'Item atualizado!' : 'Item adicionado ao estoque!')
       closeModal()
     },
 
@@ -246,8 +273,15 @@ export default function EstoquePage() {
   function openEdit(item: Record<string, any>) {
     setEditingId(item.id)
 
+    const itemCategory = item.category || 'geral'
+    const isPreset = PRESET_CATEGORIES.some(c => c.value === itemCategory)
+    setIsCustomCategory(!isPreset)
+    if (!isPreset && itemCategory && !customCategories.includes(itemCategory)) {
+      setCustomCategories(prev => [...prev, itemCategory])
+    }
+
     setValue('name', item.name || '')
-    setValue('category', item.category || 'geral')
+    setValue('category', itemCategory)
     setValue('unit', item.unit || 'un')
     setValue('quantity', Number(item.quantity || 0))
     setValue(
@@ -266,10 +300,9 @@ export default function EstoquePage() {
 
   function closeModal() {
     setShowModal(false)
-
     reset()
-
     setEditingId(null)
+    setIsCustomCategory(false)
   }
 
   /* ─────────────────────────────────────────────
@@ -676,18 +709,62 @@ export default function EstoquePage() {
                   )}
                 </div>
 
-                {/* Categoria */}
+                {/* Categoria — híbrido: select + custom input */}
 
                 <div>
                   <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
                     Categoria *
                   </label>
 
-                  <input
-                    className="input"
-                    placeholder="Selecione a categoria"
-                    {...register('category')}
-                  />
+                  {!isCustomCategory ? (
+                    <select
+                      className="input"
+                      value={watch('category') ?? 'geral'}
+                      onChange={e => {
+                        if (e.target.value === '__new__') {
+                          setIsCustomCategory(true)
+                          setValue('category', '')
+                        } else {
+                          setValue('category', e.target.value)
+                        }
+                      }}
+                    >
+                      <optgroup label="Categorias">
+                        {PRESET_CATEGORIES.map(c => (
+                          <option key={c.value} value={c.value}>{c.label}</option>
+                        ))}
+                        {customCategories.map(cat => (
+                          <option key={cat} value={cat}>
+                            {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                          </option>
+                        ))}
+                      </optgroup>
+                      <option value="__new__">+ Criar nova categoria</option>
+                    </select>
+                  ) : (
+                    <div className="space-y-2">
+                      <input
+                        className="input"
+                        placeholder="Digite o nome da nova categoria"
+                        autoFocus
+                        {...register('category', { required: true })}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCustomCategory(false)
+                          setValue('category', 'geral')
+                        }}
+                        className="text-xs text-text-muted dark:text-stone-400 hover:text-primary transition-colors flex items-center gap-1"
+                      >
+                        ← Voltar para categorias padrão
+                      </button>
+                    </div>
+                  )}
+
+                  {errors.category && (
+                    <p className="mt-1 text-xs text-error">Categoria obrigatória</p>
+                  )}
                 </div>
 
                 {/* Unidade */}
