@@ -187,7 +187,6 @@ export default function EstoquePage() {
       const cost_per_unit = d.quantity > 0 ? d.total_paid / d.quantity : 0
 
       // Payload sem total_paid (campo de UI, não existe no banco)
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { total_paid: _t, ...rest } = d
       // 'status' é coluna GERADA no banco — nunca enviar no payload
       const payload = { ...rest, cost_per_unit }
