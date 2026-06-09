@@ -280,69 +280,105 @@ export default function PedidosPage() {
      SAVE
   ───────────────────────────────────────────── */
 
+  /* Campos válidos da tabela orders (após migration 004) */
+  function buildOrderPayload(data: FormData) {
+    return {
+      customer_id:     data.customer_id,
+      service_name:    data.service_name   || '',
+      description:     data.description    || null,
+      status:          data.status         || 'pending',
+      payment_status:  data.payment_status || 'pending',
+      payment_method:  data.payment_method || null,
+      subtotal:        Number(data.subtotal)     || 0,
+      discount:        Number(data.discount)     || 0,
+      total:           Number(data.total)        || 0,
+      signal_amount:   Number(data.signal_amount)|| 0,
+      remaining_amount:Math.max(0, (Number(data.total) || 0) - (Number(data.signal_amount) || 0)),
+      notes:           data.notes           || null,
+      due_date:        data.due_date        || null,
+      priority:        data.priority        || 'normal',
+      order_date:      data.order_date      || null,
+      product_id:      data.product_id      || null,
+    }
+  }
+
+  async function ensureFinancialTransaction(
+    orderId: string,
+    orderNumber: string,
+    data: FormData,
+    prevPaymentStatus?: string
+  ) {
+    const amount = data.payment_status === 'partial'
+      ? Number(data.signal_amount) || 0
+      : Number(data.total) || 0
+
+    if (amount <= 0) return
+    if (data.payment_status !== 'paid' && data.payment_status !== 'partial') return
+    if (prevPaymentStatus === data.payment_status) return // sem mudança
+
+    // Verificar se já existe lançamento para este pedido
+    const { data: existing } = await (supabase.from('transactions') as any)
+      .select('id, amount')
+      .eq('order_id', orderId)
+      .eq('company_id', companyId!)
+      .maybeSingle()
+
+    if (existing?.id) {
+      // Atualizar valor se mudou
+      if (Number(existing.amount) !== amount) {
+        await (supabase.from('transactions') as any)
+          .update({ amount, description: `Pedido ${orderNumber} — ${data.service_name}`, updated_at: new Date().toISOString() })
+          .eq('id', existing.id)
+      }
+      return
+    }
+
+    // Criar novo lançamento
+    await (supabase.from('transactions') as any).insert([{
+      company_id:  companyId!,
+      order_id:    orderId,
+      type:        'income',
+      category:    'vendas',
+      amount,
+      description: `Pedido ${orderNumber} — ${data.service_name || 'Serviço'}`,
+      date:        new Date().toISOString().split('T')[0],
+    }])
+  }
+
   const saveMutation = useMutation({
-    mutationFn: async (
-      data: FormData
-    ) => {
+    mutationFn: async (data: FormData) => {
+      const payload = buildOrderPayload(data)
+
       if (editingId) {
-        const { error } = await (
-          supabase.from('orders') as any
-        )
-          .update({
-            ...data,
-            updated_at:
-              new Date().toISOString(),
-          })
+        // Pegar status anterior para evitar duplicar lançamento
+        const prev = (orders ?? []).find((o: Record<string, unknown>) => o.id === editingId) as Record<string, unknown> | undefined
+        const prevPaymentStatus = (prev?.payment_status as string) ?? ''
+
+        const { error } = await (supabase.from('orders') as any)
+          .update({ ...payload, updated_at: new Date().toISOString() })
           .eq('id', editingId)
+        if (error) { console.error('[pedidos] update error:', error); throw new Error(error.message) }
 
-        if (error) throw error
+        // Integração financeira automática
+        await ensureFinancialTransaction(editingId, (prev?.order_number as string) ?? '', data, prevPaymentStatus)
       } else {
-        const response: any = await (
-          supabase.from('orders') as any
-        )
-          .insert([
-            {
-              ...data,
-              company_id: companyId!,
-              order_number: '',
-            },
-          ])
-          .select()
+        const { data: order, error } = await (supabase.from('orders') as any)
+          .insert([{ ...payload, company_id: companyId!, order_number: '' }])
+          .select('id, order_number')
           .single()
+        if (error) { console.error('[pedidos] insert error:', error); throw new Error(error.message) }
 
-        const order = response?.data
-
-        if (
-          order &&
-          data.payment_status === 'paid'
-        ) {
-          await (
-            supabase.from(
-              'transactions'
-            ) as any
-          ).insert([
-            {
-              company_id: companyId!,
-              order_id: order.id,
-              type: 'income',
-              category: 'vendas',
-              amount: data.total,
-              description: `Pedido ${order.order_number}`,
-              date: new Date().toISOString(),
-            },
-          ])
+        // Integração financeira automática
+        if (order?.id) {
+          await ensureFinancialTransaction(order.id, order.order_number ?? '', data, '')
         }
       }
     },
 
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['orders', companyId],
-      })
-
-      queryClient.invalidateQueries({
-        queryKey: ['dashboard', companyId],
-      })
+      queryClient.invalidateQueries({ queryKey: ['orders', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['transactions', companyId] })
 
       setShowModal(false)
 
