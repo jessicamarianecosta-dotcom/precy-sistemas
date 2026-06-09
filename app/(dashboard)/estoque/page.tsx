@@ -30,14 +30,13 @@ import { clsx } from 'clsx'
 ───────────────────────────────────────────── */
 
 const schema = z.object({
-  name: z.string().min(2, 'Nome obrigatório'),
-  category: z.string().default('geral'),
-  unit: z.string().default('un'),
-  quantity: z.coerce.number().min(0),
+  name:             z.string().min(2, 'Nome obrigatório'),
+  category:         z.string().default('geral'),
+  unit:             z.string().default('un'),
+  quantity:         z.coerce.number().min(0),
+  total_paid:       z.coerce.number().min(0),   // valor total pago na compra
   minimum_quantity: z.coerce.number().min(0),
-  cost_per_unit: z.coerce.number().min(0),
-  supplier: z.string().optional(),
-  observations: z.string().optional(),
+  supplier:         z.string().optional(),
 })
 
 type FormData = z.infer<typeof schema>
@@ -170,11 +169,10 @@ export default function EstoquePage() {
 
     defaultValues: {
       unit: 'un',
-      quantity: 0,
+      quantity: 1,
+      total_paid: 0,
       minimum_quantity: 5,
-      cost_per_unit: 0,
       category: 'geral',
-      observations: '',
     },
   })
 
@@ -184,25 +182,25 @@ export default function EstoquePage() {
 
   const saveMutation = useMutation({
     mutationFn: async (d: FormData) => {
+      // Calcular custo unitário: total pago ÷ quantidade
+      const qty          = d.quantity > 0 ? d.quantity : 1
+      const cost_per_unit = d.quantity > 0 ? d.total_paid / d.quantity : 0
+
+      // Payload sem total_paid (campo de UI, não existe no banco)
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { total_paid: _t, ...rest } = d
+      // 'status' é coluna GERADA no banco — nunca enviar no payload
+      const payload = { ...rest, cost_per_unit }
+
       if (editingId) {
         const { error } = await (supabase.from('inventory') as any)
-          .update({
-            ...d,
-            updated_at: new Date().toISOString(),
-          })
+          .update({ ...payload, updated_at: new Date().toISOString() })
           .eq('id', editingId)
-
         if (error) throw error
       } else {
         const { error } = await (supabase.from('inventory') as any)
-          .insert([
-            {
-              ...d,
-              company_id: companyId!,
-            },
-          ])
+          .insert([{ ...payload, company_id: companyId! }])
           .select()
-
         if (error) throw error
       }
     },
@@ -283,17 +281,12 @@ export default function EstoquePage() {
     setValue('name', item.name || '')
     setValue('category', itemCategory)
     setValue('unit', item.unit || 'un')
-    setValue('quantity', Number(item.quantity || 0))
-    setValue(
-      'minimum_quantity',
-      Number(item.minimum_quantity || 0)
-    )
-    setValue(
-      'cost_per_unit',
-      Number(item.cost_per_unit || 0)
-    )
+    const qty     = Number(item.quantity || 0)
+    const cpu     = Number(item.cost_per_unit || 0)
+    setValue('quantity',         qty)
+    setValue('total_paid',       qty > 0 ? Math.round(cpu * qty * 100) / 100 : 0)
+    setValue('minimum_quantity', Number(item.minimum_quantity || 0))
     setValue('supplier', item.supplier || '')
-    setValue('observations', item.observations || '')
 
     setShowModal(true)
   }
@@ -815,22 +808,39 @@ export default function EstoquePage() {
                   />
                 </div>
 
-                {/* Valor Pago */}
+                {/* Valor Pago Total */}
 
                 <div>
                   <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
-                    Valor pago (R$) *
+                    Valor total pago (R$) *
                   </label>
-
                   <input
                     type="number"
                     step="0.01"
+                    min="0"
                     className="input"
-                    placeholder="R$ Ex: 15.00"
-                    {...register(
-                      'cost_per_unit'
-                    )}
+                    placeholder="Ex: 60,00 (pelo lote inteiro)"
+                    {...register('total_paid')}
                   />
+                  {/* Custo unitário calculado ao vivo */}
+                  {(() => {
+                    const qty   = Number(watch('quantity') || 0)
+                    const total = Number(watch('total_paid') || 0)
+                    const unit  = watch('unit') ?? 'un'
+                    if (qty > 0 && total > 0) {
+                      const cpu = total / qty
+                      return (
+                        <p className="mt-1.5 text-xs font-medium text-primary flex items-center gap-1">
+                          ✓ Custo unitário: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cpu)}/{unit}
+                        </p>
+                      )
+                    }
+                    return (
+                      <p className="mt-1.5 text-[10px] text-text-muted dark:text-stone-500">
+                        Custo/unidade = valor total ÷ quantidade
+                      </p>
+                    )
+                  })()}
                 </div>
 
                 {/* Estoque */}
@@ -863,25 +873,7 @@ export default function EstoquePage() {
                     placeholder="Nome do fornecedor"
                     {...register('supplier')}
                   />
-                </div>
-
-                {/* Observações */}
-
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
-                    Observações
-                  </label>
-
-                  <textarea
-                    rows={4}
-                    className="input resize-none"
-                    placeholder="Informações adicionais..."
-                    {...register(
-                      'observations'
-                    )}
-                  />
-                </div>
-              </div>
+                </div></div>
 
               {/* Footer */}
 

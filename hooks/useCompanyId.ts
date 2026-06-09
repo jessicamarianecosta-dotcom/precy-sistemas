@@ -5,7 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 
 /**
  * Hook compartilhado — carrega companyId do usuário autenticado.
- * Se não encontrar empresa, chama /api/setup-company para criar automaticamente.
+ * Se não encontrar empresa, tenta criar diretamente com o cliente autenticado.
+ * O usuário já está logado quando este hook roda, então auth.uid() funciona.
  */
 export function useCompanyId() {
   const supabase = createClient()
@@ -14,7 +15,7 @@ export function useCompanyId() {
   const [userId,    setUserId]    = useState<string | null>(null)
   const [loading,   setLoading]   = useState(true)
 
-  const setupAttempted = useRef(false)
+  const createAttempted = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -32,25 +33,51 @@ export function useCompanyId() {
         if (!cancelled) setUserId(user.id)
 
         /* ── 2. Busca empresa ── */
-        const { data, error } = await (supabase.from('companies') as any)
+        const { data: co, error: coErr } = await (supabase.from('companies') as any)
           .select('id')
           .eq('user_id', user.id)
           .maybeSingle()
 
-        if (error) {
-          console.error('[useCompanyId] company error:', error)
+        if (coErr) {
+          console.error('[useCompanyId] company fetch error:', coErr)
           if (!cancelled) { setCompanyId(null); setLoading(false) }
           return
         }
 
-        if (data?.id) {
-          if (!cancelled) setCompanyId(data.id)
+        if (co?.id) {
+          if (!cancelled) setCompanyId(co.id)
+          setLoading(false)
           return
         }
 
-        /* ── 3. Sem empresa → criar via API (uma única vez) ── */
-        if (!setupAttempted.current) {
-          setupAttempted.current = true
+        /* ── 3. Sem empresa → tentar criar com cliente autenticado ── */
+        if (createAttempted.current) {
+          if (!cancelled) setLoading(false)
+          return
+        }
+        createAttempted.current = true
+
+        const companyName =
+          (user.user_metadata?.company_name as string) ||
+          user.email?.split('@')[0] ||
+          'Meu Negócio'
+
+        const { data: newCo, error: createErr } = await (supabase.from('companies') as any)
+          .insert({
+            user_id:              user.id,
+            name:                 companyName,
+            email:                user.email ?? '',
+            work_hours_per_month: 160,
+            fixed_costs:          0,
+            currency:             'BRL',
+            timezone:             'America/Sao_Paulo',
+          })
+          .select('id')
+          .single()
+
+        if (createErr) {
+          console.error('[useCompanyId] company create error:', createErr)
+          // Tenta via API route como fallback (usa service role)
           try {
             const res = await fetch('/api/setup-company', { method: 'POST' })
             if (res.ok) {
@@ -60,12 +87,16 @@ export function useCompanyId() {
                 return
               }
             }
-          } catch (e) {
-            console.error('[useCompanyId] setup-company fetch error:', e)
+          } catch (apiErr) {
+            console.error('[useCompanyId] API fallback error:', apiErr)
           }
+          if (!cancelled) setCompanyId(null)
+          return
         }
 
-        if (!cancelled) setCompanyId(null)
+        if (!cancelled && newCo?.id) {
+          setCompanyId(newCo.id)
+        }
       } catch (err) {
         console.error('[useCompanyId] unexpected error:', err)
         if (!cancelled) { setCompanyId(null); setUserId(null) }

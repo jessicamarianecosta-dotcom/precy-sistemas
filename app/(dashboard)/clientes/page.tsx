@@ -122,7 +122,7 @@ export default function ClientesPage() {
           .eq('id', editingId)
       } else {
         await (supabase.from('customers') as any)
-          .insert({ ...d, company_id: companyId!, total_purchases: 0 })
+          .insert([{ ...d, company_id: companyId!, total_purchases: 0 }]).select()
       }
     },
     onSuccess: () => {
