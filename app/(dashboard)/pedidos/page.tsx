@@ -681,7 +681,7 @@ export default function PedidosPage() {
             }
           />
 
-          <div className="relative bg-white dark:bg-surface-dark rounded-3xl shadow-modal w-full max-w-2xl overflow-hidden">
+          <div className="relative bg-white dark:bg-surface-dark rounded-3xl shadow-modal w-full max-w-2xl max-h-[92vh] overflow-y-auto">
 
             {/* Header */}
 
