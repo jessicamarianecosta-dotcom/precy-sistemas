@@ -1,13 +1,25 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+} from '@tanstack/react-query'
+
 import { createClient } from '@/lib/supabase/client'
+
 import { useToast } from '@/components/ui/Toaster'
+
 import { useCompanyId } from '@/hooks/useCompanyId'
+
 import { Header } from '@/components/layout/Header'
+
 import { SkeletonTable } from '@/components/ui/Skeleton'
+
 import { EmptyState } from '@/components/ui/EmptyState'
+
 import {
   ShoppingCart,
   Plus,
@@ -16,14 +28,28 @@ import {
   Loader2,
   GripVertical,
   Trash2,
+  CalendarDays,
+  User,
+  DollarSign,
+  FileText,
+  Package,
 } from 'lucide-react'
 
 import { useForm } from 'react-hook-form'
+
 import { zodResolver } from '@hookform/resolvers/zod'
+
 import { z } from 'zod'
+
 import { clsx } from 'clsx'
+
 import { format } from 'date-fns'
+
 import { ptBR } from 'date-fns/locale'
+
+/* ─────────────────────────────────────────────
+   STATUS
+───────────────────────────────────────────── */
 
 const STATUS_COLUMNS = [
   {
@@ -31,17 +57,13 @@ const STATUS_COLUMNS = [
     label: 'Pendente',
     color:
       'bg-warning-light dark:bg-warning/10 border-warning/20',
-    dot: 'bg-warning',
-    text: 'text-warning-dark',
   },
 
   {
     id: 'production',
-    label: 'Em Produção',
+    label: 'Produção',
     color:
       'bg-info-light dark:bg-info/10 border-info/20',
-    dot: 'bg-info',
-    text: 'text-info-dark',
   },
 
   {
@@ -49,8 +71,6 @@ const STATUS_COLUMNS = [
     label: 'Pronto',
     color:
       'bg-success-light dark:bg-success/10 border-success/20',
-    dot: 'bg-success',
-    text: 'text-success-dark',
   },
 
   {
@@ -58,16 +78,24 @@ const STATUS_COLUMNS = [
     label: 'Entregue',
     color:
       'bg-primary-50 dark:bg-primary/10 border-primary/20',
-    dot: 'bg-primary',
-    text: 'text-primary',
   },
 ]
+
+/* ─────────────────────────────────────────────
+   SCHEMA
+───────────────────────────────────────────── */
 
 const schema = z.object({
   customer_id: z.string().min(
     1,
     'Selecione um cliente'
   ),
+
+  service_name: z
+    .string()
+    .min(2, 'Informe o serviço'),
+
+  description: z.string().optional(),
 
   status: z.string().default('pending'),
 
@@ -87,9 +115,15 @@ const schema = z.object({
   notes: z.string().optional(),
 
   due_date: z.string().optional(),
+
+  priority: z.string().default('normal'),
 })
 
 type FormData = z.infer<typeof schema>
+
+/* ─────────────────────────────────────────────
+   HELPERS
+───────────────────────────────────────────── */
 
 function formatCurrency(v: number) {
   return new Intl.NumberFormat('pt-BR', {
@@ -98,9 +132,15 @@ function formatCurrency(v: number) {
   }).format(v)
 }
 
+/* ─────────────────────────────────────────────
+   PAGE
+───────────────────────────────────────────── */
+
 export default function PedidosPage() {
   const supabase = createClient()
+
   const queryClient = useQueryClient()
+
   const { toast } = useToast()
 
   const { companyId } = useCompanyId()
@@ -111,15 +151,15 @@ export default function PedidosPage() {
   const [editingId, setEditingId] =
     useState<string | null>(null)
 
-  const [view, setView] = useState<
-    'kanban' | 'list'
-  >('kanban')
-
   const [search, setSearch] =
     useState('')
 
   const [dragging, setDragging] =
     useState<string | null>(null)
+
+  /* ─────────────────────────────────────────────
+     QUERIES
+  ───────────────────────────────────────────── */
 
   const {
     data: orders,
@@ -163,6 +203,10 @@ export default function PedidosPage() {
     },
   })
 
+  /* ─────────────────────────────────────────────
+     FORM
+  ───────────────────────────────────────────── */
+
   const {
     register,
     handleSubmit,
@@ -174,15 +218,21 @@ export default function PedidosPage() {
     resolver: zodResolver(schema),
 
     defaultValues: {
+      service_name: '',
+      description: '',
       status: 'pending',
       payment_status: 'pending',
       subtotal: 0,
       discount: 0,
       total: 0,
+      notes: '',
+      due_date: '',
+      priority: 'normal',
     },
   })
 
   const subtotal = watch('subtotal')
+
   const discount = watch('discount')
 
   useEffect(() => {
@@ -196,10 +246,16 @@ export default function PedidosPage() {
     )
   }, [subtotal, discount, setValue])
 
+  /* ─────────────────────────────────────────────
+     SAVE
+  ───────────────────────────────────────────── */
+
   const saveMutation = useMutation({
-    mutationFn: async (data: FormData) => {
+    mutationFn: async (
+      data: FormData
+    ) => {
       if (editingId) {
-        await (
+        const { error } = await (
           supabase.from('orders') as any
         )
           .update({
@@ -208,6 +264,8 @@ export default function PedidosPage() {
               new Date().toISOString(),
           })
           .eq('id', editingId)
+
+        if (error) throw error
       } else {
         const response: any = await (
           supabase.from('orders') as any
@@ -257,15 +315,35 @@ export default function PedidosPage() {
       })
 
       setShowModal(false)
+
       reset()
+
       setEditingId(null)
-      toast('success', editingId ? 'Pedido atualizado!' : 'Pedido criado com sucesso!')
+
+      toast(
+        'success',
+        editingId
+          ? 'Pedido atualizado!'
+          : 'Pedido criado!'
+      )
     },
+
     onError: (err: Error) => {
-      console.error('[pedidos] mutation error:', err)
-      toast('error', `Erro: ${err.message}`)
+      console.error(
+        '[pedidos] mutation error:',
+        err
+      )
+
+      toast(
+        'error',
+        `Erro: ${err.message}`
+      )
     },
   })
+
+  /* ─────────────────────────────────────────────
+     UPDATE STATUS
+  ───────────────────────────────────────────── */
 
   const updateStatus = useMutation({
     mutationFn: async ({
@@ -291,16 +369,16 @@ export default function PedidosPage() {
         queryKey: ['orders', companyId],
       })
 
-      queryClient.invalidateQueries({
-        queryKey: ['dashboard', companyId],
-      })
-      toast('success', 'Status atualizado!')
-    },
-    onError: (err: Error) => {
-      console.error('[pedidos] mutation error:', err)
-      toast('error', `Erro: ${err.message}`)
+      toast(
+        'success',
+        'Status atualizado!'
+      )
     },
   })
+
+  /* ─────────────────────────────────────────────
+     DELETE
+  ───────────────────────────────────────────── */
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -316,15 +394,16 @@ export default function PedidosPage() {
         queryKey: ['orders', companyId],
       })
 
-      queryClient.invalidateQueries({
-        queryKey: ['dashboard', companyId],
-      })
-    },
-    onError: (err: Error) => {
-      console.error('[pedidos] mutation error:', err)
-      toast('error', `Erro: ${err.message}`)
+      toast(
+        'success',
+        'Pedido removido!'
+      )
     },
   })
+
+  /* ─────────────────────────────────────────────
+     DND
+  ───────────────────────────────────────────── */
 
   function handleDrop(
     e: React.DragEvent,
@@ -342,6 +421,10 @@ export default function PedidosPage() {
     }
   }
 
+  /* ─────────────────────────────────────────────
+     FILTER
+  ───────────────────────────────────────────── */
+
   const filtered =
     orders?.filter((o: any) => {
       const customerName =
@@ -351,48 +434,55 @@ export default function PedidosPage() {
           ?.toString()
           ?.toLowerCase() ?? ''
 
-      const orderNumber =
-        o.order_number
+      const serviceName =
+        o.service_name
           ?.toLowerCase?.() ?? ''
 
       return (
         customerName.includes(
           search.toLowerCase()
         ) ||
-        orderNumber.includes(
+        serviceName.includes(
           search.toLowerCase()
         )
       )
     }) ?? []
 
+  /* ─────────────────────────────────────────────
+     RENDER
+  ───────────────────────────────────────────── */
+
   return (
     <div className="page-enter">
+
       <Header
         title="Pedidos"
-        subtitle="Kanban e acompanhamento de pedidos"
+        subtitle="Acompanhamento de produção"
       />
 
       <div className="p-3 sm:p-5 lg:p-6 space-y-4">
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
-              />
 
-              <input
-                type="text"
-                placeholder="Buscar pedidos..."
-                className="input pl-9 w-56"
-                value={search}
-                onChange={(e) =>
-                  setSearch(
-                    e.target.value
-                  )
-                }
-              />
-            </div>
+        {/* Toolbar */}
+
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+
+          <div className="relative">
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
+            />
+
+            <input
+              type="text"
+              placeholder="Buscar pedidos..."
+              className="input pl-9 w-64"
+              value={search}
+              onChange={(e) =>
+                setSearch(
+                  e.target.value
+                )
+              }
+            />
           </div>
 
           <button
@@ -403,12 +493,14 @@ export default function PedidosPage() {
 
               setShowModal(true)
             }}
-            className="btn-primary flex items-center gap-2 flex-shrink-0"
+            className="btn-primary flex items-center gap-2"
           >
             <Plus size={16} />
             Novo Pedido
           </button>
         </div>
+
+        {/* Empty */}
 
         {isLoading ? (
           <div className="card">
@@ -417,8 +509,8 @@ export default function PedidosPage() {
         ) : orders?.length === 0 ? (
           <EmptyState
             icon={ShoppingCart}
-            title="Nenhum pedido ainda"
-            description="Crie seu primeiro pedido e acompanhe via Kanban."
+            title="Nenhum pedido"
+            description="Crie seu primeiro pedido."
             action={{
               label: '+ Novo Pedido',
               onClick: () =>
@@ -427,6 +519,7 @@ export default function PedidosPage() {
           />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+
             {STATUS_COLUMNS.map((col) => {
               const colOrders =
                 filtered.filter(
@@ -438,7 +531,7 @@ export default function PedidosPage() {
                 <div
                   key={col.id}
                   className={clsx(
-                    'rounded-2xl border p-3 min-h-[200px] sm:min-h-[320px]',
+                    'rounded-2xl border p-3 min-h-[300px]',
                     col.color
                   )}
                   onDragOver={(e) =>
@@ -451,7 +544,19 @@ export default function PedidosPage() {
                     )
                   }
                 >
-                  <div className="space-y-2.5">
+                  <div className="flex items-center justify-between mb-4">
+
+                    <h3 className="font-semibold">
+                      {col.label}
+                    </h3>
+
+                    <span className="badge badge-primary">
+                      {colOrders.length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3">
+
                     {colOrders.map(
                       (order: any) => (
                         <div
@@ -462,11 +567,16 @@ export default function PedidosPage() {
                               order.id
                             )
                           }
-                          className="bg-white dark:bg-surface-dark rounded-xl p-3 shadow-card"
+                          className="bg-white dark:bg-surface-dark rounded-2xl p-4 shadow-card border border-border dark:border-border-dark"
                         >
-                          <div className="flex justify-between items-center mb-2">
+
+                          <div className="flex justify-between items-start mb-3">
+
                             <div className="flex items-center gap-2">
-                              <GripVertical size={12} />
+
+                              <GripVertical
+                                size={13}
+                              />
 
                               <span className="text-xs font-semibold">
                                 {
@@ -481,12 +591,21 @@ export default function PedidosPage() {
                                   order.id
                                 )
                               }
+                              className="text-text-muted hover:text-error"
                             >
-                              <Trash2 size={14} />
+                              <Trash2
+                                size={14}
+                              />
                             </button>
                           </div>
 
-                          <p className="text-sm font-medium">
+                          <h4 className="font-semibold text-sm">
+                            {
+                              order.service_name
+                            }
+                          </h4>
+
+                          <p className="text-xs text-text-muted mt-1">
                             {
                               (
                                 order.customers as any
@@ -494,7 +613,8 @@ export default function PedidosPage() {
                             }
                           </p>
 
-                          <div className="flex items-center justify-between mt-2">
+                          <div className="flex items-center justify-between mt-4">
+
                             <span className="font-bold text-primary">
                               {formatCurrency(
                                 Number(
@@ -520,8 +640,12 @@ export default function PedidosPage() {
                           </div>
 
                           {order.due_date && (
-                            <p className="text-[10px] mt-1">
-                              📅{' '}
+                            <div className="flex items-center gap-1 mt-3 text-[11px] text-text-muted">
+
+                              <CalendarDays
+                                size={12}
+                              />
+
                               {format(
                                 new Date(
                                   order.due_date
@@ -532,7 +656,7 @@ export default function PedidosPage() {
                                     ptBR,
                                 }
                               )}
-                            </p>
+                            </div>
                           )}
                         </div>
                       )
@@ -545,109 +669,266 @@ export default function PedidosPage() {
         )}
       </div>
 
+      {/* MODAL */}
+
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+
           <div
-            className="absolute inset-0 bg-black/40"
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() =>
               setShowModal(false)
             }
           />
 
-          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-lg">
-            <div className="p-6 border-b flex items-center justify-between">
-              <h2 className="text-lg font-semibold">
-                Novo Pedido
-              </h2>
+          <div className="relative bg-white dark:bg-surface-dark rounded-3xl shadow-modal w-full max-w-2xl overflow-hidden">
+
+            {/* Header */}
+
+            <div className="p-6 border-b border-border dark:border-border-dark flex items-center justify-between">
+
+              <div>
+                <h2 className="text-2xl font-bold">
+                  Novo Pedido
+                </h2>
+
+                <p className="text-sm text-text-muted mt-1">
+                  Cadastro rápido de produção
+                </p>
+              </div>
 
               <button
                 onClick={() =>
                   setShowModal(false)
                 }
+                className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5"
               >
-                <X size={16} />
+                <X size={18} />
               </button>
             </div>
+
+            {/* FORM */}
 
             <form
               onSubmit={handleSubmit((d) =>
                 saveMutation.mutate(d)
               )}
-              className="p-3 sm:p-5 lg:p-6 space-y-4"
+              className="p-6 space-y-6"
             >
-              <select
-                className="input"
-                {...register(
-                  'customer_id'
-                )}
-              >
-                <option value="">
-                  Selecione um cliente
-                </option>
 
-                {customers?.map(
-                  (c: any) => (
-                    <option
-                      key={c.id}
-                      value={c.id}
-                    >
-                      {c.name}
+              {/* CLIENTE */}
+
+              <div className="space-y-2">
+
+                <label className="text-sm font-semibold flex items-center gap-2">
+                  <User size={14} />
+                  Cliente
+                </label>
+
+                <select
+                  className="input h-12"
+                  {...register(
+                    'customer_id'
+                  )}
+                >
+                  <option value="">
+                    Selecione um cliente
+                  </option>
+
+                  {customers?.map(
+                    (c: any) => (
+                      <option
+                        key={c.id}
+                        value={c.id}
+                      >
+                        {c.name}
+                      </option>
+                    )
+                  )}
+                </select>
+
+                {errors.customer_id && (
+                  <p className="text-xs text-error">
+                    {
+                      errors
+                        .customer_id
+                        .message
+                    }
+                  </p>
+                )}
+              </div>
+
+              {/* SERVIÇO */}
+
+              <div className="space-y-2">
+
+                <label className="text-sm font-semibold flex items-center gap-2">
+                  <Package size={14} />
+                  Produto / Serviço
+                </label>
+
+                <input
+                  className="input h-12"
+                  placeholder="Ex: Banner, Cartão, Adesivo..."
+                  {...register(
+                    'service_name'
+                  )}
+                />
+
+                {errors.service_name && (
+                  <p className="text-xs text-error">
+                    {
+                      errors
+                        .service_name
+                        .message
+                    }
+                  </p>
+                )}
+              </div>
+
+              {/* DESCRIÇÃO */}
+
+              <div className="space-y-2">
+
+                <label className="text-sm font-semibold flex items-center gap-2">
+                  <FileText size={14} />
+                  Descrição do pedido
+                </label>
+
+                <textarea
+                  rows={4}
+                  className="input resize-none"
+                  placeholder="Ex: 1000 cartões frente e verso..."
+                  {...register(
+                    'description'
+                  )}
+                />
+              </div>
+
+              {/* VALORES */}
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold flex items-center gap-2">
+                    <DollarSign
+                      size={14}
+                    />
+                    Valor
+                  </label>
+
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="input h-12"
+                    placeholder="0,00"
+                    {...register(
+                      'subtotal'
+                    )}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold">
+                    Desconto
+                  </label>
+
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="input h-12"
+                    placeholder="0,00"
+                    {...register(
+                      'discount'
+                    )}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold">
+                    Total Final
+                  </label>
+
+                  <input
+                    type="number"
+                    step="0.01"
+                    readOnly
+                    className="input h-12 font-bold text-primary"
+                    {...register(
+                      'total'
+                    )}
+                  />
+                </div>
+              </div>
+
+              {/* PRAZO */}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+                <div className="space-y-2">
+
+                  <label className="text-sm font-semibold">
+                    Prazo de entrega
+                  </label>
+
+                  <input
+                    type="date"
+                    className="input h-12"
+                    {...register(
+                      'due_date'
+                    )}
+                  />
+                </div>
+
+                <div className="space-y-2">
+
+                  <label className="text-sm font-semibold">
+                    Pagamento
+                  </label>
+
+                  <select
+                    className="input h-12"
+                    {...register(
+                      'payment_status'
+                    )}
+                  >
+                    <option value="pending">
+                      Pendente
                     </option>
-                  )
-                )}
-              </select>
 
-              {errors.customer_id && (
-                <p className="text-xs text-error">
-                  {
-                    errors
-                      .customer_id
-                      .message
-                  }
-                </p>
-              )}
+                    <option value="paid">
+                      Pago
+                    </option>
+                  </select>
+                </div>
+              </div>
 
-              <input
-                type="number"
-                step="0.01"
-                className="input"
-                placeholder="Subtotal"
-                {...register(
-                  'subtotal'
-                )}
-              />
+              {/* OBS */}
 
-              <input
-                type="number"
-                step="0.01"
-                className="input"
-                placeholder="Desconto"
-                {...register(
-                  'discount'
-                )}
-              />
+              <div className="space-y-2">
 
-              <input
-                type="number"
-                step="0.01"
-                className="input"
-                readOnly
-                {...register('total')}
-              />
+                <label className="text-sm font-semibold">
+                  Observações internas
+                </label>
 
-              <textarea
-                className="input resize-none"
-                placeholder="Observações"
-                {...register('notes')}
-              />
+                <textarea
+                  rows={3}
+                  className="input resize-none"
+                  placeholder="Detalhes adicionais..."
+                  {...register('notes')}
+                />
+              </div>
 
-              <div className="flex gap-3">
+              {/* FOOTER */}
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
+
                 <button
                   type="button"
                   onClick={() =>
                     setShowModal(false)
                   }
-                  className="btn-secondary flex-1"
+                  className="btn-secondary flex-1 h-12"
                 >
                   Cancelar
                 </button>
@@ -657,7 +938,7 @@ export default function PedidosPage() {
                   disabled={
                     saveMutation.isPending
                   }
-                  className="btn-primary flex-1 flex items-center justify-center gap-2"
+                  className="btn-primary flex-1 h-12 flex items-center justify-center gap-2"
                 >
                   {saveMutation.isPending && (
                     <Loader2
