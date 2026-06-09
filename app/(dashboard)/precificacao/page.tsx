@@ -101,7 +101,19 @@ export default function PrecificacaoPage() {
   const [markup,           setMarkup]           = useState(100)
   const [productionHours,  setProductionHours]  = useState(1)
   const [purchaseCost,     setPurchaseCost]     = useState(0)
-  const [extraCost,        setExtraCost]        = useState(0)
+  const [extraCosts, setExtraCosts] = useState<
+    {
+      id: string
+      name: string
+      value: number
+    }[]
+  >([
+    {
+      id: crypto.randomUUID(),
+      name: '',
+      value: 0,
+    },
+  ])
   const [materials,        setMaterials]        = useState<MaterialLine[]>([])
 
   /* ── ui state ── */
@@ -149,9 +161,16 @@ export default function PrecificacaoPage() {
   const hourlyRate   = workHours > 0 ? fixedCosts / workHours : 0
   const laborCost    = productType === 'produced' ? hourlyRate * productionHours : 0
   const materialCost = materials.reduce((s, m) => s + m.subtotal, 0)
+
+  const extraCost = extraCosts.reduce(
+    (acc, item) => acc + Number(item.value || 0),
+    0
+  )
+
   const baseCost     = productType === 'produced'
     ? materialCost + laborCost + extraCost
     : purchaseCost + extraCost
+
   const idealPrice   = baseCost > 0 ? baseCost * (1 + markup / 100) : 0
   const profit       = idealPrice - baseCost
   const margin       = idealPrice > 0 ? (profit / idealPrice) * 100 : 0
@@ -245,6 +264,7 @@ export default function PrecificacaoPage() {
               : purchaseCost,
 
           extra_cost: extraCost,
+          extra_costs: extraCosts,
 
           markup_percentage: markup,
 
@@ -321,7 +341,13 @@ export default function PrecificacaoPage() {
       setMarkup(100)
       setProductionHours(1)
       setPurchaseCost(0)
-      setExtraCost(0)
+      setExtraCosts([
+        {
+          id: crypto.randomUUID(),
+          name: '',
+          value: 0,
+        },
+      ])
       setMaterials([])
     },
 
@@ -596,23 +622,116 @@ export default function PrecificacaoPage() {
               </div>
             )}
 
-            {/* Extra / embalagem */}
-            <div className="card">
-              <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
-                Custos extras (embalagem, frete, etc.) — R$
-              </label>
-              <input
-                type="number"
-                step={0.01}
-                min={0}
-                className="input"
-                placeholder="0,00"
-                value={extraCost || ''}
-                onChange={e => setExtraCost(parseFloat(e.target.value) || 0)}
-              />
-              <p className="mt-1 text-xs text-text-muted dark:text-stone-500">
-                Opcional — custos adicionais por unidade
-              </p>
+            {/* Custos extras */}
+            <div className="card space-y-4">
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">
+                    Custos extras
+                  </h3>
+
+                  <p className="text-xs text-text-muted dark:text-stone-400 mt-1">
+                    Embalagem, frete, etiquetas, entrega, taxas, etc.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExtraCosts(prev => [
+                      ...prev,
+                      {
+                        id: crypto.randomUUID(),
+                        name: '',
+                        value: 0,
+                      },
+                    ])
+                  }
+                  className="btn-secondary text-xs py-2 px-3 flex items-center gap-2"
+                >
+                  <Plus size={13} />
+                  Adicionar
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {extraCosts.map((cost, index) => (
+                  <div
+                    key={cost.id}
+                    className="grid grid-cols-12 gap-3 items-end"
+                  >
+                    <div className="col-span-7">
+                      <label className="block text-xs font-medium text-text-muted mb-1">
+                        Nome do custo
+                      </label>
+
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="Ex: Embalagem"
+                        value={cost.name}
+                        onChange={e => {
+                          const updated = [...extraCosts]
+
+                          updated[index].name = e.target.value
+
+                          setExtraCosts(updated)
+                        }}
+                      />
+                    </div>
+
+                    <div className="col-span-4">
+                      <label className="block text-xs font-medium text-text-muted mb-1">
+                        Valor (R$)
+                      </label>
+
+                      <input
+                        type="number"
+                        step={0.01}
+                        min={0}
+                        className="input"
+                        placeholder="0,00"
+                        value={cost.value || ''}
+                        onChange={e => {
+                          const updated = [...extraCosts]
+
+                          updated[index].value =
+                            parseFloat(e.target.value) || 0
+
+                          setExtraCosts(updated)
+                        }}
+                      />
+                    </div>
+
+                    <div className="col-span-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExtraCosts(prev =>
+                            prev.filter((_, i) => i !== index)
+                          )
+                        }}
+                        className="w-10 h-10 rounded-xl border border-border dark:border-border-dark flex items-center justify-center hover:border-error hover:text-error transition-colors"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="p-3 rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-text-primary dark:text-stone-100">
+                    Total custos extras
+                  </span>
+
+                  <span className="text-lg font-bold text-primary">
+                    {fmt(extraCost)}
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Slider margem */}
