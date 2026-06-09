@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { useToast } from '@/components/ui/Toaster'
+import { useCompanyId } from '@/hooks/useCompanyId'
 import { Header } from '@/components/layout/Header'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -99,9 +101,9 @@ function formatCurrency(v: number) {
 export default function PedidosPage() {
   const supabase = createClient()
   const queryClient = useQueryClient()
+  const { toast } = useToast()
 
-  const [companyId, setCompanyId] =
-    useState<string | null>(null)
+  const { companyId } = useCompanyId()
 
   const [showModal, setShowModal] =
     useState(false)
@@ -118,30 +120,6 @@ export default function PedidosPage() {
 
   const [dragging, setDragging] =
     useState<string | null>(null)
-
-  useEffect(() => {
-    async function load() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) return
-
-      const response: any = await supabase
-        .from('companies')
-        .select('id')
-        .eq('user_id', user.id)
-        .single()
-
-      const company = response?.data
-
-      if (company?.id) {
-        setCompanyId(company.id)
-      }
-    }
-
-    load()
-  }, [])
 
   const {
     data: orders,
@@ -279,10 +257,13 @@ export default function PedidosPage() {
       })
 
       setShowModal(false)
-
       reset()
-
       setEditingId(null)
+      toast('success', editingId ? 'Pedido atualizado!' : 'Pedido criado com sucesso!')
+    },
+    onError: (err: Error) => {
+      console.error('[pedidos] mutation error:', err)
+      toast('error', `Erro: ${err.message}`)
     },
   })
 
@@ -313,6 +294,11 @@ export default function PedidosPage() {
       queryClient.invalidateQueries({
         queryKey: ['dashboard', companyId],
       })
+      toast('success', 'Status atualizado!')
+    },
+    onError: (err: Error) => {
+      console.error('[pedidos] mutation error:', err)
+      toast('error', `Erro: ${err.message}`)
     },
   })
 
@@ -333,6 +319,10 @@ export default function PedidosPage() {
       queryClient.invalidateQueries({
         queryKey: ['dashboard', companyId],
       })
+    },
+    onError: (err: Error) => {
+      console.error('[pedidos] mutation error:', err)
+      toast('error', `Erro: ${err.message}`)
     },
   })
 

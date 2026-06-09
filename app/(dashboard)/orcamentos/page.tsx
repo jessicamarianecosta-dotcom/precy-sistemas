@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { useToast } from '@/components/ui/Toaster'
+import { useCompanyId } from '@/hooks/useCompanyId'
 import { Header } from '@/components/layout/Header'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -100,9 +102,9 @@ function fmt(v: number) {
 export default function OrcamentosPage() {
   const supabase = createClient()
   const queryClient = useQueryClient()
+  const { toast } = useToast()
 
-  const [companyId, setCompanyId] =
-    useState<string | null>(null)
+  const { companyId } = useCompanyId()
 
   const [companyData, setCompanyData] =
     useState<Record<string, unknown> | null>(
@@ -132,7 +134,6 @@ export default function OrcamentosPage() {
       const co = response?.data
 
       if (co?.id) {
-        setCompanyId(co.id)
         setCompanyData(co)
       }
     }
@@ -362,6 +363,10 @@ export default function OrcamentosPage() {
 
       reset()
     },
+    onError: (err: Error) => {
+      console.error('[module] error:', err)
+      toast('error', `Erro: ${err.message}`)
+    },
   })
 
   const updateStatus = useMutation({
@@ -388,6 +393,10 @@ export default function OrcamentosPage() {
         queryKey: ['budgets', companyId],
       })
     },
+    onError: (err: Error) => {
+      console.error('[module] error:', err)
+      toast('error', `Erro: ${err.message}`)
+    },
   })
 
   const deleteMutation = useMutation({
@@ -403,6 +412,10 @@ export default function OrcamentosPage() {
       queryClient.invalidateQueries({
         queryKey: ['budgets', companyId],
       })
+    },
+    onError: (err: Error) => {
+      console.error('[module] error:', err)
+      toast('error', `Erro: ${err.message}`)
     },
   })
 

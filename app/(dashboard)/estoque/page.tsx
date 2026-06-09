@@ -1,374 +1,230 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { Header } from '@/components/layout/Header'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
-import {
-  Boxes,
-  Plus,
-  Search,
-  Edit2,
-  Trash2,
-  AlertTriangle,
-  CheckCircle,
-  X,
-  Loader2,
-} from 'lucide-react'
+import { useToast } from '@/components/ui/Toaster'
+import { useCompanyId } from '@/hooks/useCompanyId'
+import { Boxes, Plus, Search, Edit2, Trash2, X, Loader2, AlertTriangle, CheckCircle } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { useState } from 'react'
 import { clsx } from 'clsx'
 
+/* ─── Schema ─── */
 const schema = z.object({
-  name: z.string().min(2, 'Nome obrigatório'),
-  category: z.string().min(1, 'Categoria obrigatória'),
-  unit: z.string().default('un'),
-  quantity: z.coerce.number().min(0),
+  name:             z.string().min(2, 'Nome obrigatório'),
+  category:         z.string().default('geral'),
+  unit:             z.string().default('un'),
+  quantity:         z.coerce.number().min(0),
   minimum_quantity: z.coerce.number().min(0),
-  cost_per_unit: z.coerce.number().min(0),
-  supplier: z.string().optional(),
+  cost_per_unit:    z.coerce.number().min(0),
+  supplier:         z.string().optional(),
 })
-
 type FormData = z.infer<typeof schema>
 
-const STATUS_CONFIG = {
-  healthy: {
-    label: 'Saudável',
-    icon: CheckCircle,
-    badge: 'badge-success',
-  },
-  attention: {
-    label: 'Atenção',
-    icon: AlertTriangle,
-    badge: 'badge-warning',
-  },
-  critical: {
-    label: 'Crítico',
-    icon: AlertTriangle,
-    badge: 'badge-error',
-  },
+const STATUS_CFG = {
+  healthy:   { label: 'Saudável',  badge: 'badge-success', icon: CheckCircle, iconCls: 'text-success', bg: 'bg-success-light dark:bg-success/10' },
+  attention: { label: 'Atenção',   badge: 'badge-warning', icon: AlertTriangle, iconCls: 'text-warning', bg: 'bg-warning-light dark:bg-warning/10' },
+  critical:  { label: 'Crítico',   badge: 'badge-error',   icon: AlertTriangle, iconCls: 'text-error',   bg: 'bg-error-light dark:bg-error/10'   },
+}
+
+function fmt(v: number) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 }
 
 export default function EstoquePage() {
-  const supabase = createClient()
-  const queryClient = useQueryClient()
+  const supabase      = createClient()
+  const qc            = useQueryClient()
+  const { toast }     = useToast()
+  const { companyId } = useCompanyId()
 
-  const [companyId, setCompanyId] = useState<string | null>(null)
-  const [showModal, setShowModal] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
-  const [filterStatus, setFilterStatus] =
-    useState<string>('all')
+  const [showModal,    setShowModal]    = useState(false)
+  const [editingId,    setEditingId]    = useState<string | null>(null)
+  const [deleteId,     setDeleteId]     = useState<string | null>(null)
+  const [search,       setSearch]       = useState('')
+  const [filterStatus, setFilterStatus] = useState('all')
 
-  useEffect(() => {
-    async function load() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) return
-
-      const response: any = await supabase
-        .from('companies')
-        .select('id')
-        .eq('user_id', user.id)
-        .single()
-
-      const company = response?.data
-
-      if (company?.id) {
-        setCompanyId(company.id)
-      }
-    }
-
-    load()
-  }, [])
-
+  /* ── Query ── */
   const { data: items, isLoading } = useQuery({
     queryKey: ['inventory', companyId],
-    enabled: !!companyId,
-
-    queryFn: async () => {
-      const response: any = await supabase
-        .from('inventory')
-        .select('*')
-        .eq('company_id', companyId!)
-        .order('created_at', {
-          ascending: false,
-        })
-
-      return response?.data ?? []
+    enabled:  !!companyId,
+    queryFn:  async () => {
+      const { data, error } = await (supabase.from('inventory') as any)
+        .select('*').eq('company_id', companyId!).order('created_at', { ascending: false })
+      if (error) throw error
+      return data ?? []
     },
   })
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    setValue,
-    formState: { errors },
-  } = useForm<FormData>({
+  /* ── Form ── */
+  const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
-
-    defaultValues: {
-      unit: 'un',
-      quantity: 0,
-      minimum_quantity: 5,
-      cost_per_unit: 0,
-    },
+    defaultValues: { unit: 'un', quantity: 0, minimum_quantity: 5, cost_per_unit: 0, category: 'geral' },
   })
 
+  /* ── Mutations ── */
   const saveMutation = useMutation({
-    mutationFn: async (data: FormData) => {
+    mutationFn: async (d: FormData) => {
       if (editingId) {
-        await (supabase.from('inventory') as any)
-          .update({
-            ...data,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', editingId)
+        const { error } = await (supabase.from('inventory') as any)
+          .update({ ...d, updated_at: new Date().toISOString() }).eq('id', editingId)
+        if (error) throw error
       } else {
-        await (supabase.from('inventory') as any)
-          .insert([
-            {
-              ...data,
-              company_id: companyId!,
-            },
-          ])
+        const { error } = await (supabase.from('inventory') as any)
+          .insert([{ ...d, company_id: companyId! }]).select()
+        if (error) throw error
       }
     },
-
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['inventory', companyId],
-      })
-
-      queryClient.invalidateQueries({
-        queryKey: ['dashboard', companyId],
-      })
-
-      setShowModal(false)
-      reset()
-      setEditingId(null)
+      qc.invalidateQueries({ queryKey: ['inventory', companyId] })
+      qc.invalidateQueries({ queryKey: ['dashboard', companyId] })
+      toast('success', editingId ? 'Item atualizado!' : 'Item adicionado ao estoque!')
+      closeModal()
+    },
+    onError: (err: Error) => {
+      console.error('[estoque] save error:', err)
+      toast('error', `Erro ao salvar: ${err.message}`)
     },
   })
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      await (supabase.from('inventory') as any)
-        .delete()
-        .eq('id', id)
+      const { error } = await (supabase.from('inventory') as any).delete().eq('id', id)
+      if (error) throw error
     },
-
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['inventory', companyId],
-      })
+      qc.invalidateQueries({ queryKey: ['inventory', companyId] })
+      qc.invalidateQueries({ queryKey: ['dashboard', companyId] })
+      toast('success', 'Item removido do estoque.')
+      setDeleteId(null)
+    },
+    onError: (err: Error) => {
+      console.error('[estoque] delete error:', err)
+      toast('error', `Erro ao excluir: ${err.message}`)
     },
   })
 
-  function openEdit(item: any) {
-    setEditingId(item.id)
-
-    Object.entries(item).forEach(([k, v]) => {
-      setValue(k as keyof FormData, v as never)
-    })
-
+  /* ── Helpers ── */
+  function openEdit(item: Record<string, unknown>) {
+    setEditingId(item.id as string)
+    ;(['name','category','unit','quantity','minimum_quantity','cost_per_unit','supplier'] as Array<keyof FormData>)
+      .forEach(k => setValue(k, item[k] as string))
     setShowModal(true)
   }
+  function closeModal() { setShowModal(false); reset(); setEditingId(null) }
 
-  const filtered =
-    items?.filter((i: any) => {
-      const matchSearch = i.name
-        .toLowerCase()
-        .includes(search.toLowerCase())
+  const filtered = (items ?? []).filter((i: Record<string, unknown>) => {
+    const matchSearch = (i.name as string).toLowerCase().includes(search.toLowerCase())
+    const matchStatus = filterStatus === 'all' || i.status === filterStatus
+    return matchSearch && matchStatus
+  })
 
-      const matchStatus =
-        filterStatus === 'all' ||
-        i.status === filterStatus
-
-      return matchSearch && matchStatus
-    }) ?? []
-
-  const criticalCount =
-    items?.filter(
-      (i: any) => i.status === 'critical'
-    ).length ?? 0
-
-  const attentionCount =
-    items?.filter(
-      (i: any) => i.status === 'attention'
-    ).length ?? 0
+  const criticalCount  = (items ?? []).filter((i: Record<string, unknown>) => i.status === 'critical').length
+  const attentionCount = (items ?? []).filter((i: Record<string, unknown>) => i.status === 'attention').length
 
   return (
     <div className="page-enter">
-      <Header
-        title="Estoque"
-        subtitle="Controle de materiais e insumos"
-      />
+      <Header title="Estoque" subtitle="Controle de materiais e insumos" />
+      <div className="p-4 sm:p-6 space-y-4">
 
-      <div className="p-6 space-y-4">
-        {(criticalCount > 0 ||
-          attentionCount > 0) && (
-          <div className="grid grid-cols-2 gap-3">
+        {/* Alertas */}
+        {(criticalCount > 0 || attentionCount > 0) && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {criticalCount > 0 && (
               <div className="card border-error/30 bg-error-light dark:bg-error/10 p-4 flex items-center gap-3">
-                <AlertTriangle
-                  size={18}
-                  className="text-error flex-shrink-0"
-                />
-
+                <AlertTriangle size={18} className="text-error flex-shrink-0" />
                 <div>
-                  <p className="text-sm font-semibold text-error-dark">
-                    {criticalCount} item
-                    {criticalCount > 1
-                      ? 's'
-                      : ''}{' '}
-                    crítico
-                    {criticalCount > 1
-                      ? 's'
-                      : ''}
-                  </p>
-
-                  <p className="text-xs text-error/70">
-                    Estoque zerado
-                  </p>
+                  <p className="text-sm font-semibold text-error-dark">{criticalCount} item{criticalCount > 1 ? 's' : ''} crítico{criticalCount > 1 ? 's' : ''}</p>
+                  <p className="text-xs text-error/70">Estoque zerado</p>
                 </div>
               </div>
             )}
-
             {attentionCount > 0 && (
               <div className="card border-warning/30 bg-warning-light dark:bg-warning/10 p-4 flex items-center gap-3">
-                <AlertTriangle
-                  size={18}
-                  className="text-warning flex-shrink-0"
-                />
-
+                <AlertTriangle size={18} className="text-warning flex-shrink-0" />
                 <div>
-                  <p className="text-sm font-semibold text-warning-dark">
-                    {attentionCount} item
-                    {attentionCount > 1
-                      ? 's'
-                      : ''}{' '}
-                    em atenção
-                  </p>
-
-                  <p className="text-xs text-warning/70">
-                    Abaixo do mínimo
-                  </p>
+                  <p className="text-sm font-semibold text-warning-dark">{attentionCount} item{attentionCount > 1 ? 's' : ''} em atenção</p>
+                  <p className="text-xs text-warning/70">Abaixo do mínimo</p>
                 </div>
               </div>
             )}
           </div>
         )}
 
+        {/* Toolbar */}
         <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
           <div className="flex gap-2 flex-wrap">
             <div className="relative">
-              <Search
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
-              />
-
-              <input
-                type="text"
-                placeholder="Buscar..."
-                className="input pl-9 w-52"
-                value={search}
-                onChange={(e) =>
-                  setSearch(e.target.value)
-                }
-              />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+              <input type="text" placeholder="Buscar..." className="input pl-9 w-52" value={search} onChange={e => setSearch(e.target.value)} />
             </div>
-
-            <select
-              className="input w-36"
-              value={filterStatus}
-              onChange={(e) =>
-                setFilterStatus(e.target.value)
-              }
-            >
-              <option value="all">
-                Todos
-              </option>
-
-              <option value="healthy">
-                Saudável
-              </option>
-
-              <option value="attention">
-                Atenção
-              </option>
-
-              <option value="critical">
-                Crítico
-              </option>
+            <select className="input w-36" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+              <option value="all">Todos</option>
+              <option value="healthy">Saudável</option>
+              <option value="attention">Atenção</option>
+              <option value="critical">Crítico</option>
             </select>
           </div>
-
-          <button
-            onClick={() => {
-              reset()
-              setEditingId(null)
-              setShowModal(true)
-            }}
-            className="btn-primary flex items-center gap-2 flex-shrink-0"
-          >
-            <Plus size={16} />
-            Novo Item
+          <button onClick={() => { reset(); setEditingId(null); setShowModal(true) }}
+            className="btn-primary flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+            <Plus size={16} /> Novo Item
           </button>
         </div>
 
+        {/* Tabela */}
         <div className="card p-0 overflow-hidden">
           {isLoading ? (
-            <div className="p-6">
-              <SkeletonTable rows={5} />
-            </div>
+            <div className="p-6"><SkeletonTable rows={5} /></div>
           ) : filtered.length === 0 ? (
-            <EmptyState
-              icon={Boxes}
-              title="Estoque vazio"
-              description="Cadastre seus materiais e controle o estoque."
-              action={{
-                label: '+ Novo Item',
-                onClick: () =>
-                  setShowModal(true),
-              }}
-            />
+            <EmptyState icon={Boxes} title="Estoque vazio"
+              description="Cadastre seus materiais e controle o estoque de forma inteligente."
+              action={{ label: '+ Novo Item', onClick: () => setShowModal(true) }} />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border dark:border-border-dark">
+                    {['Material', 'Categoria', 'Quantidade', 'Mínimo', 'Custo/Un', 'Status', 'Ações'].map(h => (
+                      <th key={h} className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider p-4">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
                 <tbody>
-                  {filtered.map((item: any) => (
-                    <tr key={item.id}>
-                      <td className="p-4">
-                        {item.name}
-                      </td>
-
-                      <td className="p-4">
-                        <button
-                          onClick={() =>
-                            openEdit(item)
-                          }
-                        >
-                          <Edit2 size={14} />
-                        </button>
-
-                        <button
-                          onClick={() =>
-                            deleteMutation.mutate(
-                              item.id
-                            )
-                          }
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {filtered.map((item: Record<string, unknown>) => {
+                    const st = item.status as keyof typeof STATUS_CFG
+                    const cfg = STATUS_CFG[st] ?? STATUS_CFG.healthy
+                    const Icon = cfg.icon
+                    return (
+                      <tr key={item.id as string} className="border-b border-border dark:border-border-dark last:border-0 hover:bg-primary-50/30 dark:hover:bg-white/[0.02] transition-colors">
+                        <td className="p-4">
+                          <div className="flex items-center gap-3">
+                            <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0', cfg.bg)}>
+                              <Icon size={14} className={cfg.iconCls} />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-text-primary dark:text-stone-100">{item.name as string}</p>
+                              {(item.supplier as string) && <p className="text-xs text-text-muted">{item.supplier as string}</p>}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-4"><span className="badge badge-primary">{item.category as string}</span></td>
+                        <td className="p-4 text-sm text-text-secondary dark:text-stone-300">{Number(item.quantity)} {item.unit as string}</td>
+                        <td className="p-4 text-sm text-text-secondary dark:text-stone-300">{Number(item.minimum_quantity)} {item.unit as string}</td>
+                        <td className="p-4 text-sm text-text-secondary dark:text-stone-300">{fmt(Number(item.cost_per_unit))}</td>
+                        <td className="p-4"><span className={clsx('badge', cfg.badge)}>{cfg.label}</span></td>
+                        <td className="p-4">
+                          <div className="flex items-center gap-1.5">
+                            <button onClick={() => openEdit(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit2 size={14} /></button>
+                            <button onClick={() => setDeleteId(item.id as string)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={14} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -376,81 +232,76 @@ export default function EstoquePage() {
         </div>
       </div>
 
+      {/* Modal Criar/Editar */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() =>
-              setShowModal(false)
-            }
-          />
-
-          <div className="relative bg-white rounded-2xl shadow-modal w-full max-w-lg">
-            <div className="p-6 border-b flex items-center justify-between">
-              <h2 className="text-lg font-semibold">
-                {editingId
-                  ? 'Editar Item'
-                  : 'Novo Item'}
-              </h2>
-
-              <button
-                onClick={() =>
-                  setShowModal(false)
-                }
-              >
-                <X size={16} />
-              </button>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeModal} />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-lg animate-scaleIn">
+            <div className="p-6 border-b border-border dark:border-border-dark flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-text-primary dark:text-stone-100">{editingId ? 'Editar Item' : 'Novo Item'}</h2>
+              <button onClick={closeModal} className="p-2 rounded-xl hover:bg-primary-50 text-text-muted"><X size={16} /></button>
             </div>
-
-            <form
-              onSubmit={handleSubmit((d) =>
-                saveMutation.mutate(d)
-              )}
-              className="p-6 space-y-4"
-            >
-              <input
-                className="input"
-                placeholder="Nome"
-                {...register('name')}
-              />
-
-              <input
-                className="input"
-                placeholder="Categoria"
-                {...register('category')}
-              />
-
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowModal(false)
-                  }
-                  className="btn-secondary flex-1"
-                >
-                  Cancelar
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={
-                    saveMutation.isPending
-                  }
-                  className="btn-primary flex-1 flex items-center justify-center gap-2"
-                >
-                  {saveMutation.isPending && (
-                    <Loader2
-                      size={15}
-                      className="animate-spin"
-                    />
-                  )}
-
-                  {saveMutation.isPending
-                    ? 'Salvando...'
-                    : 'Salvar'}
+            <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Nome *</label>
+                  <input className="input" placeholder="Ex: Tinta acrílica" {...register('name')} />
+                  {errors.name && <p className="mt-1 text-xs text-error">{errors.name.message}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Categoria</label>
+                  <input className="input" placeholder="Ex: Tintas" {...register('category')} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Unidade</label>
+                  <select className="input" {...register('unit')}>
+                    {['un','kg','g','ml','l','m','cm','rolo','pacote'].map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Quantidade</label>
+                  <input type="number" step="0.01" className="input" placeholder="0" {...register('quantity')} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Estoque mínimo</label>
+                  <input type="number" step="0.01" className="input" placeholder="5" {...register('minimum_quantity')} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Custo por unidade (R$)</label>
+                  <input type="number" step="0.01" className="input" placeholder="0,00" {...register('cost_per_unit')} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Fornecedor</label>
+                  <input className="input" placeholder="Nome do fornecedor" {...register('supplier')} />
+                </div>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={closeModal} className="btn-secondary flex-1">Cancelar</button>
+                <button type="submit" disabled={saveMutation.isPending} className="btn-primary flex-1 flex items-center justify-center gap-2">
+                  {saveMutation.isPending && <Loader2 size={15} className="animate-spin" />}
+                  {saveMutation.isPending ? 'Salvando...' : 'Salvar'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Delete */}
+      {deleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setDeleteId(null)} />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm animate-scaleIn p-6 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-error-light flex items-center justify-center mx-auto mb-4"><Trash2 size={20} className="text-error" /></div>
+            <h3 className="text-base font-semibold mb-2 text-text-primary dark:text-stone-100">Remover item do estoque?</h3>
+            <p className="text-sm text-text-secondary dark:text-stone-400 mb-6">Esta ação não pode ser desfeita.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteId(null)} className="btn-secondary flex-1">Cancelar</button>
+              <button onClick={() => deleteMutation.mutate(deleteId!)} disabled={deleteMutation.isPending}
+                className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-error hover:opacity-90 disabled:opacity-50">
+                {deleteMutation.isPending && <Loader2 size={14} className="animate-spin" />} Remover
+              </button>
+            </div>
           </div>
         </div>
       )}

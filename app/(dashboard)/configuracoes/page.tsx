@@ -101,6 +101,14 @@ export default function ConfiguracoesPage() {
   const [saved,     setSaved]    = useState(false)
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
   const [uploadingLogo, setUploadingLogo] = useState(false)
+  /* rotina de trabalho */
+  const [daysPerWeek,   setDaysPerWeek]   = useState(5)
+  const [hoursPerDay,   setHoursPerDay]   = useState(8)
+  const [weeksPerMonth, setWeeksPerMonth] = useState(4.3)
+  const [prolabore,     setProlabore]     = useState(0)
+  /* sugestão de custo */
+  const [quickName,  setQuickName]  = useState('')
+  const [quickValue, setQuickValue] = useState('')
 
   /* ── load ids ── */
   useEffect(() => {
@@ -281,8 +289,9 @@ export default function ConfiguracoesPage() {
 
   /* ─── Computed ─── */
   const totalFixedCosts = fixedCosts?.reduce((s: number, c: any) => s + Number(c.amount), 0) ?? 0
-  const workHours       = coForm.watch('work_hours_per_month') || 160
-  const costPerHour     = workHours > 0 ? totalFixedCosts / workHours : 0
+  const hoursPerMonth   = Math.round(daysPerWeek * hoursPerDay * weeksPerMonth)
+  const workHours       = hoursPerMonth > 0 ? hoursPerMonth : (coForm.watch('work_hours_per_month') || 160)
+  const costPerHour     = workHours > 0 ? (totalFixedCosts + prolabore) / workHours : 0
   const planStatus      = (subscription as any)?.status ?? 'trial'
   const planName        = (subscription as any)?.plan   ?? 'basic'
   const trialEndsAt     = (subscription as any)?.trial_ends_at
@@ -293,7 +302,7 @@ export default function ConfiguracoesPage() {
   /* ─── Tab config ─── */
   const tabs = [
     { id: 'empresa'    as Tab, label: 'Empresa',       icon: Building2  },
-    { id: 'financeiro' as Tab, label: 'Financeiro',    icon: DollarSign },
+    { id: 'financeiro' as Tab, label: 'Custos Fixos',  icon: DollarSign },
     { id: 'conta'      as Tab, label: 'Conta & Plano', icon: CreditCard },
   ]
 
@@ -499,104 +508,291 @@ export default function ConfiguracoesPage() {
           </form>
         )}
 
-        {/* ══ TAB: FINANCEIRO ══════════════════════════════════ */}
+        {/* ══ TAB: CUSTOS FIXOS ═══════════════════════════════ */}
         {tab === 'financeiro' && (
-          <div className="space-y-4">
-            {/* Resumo financeiro */}
+          <div className="space-y-5">
+
+            {/* ── Headline guiado ── */}
+            <div className="rounded-2xl p-5 border border-primary/20"
+              style={{ background: 'linear-gradient(135deg, rgba(139,108,79,0.06), rgba(184,149,106,0.06))' }}>
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 text-xl">💡</div>
+                <div>
+                  <p className="text-sm font-bold text-text-primary dark:text-stone-100">
+                    Vamos calcular automaticamente o custo da sua hora
+                  </p>
+                  <p className="text-xs text-text-secondary dark:text-stone-400 mt-1 leading-relaxed">
+                    Preencha sua rotina de trabalho e adicione seus custos fixos.
+                    O sistema calcula sozinho quanto custa cada hora do seu trabalho —
+                    e usa esse valor para precificar seus produtos com lucro real.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* ── Cards de resumo ── */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {[
                 {
                   icon: DollarSign,
                   label: 'Custos Fixos/mês',
                   value: fmt(totalFixedCosts),
+                  sub: `${(fixedCosts as any[])?.length ?? 0} itens cadastrados`,
                   color: 'text-error',
                   bg: 'bg-error-light dark:bg-error/10',
+                  glow: 'hover:shadow-[0_0_20px_rgba(196,80,58,0.12)]',
                 },
                 {
                   icon: Clock,
                   label: 'Horas/mês',
-                  value: `${workHours}h`,
+                  value: `${hoursPerMonth}h`,
+                  sub: `${daysPerWeek}d × ${hoursPerDay}h × ${weeksPerMonth}sem`,
                   color: 'text-info',
                   bg: 'bg-info-light dark:bg-info/10',
+                  glow: 'hover:shadow-[0_0_20px_rgba(58,126,196,0.12)]',
                 },
                 {
                   icon: TrendingUp,
                   label: 'Custo/hora',
                   value: fmt(costPerHour),
+                  sub: 'Calculado automaticamente',
                   color: 'text-primary',
                   bg: 'bg-primary-50 dark:bg-primary/10',
+                  glow: 'hover:shadow-[0_0_20px_rgba(139,108,79,0.15)]',
                 },
               ].map(card => {
                 const Icon = card.icon
                 return (
-                  <div key={card.label} className="card flex items-center gap-3 p-4">
+                  <div key={card.label} className={clsx('card flex items-center gap-3.5 p-4 transition-all duration-300', card.glow)}>
                     <div className={clsx('p-2.5 rounded-xl flex-shrink-0', card.bg)}>
                       <Icon size={18} className={card.color} />
                     </div>
-                    <div>
-                      <p className="text-xs text-text-muted dark:text-stone-400">{card.label}</p>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold text-text-muted dark:text-stone-400 uppercase tracking-wider">{card.label}</p>
                       <p className={clsx('text-lg font-bold', card.color)}>{card.value}</p>
+                      <p className="text-[10px] text-text-muted dark:text-stone-500 mt-0.5 truncate">{card.sub}</p>
                     </div>
                   </div>
                 )
               })}
             </div>
 
-            {/* Horas de trabalho */}
+            {/* ── Rotina de trabalho ── */}
             <div className="card">
-              <SectionTitle icon={Clock} title="Horas de trabalho" subtitle="Base para cálculo do custo/hora" />
-              <div className="space-y-3">
+              <SectionTitle icon={Clock} title="Sua rotina de trabalho" subtitle="Passo 1 — Diga como é o seu dia a dia de trabalho" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
                 <div>
-                  <FieldLabel>Horas trabalhadas por mês</FieldLabel>
-                  <div className="flex items-center gap-3">
+                  <FieldLabel>Quantos dias por semana você trabalha?</FieldLabel>
+                  <input
+                    type="number"
+                    min={1} max={7} step={1}
+                    placeholder="Ex: 5"
+                    className="input"
+                    value={daysPerWeek}
+                    onChange={e => setDaysPerWeek(Math.max(1, Math.min(7, Number(e.target.value))))}
+                  />
+                  <p className="mt-1 text-[10px] text-text-muted dark:text-stone-500">De 1 a 7 dias</p>
+                </div>
+
+                <div>
+                  <FieldLabel>Quantas horas por dia você trabalha?</FieldLabel>
+                  <input
+                    type="number"
+                    min={1} max={24} step={0.5}
+                    placeholder="Ex: 8"
+                    className="input"
+                    value={hoursPerDay}
+                    onChange={e => setHoursPerDay(Math.max(1, Math.min(24, Number(e.target.value))))}
+                  />
+                  <p className="mt-1 text-[10px] text-text-muted dark:text-stone-500">Média diária de horas produtivas</p>
+                </div>
+
+                <div>
+                  <FieldLabel>Quantas semanas por mês?</FieldLabel>
+                  <input
+                    type="number"
+                    min={1} max={5} step={0.1}
+                    placeholder="Ex: 4.3"
+                    className="input"
+                    value={weeksPerMonth}
+                    onChange={e => setWeeksPerMonth(Math.max(1, Math.min(5, Number(e.target.value))))}
+                  />
+                  <p className="mt-1 text-[10px] text-text-muted dark:text-stone-500">Média usada para cálculo mensal</p>
+                </div>
+
+                <div>
+                  <FieldLabel>Qual o valor do seu pró-labore?</FieldLabel>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-sm font-medium">R$</span>
                     <input
                       type="number"
-                      min={1}
-                      max={744}
-                      className="input w-32"
-                      {...coForm.register('work_hours_per_month')}
+                      min={0} step={50}
+                      placeholder="0,00"
+                      className="input pl-9"
+                      value={prolabore || ''}
+                      onChange={e => setProlabore(Math.max(0, Number(e.target.value)))}
                     />
-                    <div className="flex-1 p-3 rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20">
-                      <p className="text-xs text-text-secondary dark:text-stone-400">
-                        Custo/hora calculado:{' '}
-                        <span className="font-bold text-primary">{fmt(costPerHour)}/hora</span>
-                      </p>
-                      <p className="text-[10px] text-text-muted dark:text-stone-500 mt-0.5">
-                        {fmt(totalFixedCosts)} ÷ {workHours}h = {fmt(costPerHour)}/hora
-                      </p>
-                    </div>
+                  </div>
+                  <p className="mt-1 text-[10px] text-text-muted dark:text-stone-500">O quanto você quer receber por mês</p>
+                </div>
+              </div>
+
+              {/* Cálculo ao vivo */}
+              <div className="mt-4 p-4 rounded-xl border border-primary/20"
+                style={{ background: 'linear-gradient(135deg, rgba(139,108,79,0.06), rgba(184,149,106,0.04))' }}>
+                <p className="text-xs font-semibold text-primary mb-2">📊 Resultado automático</p>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <p className="text-[10px] text-text-muted dark:text-stone-400">Horas/mês</p>
+                    <p className="text-base font-bold text-text-primary dark:text-stone-100">
+                      {daysPerWeek} × {hoursPerDay} × {weeksPerMonth} = <span className="text-primary">{hoursPerMonth}h</span>
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-text-muted dark:text-stone-400">Custos + pró-labore</p>
+                    <p className="text-base font-bold text-text-primary dark:text-stone-100">
+                      <span className="text-error">{fmt(totalFixedCosts + prolabore)}</span>
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-text-muted dark:text-stone-400">Custo/hora</p>
+                    <p className="text-base font-bold text-primary">{fmt(costPerHour)}/h</p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => coForm.handleSubmit(d => saveCompany.mutate(d))()}
-                  disabled={saveCompany.isPending}
-                  className="btn-primary flex items-center gap-2"
-                >
-                  {saveCompany.isPending ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                  Salvar horas
-                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  coForm.setValue('work_hours_per_month', hoursPerMonth)
+                  coForm.handleSubmit(d => saveCompany.mutate(d))()
+                }}
+                disabled={saveCompany.isPending}
+                className="btn-primary flex items-center gap-2 mt-4"
+              >
+                {saveCompany.isPending ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                Salvar rotina de trabalho
+              </button>
+            </div>
+
+            {/* ── Card explicativo ── */}
+            <div className="card border-primary/20 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: 'linear-gradient(90deg, #8B6C4F, #B8956A, #C4A47B)' }} />
+              <div className="absolute -right-6 -top-6 w-28 h-28 rounded-full opacity-5 pointer-events-none"
+                style={{ background: '#8B6C4F' }} />
+              <div className="flex items-start gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 text-xl">🧮</div>
+                <div>
+                  <p className="text-sm font-bold text-text-primary dark:text-stone-100">Como funciona o cálculo do custo/hora?</p>
+                  <p className="text-xs text-text-secondary dark:text-stone-400 mt-0.5">Entenda por que isso é essencial</p>
+                </div>
+              </div>
+              <p className="text-sm text-text-secondary dark:text-stone-400 leading-relaxed mb-4">
+                O sistema soma <strong className="text-text-primary dark:text-stone-200">seus custos fixos</strong>, seu{' '}
+                <strong className="text-text-primary dark:text-stone-200">pró-labore</strong> e divide pelo total de{' '}
+                <strong className="text-text-primary dark:text-stone-200">horas trabalhadas no mês</strong>.
+                Assim você descobre quanto custa cada hora do seu trabalho — e usa isso para precificar com lucro real. 💡
+              </p>
+
+              {/* Exemplo visual */}
+              <div className="grid grid-cols-4 gap-2 text-center mb-4">
+                {[
+                  { label: 'Custos fixos', value: 'R$ 2.000', color: 'text-error', bg: 'bg-error-light dark:bg-error/10' },
+                  { label: 'Pró-labore', value: 'R$ 3.000', color: 'text-warning', bg: 'bg-warning-light dark:bg-warning/10' },
+                  { label: 'Horas/mês', value: '160h', color: 'text-info', bg: 'bg-info-light dark:bg-info/10' },
+                  { label: 'Custo/hora', value: 'R$ 31,25', color: 'text-primary', bg: 'bg-primary-50 dark:bg-primary/10' },
+                ].map((item, i) => (
+                  <div key={item.label}>
+                    <div className={clsx('rounded-xl p-2.5 mb-1.5', item.bg)}>
+                      <p className={clsx('text-sm font-bold', item.color)}>{item.value}</p>
+                    </div>
+                    <p className="text-[9px] text-text-muted dark:text-stone-400">{item.label}</p>
+                    {i < 3 && (
+                      <p className="text-xs text-text-muted mt-0.5">{i === 2 ? '=' : '+'}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20">
+                <AlertCircle size={13} className="text-primary flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-primary leading-relaxed">
+                  Esse valor é essencial para calcular corretamente o preço dos seus produtos e garantir lucro em cada venda.
+                </p>
               </div>
             </div>
 
-            {/* Custos fixos */}
+            {/* ── Sugestões rápidas ── */}
             <div className="card">
-              <SectionTitle icon={DollarSign} title="Custos Fixos Mensais" subtitle="Esses valores entram no cálculo de precificação" />
+              <SectionTitle icon={Zap} title="Custos Fixos Mensais" subtitle="Passo 2 — Adicione tudo que você paga todo mês" />
 
-              {/* Adicionar */}
+              {/* Sugestões de categorias */}
+              <div className="mb-5">
+                <p className="text-xs font-medium text-text-secondary dark:text-stone-400 mb-3 flex items-center gap-1.5">
+                  <span>⚡</span> Clique para adicionar rapidamente:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { name: 'Aluguel',     cat: 'aluguel',    emoji: '🏠' },
+                    { name: 'Energia',     cat: 'energia',    emoji: '⚡' },
+                    { name: 'Água',        cat: 'geral',      emoji: '💧' },
+                    { name: 'Internet',    cat: 'internet',   emoji: '🌐' },
+                    { name: 'Celular',     cat: 'geral',      emoji: '📱' },
+                    { name: 'Funcionários',cat: 'pessoal',    emoji: '👥' },
+                    { name: 'Pró-labore',  cat: 'pessoal',    emoji: '💼' },
+                    { name: 'Canva',       cat: 'software',   emoji: '🎨' },
+                    { name: 'Adobe',       cat: 'software',   emoji: '🖌️' },
+                    { name: 'Domínio',     cat: 'software',   emoji: '🔗' },
+                    { name: 'Hospedagem',  cat: 'software',   emoji: '☁️' },
+                    { name: 'Embalagens',  cat: 'geral',      emoji: '📦' },
+                    { name: 'Transporte',  cat: 'geral',      emoji: '🚗' },
+                    { name: 'Combustível', cat: 'geral',      emoji: '⛽' },
+                    { name: 'Marketing',   cat: 'marketing',  emoji: '📣' },
+                    { name: 'Impostos',    cat: 'geral',      emoji: '📋' },
+                  ].map(s => {
+                    const exists = (fixedCosts as any[] ?? []).some((c: any) => c.name === s.name)
+                    return (
+                      <button
+                        key={s.name}
+                        type="button"
+                        disabled={exists}
+                        onClick={() => {
+                          setQuickName(s.name)
+                          fcForm.setValue('name', s.name)
+                          fcForm.setValue('category', s.cat as any)
+                          fcForm.setFocus('amount')
+                        }}
+                        className={clsx(
+                          'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200',
+                          exists
+                            ? 'bg-success-light dark:bg-success/10 text-success-dark dark:text-success cursor-default'
+                            : 'bg-white dark:bg-surface-dark border border-border dark:border-border-dark text-text-secondary dark:text-stone-400 hover:border-primary hover:text-primary hover:bg-primary-50 dark:hover:bg-primary/10 cursor-pointer'
+                        )}
+                      >
+                        <span>{s.emoji}</span>
+                        {s.name}
+                        {exists && <span className="text-[10px]">✓</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Formulário de adicionar */}
               <form
                 onSubmit={fcForm.handleSubmit(d => addCost.mutate(d))}
-                className="flex gap-2 flex-wrap mb-5"
+                className="flex gap-2 flex-wrap mb-5 p-4 rounded-xl bg-primary-50/40 dark:bg-primary/5 border border-primary/10"
               >
                 <input
                   className="input flex-1 min-w-36"
-                  placeholder="Nome (ex: Aluguel)"
+                  placeholder="Nome do custo (ex: Aluguel)"
                   {...fcForm.register('name')}
                 />
                 <input
                   type="number"
                   step="0.01"
-                  className="input w-32"
+                  className="input w-36"
                   placeholder="R$ 0,00"
                   {...fcForm.register('amount')}
                 />
@@ -620,18 +816,23 @@ export default function ConfiguracoesPage() {
                 </button>
               </form>
 
-              {/* Lista */}
-              {!fixedCosts?.length ? (
-                <div className="flex flex-col items-center py-8 text-center">
-                  <div className="w-12 h-12 rounded-xl bg-primary-50 dark:bg-primary/10 flex items-center justify-center mb-3">
-                    <DollarSign size={20} className="text-primary" />
+              {/* Lista de custos */}
+              {!(fixedCosts as any[])?.length ? (
+                <div className="flex flex-col items-center py-10 text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-primary-50 dark:bg-primary/10 flex items-center justify-center mb-3 text-2xl">
+                    📋
                   </div>
-                  <p className="text-sm font-medium text-text-primary dark:text-stone-100">Nenhum custo cadastrado</p>
-                  <p className="text-xs text-text-muted dark:text-stone-400 mt-1">Adicione seus custos fixos para precificação precisa.</p>
+                  <p className="text-sm font-semibold text-text-primary dark:text-stone-100">
+                    Nenhum custo adicionado ainda
+                  </p>
+                  <p className="text-xs text-text-secondary dark:text-stone-400 mt-2 max-w-xs leading-relaxed">
+                    Adicione seus custos para descobrir o preço ideal dos seus produtos.
+                    Quanto mais completo, mais preciso fica seu lucro. 💡
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {fixedCosts.map((cost: any) => (
+                  {(fixedCosts as any[]).map((cost: any) => (
                     <div
                       key={cost.id}
                       className="flex items-center justify-between p-3.5 rounded-xl border border-border dark:border-border-dark hover:border-primary/30 transition-colors group"
@@ -658,14 +859,19 @@ export default function ConfiguracoesPage() {
                     </div>
                   ))}
 
-                  {/* Total */}
+                  {/* Total + frase didática */}
                   <div className="flex items-center justify-between p-4 rounded-xl mt-2"
                     style={{ background: 'linear-gradient(135deg, rgba(139,108,79,0.08), rgba(184,149,106,0.08))' }}>
                     <div className="flex items-center gap-2">
                       <Hash size={14} className="text-primary" />
-                      <span className="text-sm font-semibold text-text-primary dark:text-stone-100">Total mensal</span>
+                      <div>
+                        <p className="text-sm font-semibold text-text-primary dark:text-stone-100">Total mensal</p>
+                        <p className="text-[10px] text-text-muted dark:text-stone-400">
+                          Esses dados ajudam o sistema a calcular automaticamente o preço ideal dos seus produtos.
+                        </p>
+                      </div>
                     </div>
-                    <span className="text-lg font-bold text-primary">{fmt(totalFixedCosts)}</span>
+                    <span className="text-xl font-bold text-primary">{fmt(totalFixedCosts)}</span>
                   </div>
                 </div>
               )}

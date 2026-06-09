@@ -11,9 +11,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 60 * 1000,
+            staleTime:           60 * 1000,
             refetchOnWindowFocus: false,
-            retry: 1,
+            retry:               1,
           },
         },
       })
@@ -27,8 +27,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
         enableSystem
         disableTransitionOnChange={false}
       >
-        {children}
-        <Toaster />
+        {/* Toaster envolve toda a árvore — useToast() funciona em qualquer página */}
+        <Toaster>
+          {children}
+        </Toaster>
       </ThemeProvider>
     </QueryClientProvider>
   )

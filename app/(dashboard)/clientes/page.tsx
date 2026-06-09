@@ -1,8 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { useToast } from '@/components/ui/Toaster'
+import { useCompanyId } from '@/hooks/useCompanyId'
 import { Header } from '@/components/layout/Header'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -81,30 +83,15 @@ function Field({ label, error, children }: { label: string; error?: string; chil
 export default function ClientesPage() {
   const supabase    = createClient()
   const queryClient = useQueryClient()
+  const { toast } = useToast()
 
-  const [companyId,  setCompanyId]  = useState<string | null>(null)
+  const { companyId } = useCompanyId()
   const [showModal,  setShowModal]  = useState(false)
   const [editingId,  setEditingId]  = useState<string | null>(null)
   const [search,     setSearch]     = useState('')
   const [deleteId,   setDeleteId]   = useState<string | null>(null)
 
   /* ── Carregar empresa ── */
-  useEffect(() => {
-    async function load() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-
-      const response: any = await supabase
-        .from('companies')
-        .select('id')
-        .eq('user_id', user.id)
-        .single()
-
-      const company = response?.data
-      if (company?.id) setCompanyId(company.id)
-    }
-    load()
-  }, [])
 
   /* ── Query clientes ── */
   const { data: customers, isLoading } = useQuery<Customer[]>({
@@ -142,6 +129,10 @@ export default function ClientesPage() {
       queryClient.invalidateQueries({ queryKey: ['customers', companyId] })
       closeModal()
     },
+    onError: (err: Error) => {
+      console.error('[module] error:', err)
+      toast('error', `Erro: ${err.message}`)
+    },
   })
 
   const deleteMutation = useMutation({
@@ -151,6 +142,10 @@ export default function ClientesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers', companyId] })
       setDeleteId(null)
+    },
+    onError: (err: Error) => {
+      console.error('[module] error:', err)
+      toast('error', `Erro: ${err.message}`)
     },
   })
 
