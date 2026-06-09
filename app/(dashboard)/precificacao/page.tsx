@@ -138,8 +138,19 @@ export default function PrecificacaoPage() {
     enabled:  !!companyId,
     queryFn:  async () => {
       const res: any = await supabase.from('companies')
-        .select('fixed_costs, work_hours_per_month').eq('id', companyId!).single()
+        .select('work_hours_per_month').eq('id', companyId!).single()
       return res?.data
+    },
+  })
+
+  // Busca a tabela fixed_costs (mesma fonte que Configurações usa)
+  const { data: fixedCostsRows } = useQuery({
+    queryKey: ['fixed-costs', companyId],
+    enabled:  !!companyId,
+    queryFn:  async () => {
+      const { data } = await (supabase.from('fixed_costs') as any)
+        .select('amount').eq('company_id', companyId!)
+      return (data ?? []) as Array<{ amount: number }>
     },
   })
 
@@ -156,9 +167,23 @@ export default function PrecificacaoPage() {
   })
 
   /* ── Calculated values ── */
-  const fixedCosts   = Number((company as any)?.fixed_costs ?? 0)
-  const workHours    = Number((company as any)?.work_hours_per_month ?? 160)
-  const hourlyRate   = workHours > 0 ? fixedCosts / workHours : 0
+  // Soma da tabela fixed_costs (mesma lógica que Configurações)
+  const fixedCostsTotal = (fixedCostsRows ?? []).reduce(
+    (s, row) => s + Number(row.amount ?? 0), 0
+  )
+  // Pró-labore salvo no localStorage pela página de Configurações
+  const storedRoutine = (() => {
+    if (typeof window === 'undefined' || !companyId) return null
+    try {
+      const raw = localStorage.getItem(`precy_routine_${companyId}`)
+      return raw ? JSON.parse(raw) : null
+    } catch { return null }
+  })()
+  const prolabore = Number(storedRoutine?.prolabore ?? 0)
+
+  const workHours  = Number((company as any)?.work_hours_per_month ?? 160)
+  // custo/hora = (custos fixos + pró-labore) ÷ horas/mês  (igual às Configurações)
+  const hourlyRate = workHours > 0 ? (fixedCostsTotal + prolabore) / workHours : 0
   const laborCost    = productType === 'produced' ? hourlyRate * productionHours : 0
   const materialCost = materials.reduce((s, m) => s + m.subtotal, 0)
 
@@ -341,7 +366,7 @@ export default function PrecificacaoPage() {
       <div className="p-4 sm:p-6 space-y-5">
 
         {/* ── Info banner quando não tem custos fixos ── */}
-        {!fixedCosts && (
+        {!fixedCostsTotal && (
           <div className="flex items-start gap-3 p-4 rounded-xl border border-warning/30 bg-warning-light dark:bg-warning/10">
             <AlertTriangle size={16} className="text-warning flex-shrink-0 mt-0.5" />
             <p className="text-xs text-warning-dark">
@@ -556,7 +581,7 @@ export default function PrecificacaoPage() {
                         {productionHours}h × {fmt(hourlyRate)}/h =
                         <span className="font-bold text-primary ml-1">{fmt(laborCost)}</span>
                       </p>
-                      {!fixedCosts && (
+                      {!fixedCostsTotal && (
                         <p className="text-[10px] text-warning mt-0.5">
                           Configure custos fixos para cálculo preciso
                         </p>
@@ -717,7 +742,7 @@ export default function PrecificacaoPage() {
 
               <div className="mt-4 p-3 rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20">
                 <p className="text-xs text-primary font-medium">
-                  📊 Custos fixos mensais — {fmt(fixedCosts)} ÷ {workHours}h = {fmt(hourlyRate)}/hora
+                  📊 Custos fixos — {fmt(fixedCostsTotal)}{prolabore > 0 ? ` + pró-labore ${fmt(prolabore)}` : ''} ÷ {workHours}h = {fmt(hourlyRate)}/hora
                 </p>
               </div>
             </div>
