@@ -381,7 +381,7 @@ export default function PrecificacaoPage() {
                     <Package size={24} className="text-text-muted dark:text-stone-500 mb-2" />
                     <p className="text-sm font-medium text-text-primary dark:text-stone-100">Nenhum material adicionado</p>
                     <p className="text-xs text-text-muted dark:text-stone-400 mt-1 max-w-[200px]">
-                      Clique em "Adicionar" para selecionar materiais do estoque.
+                      Clique em &ldquo;Adicionar&rdquo; para selecionar materiais do estoque.
                     </p>
                     {(inventoryItems ?? []).length === 0 && (
                       <a href="/estoque" className="mt-3 text-xs text-primary hover:underline flex items-center gap-1">
