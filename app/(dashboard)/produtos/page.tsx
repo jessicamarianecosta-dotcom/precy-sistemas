@@ -210,7 +210,7 @@ export default function ProdutosPage() {
   function openEdit(p: Product) {
     setEditingId(p.id)
     ;(['name','description','category','unit','production_time_hours','material_cost','markup_percentage','final_price'] as Array<keyof FormData>)
-      .forEach(k => setValue(k, (p as Record<string, unknown>)[k] as string))
+      .forEach(k => setValue(k, (p as unknown as Record<string, unknown>)[k] as string))
     setShowForm(true)
   }
 
