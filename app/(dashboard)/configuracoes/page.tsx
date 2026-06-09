@@ -1,8 +1,14 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+} from '@tanstack/react-query'
+
 import { createClient } from '@/lib/supabase/client'
+
 import { Header } from '@/components/layout/Header'
 
 import {
@@ -14,17 +20,12 @@ import {
   CheckCircle,
   Loader2,
   LogOut,
-  Key,
   Upload,
   Instagram,
   Phone,
   MapPin,
-  Hash,
   Clock,
   TrendingUp,
-  Zap,
-  Star,
-  AlertCircle,
 } from 'lucide-react'
 
 import { clsx } from 'clsx'
@@ -37,58 +38,54 @@ import { z } from 'zod'
 
 import { useRouter } from 'next/navigation'
 
-/* =========================================================
-   TYPES
-========================================================= */
-
-type Tab = 'empresa' | 'financeiro' | 'conta'
-
-/* =========================================================
-   SCHEMAS
-========================================================= */
+type Tab =
+  | 'empresa'
+  | 'financeiro'
+  | 'conta'
 
 const companySchema = z.object({
-  name: z.string().min(2, 'Nome obrigatório'),
+  name: z.string().min(2),
 
-  responsible_name: z.string().optional(),
+  responsible_name:
+    z.string().optional(),
 
-  phone: z.string().optional(),
+  phone:
+    z.string().optional(),
 
-  instagram: z.string().optional(),
+  instagram:
+    z.string().optional(),
 
-  city: z.string().optional(),
+  city:
+    z.string().optional(),
 
-  state: z.string().optional(),
+  state:
+    z.string().optional(),
 
   email: z
     .string()
-    .email('E-mail inválido')
+    .email()
     .optional()
     .or(z.literal('')),
 
-  work_hours_per_month: z.coerce
-    .number()
-    .min(1)
-    .max(744),
+  work_hours_per_month:
+    z.coerce.number(),
 })
 
 const fixedCostSchema = z.object({
-  name: z.string().min(2, 'Nome obrigatório'),
+  name: z.string().min(2),
 
-  amount: z.coerce
-    .number()
-    .min(0.01, 'Valor obrigatório'),
+  amount:
+    z.coerce.number(),
 
-  category: z.string().default('geral'),
+  category:
+    z.string(),
 })
 
-type CompanyForm = z.infer<typeof companySchema>
+type CompanyForm =
+  z.infer<typeof companySchema>
 
-type FixedCostForm = z.infer<typeof fixedCostSchema>
-
-/* =========================================================
-   HELPERS
-========================================================= */
+type FixedCostForm =
+  z.infer<typeof fixedCostSchema>
 
 function fmt(value: number) {
   return new Intl.NumberFormat(
@@ -100,10 +97,6 @@ function fmt(value: number) {
   ).format(value)
 }
 
-/* =========================================================
-   TOAST
-========================================================= */
-
 function SavedToast({
   visible,
 }: {
@@ -112,105 +105,29 @@ function SavedToast({
   return (
     <div
       className={clsx(
-        'fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-modal',
-        'bg-white dark:bg-surface-dark border border-success/20',
-        'transition-all duration-300',
+        'fixed bottom-6 right-6 z-50 transition-all',
         visible
-          ? 'opacity-100 translate-y-0'
-          : 'opacity-0 translate-y-4 pointer-events-none'
+          ? 'opacity-100'
+          : 'opacity-0 pointer-events-none'
       )}
     >
-      <div className="w-8 h-8 rounded-xl bg-success-light flex items-center justify-center">
-        <CheckCircle
-          size={16}
-          className="text-success"
-        />
-      </div>
-
-      <div>
-        <p className="text-sm font-semibold text-text-primary dark:text-stone-100">
-          Salvo com sucesso!
-        </p>
-
-        <p className="text-xs text-text-muted dark:text-stone-400">
-          Dados atualizados.
-        </p>
+      <div className="bg-green-500 text-white px-5 py-3 rounded-2xl shadow-xl">
+        Salvo com sucesso
       </div>
     </div>
   )
 }
-
-/* =========================================================
-   LABEL
-========================================================= */
-
-function FieldLabel({
-  children,
-  required,
-}: {
-  children: React.ReactNode
-  required?: boolean
-}) {
-  return (
-    <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
-      {children}
-
-      {required && (
-        <span className="text-error ml-1">
-          *
-        </span>
-      )}
-    </label>
-  )
-}
-
-/* =========================================================
-   SECTION TITLE
-========================================================= */
-
-function SectionTitle({
-  icon: Icon,
-  title,
-  subtitle,
-}: {
-  icon: React.ElementType
-  title: string
-  subtitle?: string
-}) {
-  return (
-    <div className="flex items-center gap-3 mb-5 pb-4 border-b border-border dark:border-border-dark">
-      <div className="p-2 rounded-xl bg-primary-50 dark:bg-primary/10">
-        <Icon
-          size={18}
-          className="text-primary"
-        />
-      </div>
-
-      <div>
-        <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">
-          {title}
-        </h3>
-
-        {subtitle && (
-          <p className="text-xs text-text-muted dark:text-stone-400 mt-0.5">
-            {subtitle}
-          </p>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/* =========================================================
-   PAGE
-========================================================= */
 
 export default function ConfiguracoesPage() {
-  const supabase = createClient()
 
-  const queryClient = useQueryClient()
+  const supabase =
+    createClient()
 
-  const router = useRouter()
+  const queryClient =
+    useQueryClient()
+
+  const router =
+    useRouter()
 
   const logoInputRef =
     useRef<HTMLInputElement>(null)
@@ -245,368 +162,406 @@ export default function ConfiguracoesPage() {
   const [prolabore, setProlabore] =
     useState(0)
 
-  /* =========================================================
-     LOAD USER
-  ========================================================= */
+  const coForm =
+    useForm<CompanyForm>({
+      resolver:
+        zodResolver(
+          companySchema
+        ),
+
+      defaultValues: {
+        name: '',
+        responsible_name: '',
+        phone: '',
+        instagram: '',
+        city: '',
+        state: '',
+        email: '',
+        work_hours_per_month: 160,
+      },
+    })
+
+  const fcForm =
+    useForm<FixedCostForm>({
+      resolver:
+        zodResolver(
+          fixedCostSchema
+        ),
+
+      defaultValues: {
+        name: '',
+        amount: 0,
+        category: 'geral',
+      },
+    })
 
   useEffect(() => {
     async function load() {
+
       const {
         data: { user },
-      } = await supabase.auth.getUser()
+      } =
+        await supabase.auth.getUser()
 
       if (!user) return
 
       setUserId(user.id)
 
-      const { data: company } =
+      const { data } =
         await (
-          supabase.from('companies') as any
+          supabase.from(
+            'companies'
+          ) as any
         )
           .select('*')
-          .eq('user_id', user.id)
+          .eq(
+            'user_id',
+            user.id
+          )
           .single()
 
-      if (company?.id) {
-        setCompanyId(company.id)
+      if (data?.id) {
+
+        setCompanyId(data.id)
+
+        setDaysPerWeek(
+          Number(
+            data.days_per_week || 5
+          )
+        )
+
+        setHoursPerDay(
+          Number(
+            data.hours_per_day || 8
+          )
+        )
+
+        setWeeksPerMonth(
+          Number(
+            data.weeks_per_month || 4.3
+          )
+        )
+
+        setProlabore(
+          Number(
+            data.prolabore || 0
+          )
+        )
+
+        coForm.reset({
+          name:
+            data.name || '',
+
+          responsible_name:
+            data.responsible_name || '',
+
+          phone:
+            data.phone || '',
+
+          instagram:
+            data.cnpj || '',
+
+          city:
+            data.address || '',
+
+          state: '',
+
+          email:
+            data.email || '',
+
+          work_hours_per_month:
+            data.work_hours_per_month || 160,
+        })
+
+        if (data.logo_url) {
+          setLogoPreview(
+            data.logo_url
+          )
+        }
       }
     }
 
     load()
   }, [])
 
-  /* =========================================================
-     QUERIES
-  ========================================================= */
+  const {
+    data: fixedCosts,
+  } = useQuery({
+    queryKey: [
+      'fixed-costs',
+      companyId,
+    ],
 
-  const { data: profile } = useQuery({
-    queryKey: ['profile', userId],
-
-    enabled: !!userId,
-
-    queryFn: async () => {
-      const { data } = await (
-        supabase.from('profiles') as any
-      )
-        .select('*')
-        .eq('id', userId!)
-        .single()
-
-      return data
-    },
-  })
-
-  const { data: company } = useQuery({
-    queryKey: ['company', userId],
-
-    enabled: !!userId,
+    enabled:
+      !!companyId,
 
     queryFn: async () => {
-      const { data } = await (
-        supabase.from('companies') as any
-      )
-        .select('*')
-        .eq('user_id', userId!)
-        .single()
 
-      return data
+      const { data } =
+        await (
+          supabase.from(
+            'fixed_costs'
+          ) as any
+        )
+          .select('*')
+          .eq(
+            'company_id',
+            companyId!
+          )
+          .order(
+            'created_at',
+            {
+              ascending: false,
+            }
+          )
+
+      return data || []
     },
   })
-
-  const { data: fixedCosts } = useQuery({
-    queryKey: ['fixed-costs', companyId],
-
-    enabled: !!companyId,
-
-    queryFn: async () => {
-      const { data } = await (
-        supabase.from('fixed_costs') as any
-      )
-        .select('*')
-        .eq('company_id', companyId!)
-        .order('created_at')
-
-      return data ?? []
-    },
-  })
-
-  /* =========================================================
-     FORMS
-  ========================================================= */
-
-  const coForm = useForm<CompanyForm>({
-    resolver: zodResolver(companySchema),
-
-    defaultValues: {
-      name: '',
-      responsible_name: '',
-      phone: '',
-      instagram: '',
-      city: '',
-      state: '',
-      email: '',
-      work_hours_per_month: 160,
-    },
-  })
-
-  const fcForm = useForm<FixedCostForm>({
-    resolver: zodResolver(fixedCostSchema),
-
-    defaultValues: {
-      name: '',
-      amount: 0,
-      category: 'geral',
-    },
-  })
-
-  /* =========================================================
-     LOAD FORM DATA
-  ========================================================= */
-
-  useEffect(() => {
-    if (!company) return
-
-    const address =
-      company.address || ''
-
-    const parts = address.includes(',')
-      ? address.split(',')
-      : [address, '']
-
-    coForm.reset({
-      name: company.name || '',
-
-      responsible_name:
-        profile?.name || '',
-
-      phone: company.phone || '',
-
-      instagram: company.cnpj || '',
-
-      city: parts[0]?.trim() || '',
-
-      state: parts[1]?.trim() || '',
-
-      email: company.email || '',
-
-      work_hours_per_month:
-        company.work_hours_per_month ||
-        160,
-    })
-
-    if (company.logo_url) {
-      setLogoPreview(company.logo_url)
-    }
-  }, [company, profile])
-
-  /* =========================================================
-     TOAST
-  ========================================================= */
 
   function showSaved() {
+
     setSaved(true)
 
     setTimeout(() => {
       setSaved(false)
-    }, 3000)
+    }, 2500)
   }
 
-  /* =========================================================
-     SAVE COMPANY
-  ========================================================= */
+  const saveCompany =
+    useMutation({
 
-  const saveCompany = useMutation({
-    mutationFn: async (
-      data: CompanyForm
-    ) => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
+      mutationFn:
+        async (
+          data: CompanyForm
+        ) => {
 
-      if (!user) {
-        throw new Error(
-          'Usuário não autenticado'
-        )
-      }
+          const {
+            data: { user },
+          } =
+            await supabase.auth.getUser()
 
-      const address =
-        data.city && data.state
-          ? `${data.city}, ${data.state}`
-          : data.city ||
-            data.state ||
-            ''
+          if (!user) {
+            throw new Error(
+              'Usuário não autenticado'
+            )
+          }
 
-      const payload = {
-        user_id: user.id,
+          const payload = {
 
-        name: data.name,
+            user_id:
+              user.id,
 
-        phone: data.phone || null,
-
-        email: data.email || null,
-
-        cnpj: data.instagram || null,
-
-        address,
-
-        work_hours_per_month:
-          data.work_hours_per_month,
-
-        updated_at:
-          new Date().toISOString(),
-      }
-
-      const {
-        data: savedCompany,
-        error,
-      } = await (
-        supabase.from(
-          'companies'
-        ) as any
-      )
-        .upsert([payload], {
-          onConflict: 'user_id',
-        })
-        .select()
-        .single()
-
-      if (error) {
-        console.error(error)
-
-        throw error
-      }
-
-      if (savedCompany?.id) {
-        setCompanyId(savedCompany.id)
-      }
-
-      if (data.responsible_name) {
-        await (
-          supabase.from(
-            'profiles'
-          ) as any
-        )
-          .update({
             name:
+              data.name,
+
+            responsible_name:
               data.responsible_name,
+
+            phone:
+              data.phone,
+
+            cnpj:
+              data.instagram,
+
+            address:
+              data.city,
+
+            email:
+              data.email,
+
+            work_hours_per_month:
+              data.work_hours_per_month,
+
+            days_per_week:
+              daysPerWeek,
+
+            hours_per_day:
+              hoursPerDay,
+
+            weeks_per_month:
+              weeksPerMonth,
+
+            prolabore:
+              prolabore,
 
             updated_at:
               new Date().toISOString(),
-          })
-          .eq('id', user.id)
-      }
+          }
 
-      return savedCompany
-    },
+          const {
+            data: savedCompany,
+            error,
+          } =
+            await (
+              supabase.from(
+                'companies'
+              ) as any
+            )
+              .upsert(
+                [payload],
+                {
+                  onConflict:
+                    'user_id',
+                }
+              )
+              .select()
+              .single()
 
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['company'],
-      })
+          if (error) {
+            throw error
+          }
 
-      queryClient.invalidateQueries({
-        queryKey: ['profile'],
-      })
+          if (
+            savedCompany?.id
+          ) {
+            setCompanyId(
+              savedCompany.id
+            )
+          }
 
-      showSaved()
-    },
-  })
-
-  /* =========================================================
-     ADD COST
-  ========================================================= */
-
-  const addCost = useMutation({
-    mutationFn: async (
-      data: FixedCostForm
-    ) => {
-      if (!companyId) return
-
-      const { error } = await (
-        supabase.from(
-          'fixed_costs'
-        ) as any
-      ).insert([
-        {
-          ...data,
-          company_id: companyId,
+          return savedCompany
         },
-      ])
 
-      if (error) {
-        throw error
-      }
-    },
+      onSuccess: () => {
 
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['fixed-costs'],
-      })
+        queryClient.invalidateQueries({
+          queryKey: [
+            'company',
+          ],
+        })
 
-      fcForm.reset({
-        name: '',
-        amount: 0,
-        category: 'geral',
-      })
+        showSaved()
+      },
+    })
 
-      showSaved()
-    },
-  })
+  const addCost =
+    useMutation({
 
-  /* =========================================================
-     DELETE COST
-  ========================================================= */
+      mutationFn:
+        async (
+          data: FixedCostForm
+        ) => {
 
-  const deleteCost = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await (
-        supabase.from(
-          'fixed_costs'
-        ) as any
-      )
-        .delete()
-        .eq('id', id)
+          if (!companyId) {
+            throw new Error(
+              'Empresa não encontrada'
+            )
+          }
 
-      if (error) {
-        throw error
-      }
-    },
+          const { error } =
+            await (
+              supabase.from(
+                'fixed_costs'
+              ) as any
+            ).insert([
+              {
+                company_id:
+                  companyId,
 
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['fixed-costs'],
-      })
+                name:
+                  data.name,
 
-      showSaved()
-    },
-  })
+                amount:
+                  data.amount,
 
-  /* =========================================================
-     LOGO UPLOAD
-  ========================================================= */
+                category:
+                  data.category,
+              },
+            ])
+
+          if (error) {
+            throw error
+          }
+        },
+
+      onSuccess: () => {
+
+        queryClient.invalidateQueries({
+          queryKey: [
+            'fixed-costs',
+          ],
+        })
+
+        fcForm.reset()
+
+        showSaved()
+      },
+    })
+
+  const deleteCost =
+    useMutation({
+
+      mutationFn:
+        async (
+          id: string
+        ) => {
+
+          const { error } =
+            await (
+              supabase.from(
+                'fixed_costs'
+              ) as any
+            )
+              .delete()
+              .eq(
+                'id',
+                id
+              )
+
+          if (error) {
+            throw error
+          }
+        },
+
+      onSuccess: () => {
+
+        queryClient.invalidateQueries({
+          queryKey: [
+            'fixed-costs',
+          ],
+        })
+
+        showSaved()
+      },
+    })
 
   async function handleLogoUpload(
     e: React.ChangeEvent<HTMLInputElement>
   ) {
+
     const file =
       e.target.files?.[0]
 
-    if (!file || !companyId) return
+    if (
+      !file ||
+      !companyId
+    ) return
 
     setUploadingLogo(true)
 
     try {
-      const ext =
-        file.name.split('.').pop()
 
-      const path = `logos/${companyId}.${ext}`
+      const ext =
+        file.name
+          .split('.')
+          .pop()
+
+      const path =
+        `logos/${companyId}.${ext}`
 
       const { error } =
         await supabase.storage
-          .from('company-assets')
-          .upload(path, file, {
-            upsert: true,
-          })
+          .from(
+            'company-assets'
+          )
+          .upload(
+            path,
+            file,
+            {
+              upsert: true,
+            }
+          )
 
       if (error) {
         throw error
@@ -614,7 +569,9 @@ export default function ConfiguracoesPage() {
 
       const { data } =
         supabase.storage
-          .from('company-assets')
+          .from(
+            'company-assets'
+          )
           .getPublicUrl(path)
 
       await (
@@ -626,54 +583,28 @@ export default function ConfiguracoesPage() {
           logo_url:
             data.publicUrl,
         })
-        .eq('id', companyId)
+        .eq(
+          'id',
+          companyId
+        )
 
       setLogoPreview(
         data.publicUrl
       )
 
-      queryClient.invalidateQueries({
-        queryKey: ['company'],
-      })
-
       showSaved()
-    } catch (err) {
-      console.error(err)
+
     } finally {
       setUploadingLogo(false)
     }
   }
 
-  /* =========================================================
-     LOGOUT
-  ========================================================= */
-
   async function handleLogout() {
+
     await supabase.auth.signOut()
 
     router.push('/login')
   }
-
-  /* =========================================================
-     RESET PASSWORD
-  ========================================================= */
-
-  async function handleResetPassword() {
-    if (!profile?.email) return
-
-    await supabase.auth.resetPasswordForEmail(
-      profile.email,
-      {
-        redirectTo: `${window.location.origin}/nova-senha`,
-      }
-    )
-
-    showSaved()
-  }
-
-  /* =========================================================
-     COMPUTED
-  ========================================================= */
 
   const totalFixedCosts =
     fixedCosts?.reduce(
@@ -682,9 +613,11 @@ export default function ConfiguracoesPage() {
         item: any
       ) =>
         sum +
-        Number(item.amount),
+        Number(
+          item.amount
+        ),
       0
-    ) ?? 0
+    ) || 0
 
   const hoursPerMonth =
     Math.round(
@@ -695,87 +628,86 @@ export default function ConfiguracoesPage() {
 
   const costPerHour =
     hoursPerMonth > 0
-      ? (totalFixedCosts +
-          prolabore) /
+      ? (
+          totalFixedCosts +
+          prolabore
+        ) /
         hoursPerMonth
       : 0
 
-  /* =========================================================
-     TABS
-  ========================================================= */
-
-  const tabs = [
-    {
-      id: 'empresa' as Tab,
-      label: 'Empresa',
-      icon: Building2,
-    },
-
-    {
-      id: 'financeiro' as Tab,
-      label: 'Custos',
-      icon: DollarSign,
-    },
-
-    {
-      id: 'conta' as Tab,
-      label: 'Conta',
-      icon: CreditCard,
-    },
-  ]
-
-  /* =========================================================
-     PAGE
-  ========================================================= */
-
   return (
-    <div className="page-enter min-h-screen bg-background dark:bg-background-dark">
+    <div className="min-h-screen bg-background dark:bg-background-dark">
 
       <Header
         title="Configurações"
         subtitle="Personalize seu sistema"
       />
 
-      <div className="p-3 sm:p-5 lg:p-6 max-w-3xl mx-auto space-y-4">
+      <div className="max-w-5xl mx-auto p-4 space-y-5">
 
-        {/* TABS */}
+        <div className="flex gap-2">
 
-        <div className="flex gap-1 bg-white dark:bg-surface-dark border border-border dark:border-border-dark rounded-2xl p-1.5">
+          <button
+            onClick={() =>
+              setTab(
+                'empresa'
+              )
+            }
+            className={clsx(
+              'px-5 py-2 rounded-xl',
+              tab ===
+                'empresa'
+                ? 'bg-primary text-white'
+                : 'bg-card'
+            )}
+          >
+            Empresa
+          </button>
 
-          {tabs.map((tabItem) => {
-            const Icon =
-              tabItem.icon
+          <button
+            onClick={() =>
+              setTab(
+                'financeiro'
+              )
+            }
+            className={clsx(
+              'px-5 py-2 rounded-xl',
+              tab ===
+                'financeiro'
+                ? 'bg-primary text-white'
+                : 'bg-card'
+            )}
+          >
+            Custos Fixos
+          </button>
 
-            const active =
-              tab === tabItem.id
+          <button
+            onClick={() =>
+              setTab(
+                'conta'
+              )
+            }
+            className={clsx(
+              'px-5 py-2 rounded-xl',
+              tab ===
+                'conta'
+                ? 'bg-primary text-white'
+                : 'bg-card'
+            )}
+          >
+            Conta
+          </button>
 
-            return (
-              <button
-                key={tabItem.id}
-                onClick={() =>
-                  setTab(tabItem.id)
-                }
-                className={clsx(
-                  'flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
-                  active
-                    ? 'bg-primary text-white'
-                    : 'text-text-secondary dark:text-stone-400'
-                )}
-              >
-                <Icon size={15} />
-
-                {tabItem.label}
-              </button>
-            )
-          })}
         </div>
 
-        {/* EMPRESA */}
+        {tab ===
+          'empresa' && (
 
-        {tab === 'empresa' && (
           <form
             onSubmit={coForm.handleSubmit(
-              (data) =>
+              (
+                data
+              ) =>
                 saveCompany.mutate(
                   data
                 )
@@ -783,252 +715,413 @@ export default function ConfiguracoesPage() {
             className="space-y-4"
           >
 
-            <div className="card">
+            <div className="card p-5 space-y-4">
 
-              <SectionTitle
-                icon={Building2}
-                title="Dados da empresa"
-                subtitle="Informações do negócio"
+              <h2 className="text-xl font-bold">
+                Empresa
+              </h2>
+
+              <input
+                className="input"
+                placeholder="Nome da empresa"
+                {...coForm.register(
+                  'name'
+                )}
               />
 
-              <div className="space-y-4">
+              <input
+                className="input"
+                placeholder="Responsável"
+                {...coForm.register(
+                  'responsible_name'
+                )}
+              />
 
-                <div>
+              <input
+                className="input"
+                placeholder="WhatsApp"
+                {...coForm.register(
+                  'phone'
+                )}
+              />
 
-                  <FieldLabel required>
-                    Nome da empresa
-                  </FieldLabel>
+              <input
+                className="input"
+                placeholder="Instagram"
+                {...coForm.register(
+                  'instagram'
+                )}
+              />
 
-                  <input
-                    type="text"
-                    placeholder="Nome da empresa"
-                    className="input"
-                    {...coForm.register(
-                      'name'
-                    )}
-                  />
+              <input
+                className="input"
+                placeholder="Cidade"
+                {...coForm.register(
+                  'city'
+                )}
+              />
 
-                </div>
+              <input
+                className="input"
+                placeholder="E-mail"
+                {...coForm.register(
+                  'email'
+                )}
+              />
 
-                <div>
+              <div
+                onClick={() =>
+                  logoInputRef.current?.click()
+                }
+                className="border border-dashed rounded-xl p-5 cursor-pointer"
+              >
 
-                  <FieldLabel>
-                    Responsável
-                  </FieldLabel>
-
-                  <input
-                    type="text"
-                    placeholder="Seu nome"
-                    className="input"
-                    {...coForm.register(
-                      'responsible_name'
-                    )}
-                  />
-
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-                  <div>
-
-                    <FieldLabel>
-                      WhatsApp
-                    </FieldLabel>
-
-                    <div className="relative">
-
-                      <Phone
-                        size={14}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
-                      />
-
-                      <input
-                        type="text"
-                        className="input pl-9"
-                        placeholder="41 99999-9999"
-                        {...coForm.register(
-                          'phone'
-                        )}
-                      />
-
-                    </div>
-
-                  </div>
-
-                  <div>
-
-                    <FieldLabel>
-                      Instagram
-                    </FieldLabel>
-
-                    <div className="relative">
-
-                      <Instagram
-                        size={14}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
-                      />
-
-                      <input
-                        type="text"
-                        className="input pl-9"
-                        placeholder="@empresa"
-                        {...coForm.register(
-                          'instagram'
-                        )}
-                      />
-
-                    </div>
-
-                  </div>
-
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-                  <div>
-
-                    <FieldLabel>
-                      Cidade
-                    </FieldLabel>
-
-                    <div className="relative">
-
-                      <MapPin
-                        size={14}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
-                      />
-
-                      <input
-                        type="text"
-                        className="input pl-9"
-                        placeholder="Curitiba"
-                        {...coForm.register(
-                          'city'
-                        )}
-                      />
-
-                    </div>
-
-                  </div>
-
-                  <div>
-
-                    <FieldLabel>
-                      Estado
-                    </FieldLabel>
-
-                    <input
-                      type="text"
-                      maxLength={2}
-                      className="input uppercase"
-                      placeholder="PR"
-                      {...coForm.register(
-                        'state'
-                      )}
-                    />
-
-                  </div>
-
-                </div>
-
-                <div>
-
-                  <FieldLabel>
-                    Logo
-                  </FieldLabel>
-
-                  <div
-                    onClick={() =>
-                      logoInputRef.current?.click()
-                    }
-                    className="cursor-pointer border-2 border-dashed border-border dark:border-border-dark rounded-2xl p-5 flex items-center gap-4 hover:border-primary transition-all"
-                  >
-
-                    {logoPreview ? (
-                      <img
-                        src={logoPreview}
-                        alt="Logo"
-                        className="w-16 h-16 rounded-xl object-cover"
-                      />
-                    ) : (
-                      <div className="w-16 h-16 rounded-xl bg-primary/10 flex items-center justify-center">
-                        {uploadingLogo ? (
-                          <Loader2
-                            size={20}
-                            className="animate-spin text-primary"
-                          />
-                        ) : (
-                          <Upload
-                            size={20}
-                            className="text-primary"
-                          />
-                        )}
-                      </div>
-                    )}
-
-                    <div>
-
-                      <p className="text-sm font-medium">
-                        {logoPreview
-                          ? 'Trocar logo'
-                          : 'Enviar logo'}
-                      </p>
-
-                      <p className="text-xs text-text-muted">
-                        PNG ou JPG
-                      </p>
-
-                    </div>
-
-                    <input
-                      ref={
-                        logoInputRef
-                      }
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={
-                        handleLogoUpload
-                      }
-                    />
-
-                  </div>
-
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={
-                    saveCompany.isPending
-                  }
-                  className="btn-primary w-full flex items-center justify-center gap-2"
-                >
-
-                  {saveCompany.isPending ? (
-                    <Loader2
-                      size={15}
-                      className="animate-spin"
-                    />
-                  ) : (
-                    <CheckCircle size={15} />
-                  )}
-
-                  {saveCompany.isPending
-                    ? 'Salvando...'
-                    : 'Salvar'}
-
-                </button>
+                {uploadingLogo
+                  ? 'Enviando...'
+                  : logoPreview
+                  ? 'Trocar logo'
+                  : 'Enviar logo'}
 
               </div>
+
+              <input
+                ref={
+                  logoInputRef
+                }
+                type="file"
+                className="hidden"
+                onChange={
+                  handleLogoUpload
+                }
+              />
+
+              <button
+                type="submit"
+                className="btn-primary w-full"
+              >
+                Salvar empresa
+              </button>
 
             </div>
 
           </form>
         )}
 
+        {tab ===
+          'financeiro' && (
+
+          <div className="space-y-5">
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+              <div className="card p-5">
+                <p className="text-sm opacity-70">
+                  Custos Fixos
+                </p>
+
+                <h2 className="text-2xl font-bold">
+                  {fmt(
+                    totalFixedCosts
+                  )}
+                </h2>
+              </div>
+
+              <div className="card p-5">
+                <p className="text-sm opacity-70">
+                  Horas/mês
+                </p>
+
+                <h2 className="text-2xl font-bold">
+                  {
+                    hoursPerMonth
+                  }
+                  h
+                </h2>
+              </div>
+
+              <div className="card p-5">
+                <p className="text-sm opacity-70">
+                  Custo/hora
+                </p>
+
+                <h2 className="text-2xl font-bold">
+                  {fmt(
+                    costPerHour
+                  )}
+                </h2>
+              </div>
+
+            </div>
+
+            <div className="card p-5 space-y-4">
+
+              <h2 className="text-xl font-bold">
+                Rotina de trabalho
+              </h2>
+
+              <div className="grid grid-cols-2 gap-4">
+
+                <input
+                  type="number"
+                  className="input"
+                  value={
+                    daysPerWeek
+                  }
+                  onChange={(
+                    e
+                  ) =>
+                    setDaysPerWeek(
+                      Number(
+                        e.target
+                          .value
+                      )
+                    )
+                  }
+                  placeholder="Dias"
+                />
+
+                <input
+                  type="number"
+                  className="input"
+                  value={
+                    hoursPerDay
+                  }
+                  onChange={(
+                    e
+                  ) =>
+                    setHoursPerDay(
+                      Number(
+                        e.target
+                          .value
+                      )
+                    )
+                  }
+                  placeholder="Horas"
+                />
+
+                <input
+                  type="number"
+                  step="0.1"
+                  className="input"
+                  value={
+                    weeksPerMonth
+                  }
+                  onChange={(
+                    e
+                  ) =>
+                    setWeeksPerMonth(
+                      Number(
+                        e.target
+                          .value
+                      )
+                    )
+                  }
+                  placeholder="Semanas"
+                />
+
+                <input
+                  type="number"
+                  className="input"
+                  value={
+                    prolabore
+                  }
+                  onChange={(
+                    e
+                  ) =>
+                    setProlabore(
+                      Number(
+                        e.target
+                          .value
+                      )
+                    )
+                  }
+                  placeholder="Pró-labore"
+                />
+
+              </div>
+
+              <button
+                onClick={() => {
+
+                  const data =
+                    coForm.getValues()
+
+                  saveCompany.mutate(
+                    data
+                  )
+                }}
+                className="btn-primary"
+              >
+                Salvar rotina
+              </button>
+
+            </div>
+
+            <div className="card p-5 space-y-4">
+
+              <h2 className="text-xl font-bold">
+                Custos Fixos
+              </h2>
+
+              <form
+                onSubmit={fcForm.handleSubmit(
+                  (
+                    data
+                  ) =>
+                    addCost.mutate(
+                      data
+                    )
+                )}
+                className="grid grid-cols-1 md:grid-cols-4 gap-3"
+              >
+
+                <input
+                  className="input"
+                  placeholder="Nome"
+                  {...fcForm.register(
+                    'name'
+                  )}
+                />
+
+                <input
+                  type="number"
+                  className="input"
+                  placeholder="Valor"
+                  {...fcForm.register(
+                    'amount'
+                  )}
+                />
+
+                <select
+                  className="input"
+                  {...fcForm.register(
+                    'category'
+                  )}
+                >
+                  <option value="geral">
+                    Geral
+                  </option>
+
+                  <option value="energia">
+                    Energia
+                  </option>
+
+                  <option value="agua">
+                    Água
+                  </option>
+
+                  <option value="internet">
+                    Internet
+                  </option>
+
+                </select>
+
+                <button
+                  type="submit"
+                  className="btn-primary"
+                >
+                  Adicionar
+                </button>
+
+              </form>
+
+              <div className="space-y-3">
+
+                {fixedCosts?.map(
+                  (
+                    item: any
+                  ) => (
+
+                    <div
+                      key={
+                        item.id
+                      }
+                      className="flex items-center justify-between border rounded-xl p-4"
+                    >
+
+                      <div>
+
+                        <p className="font-medium">
+                          {
+                            item.name
+                          }
+                        </p>
+
+                        <p className="text-sm opacity-60">
+                          {
+                            item.category
+                          }
+                        </p>
+
+                      </div>
+
+                      <div className="flex items-center gap-3">
+
+                        <span className="font-semibold">
+                          {fmt(
+                            Number(
+                              item.amount
+                            )
+                          )}
+                        </span>
+
+                        <button
+                          onClick={() =>
+                            deleteCost.mutate(
+                              item.id
+                            )
+                          }
+                        >
+                          <Trash2
+                            size={
+                              16
+                            }
+                          />
+                        </button>
+
+                      </div>
+
+                    </div>
+                  )
+                )}
+
+              </div>
+
+            </div>
+
+          </div>
+        )}
+
+        {tab ===
+          'conta' && (
+
+          <div className="card p-5 space-y-4">
+
+            <h2 className="text-xl font-bold">
+              Conta
+            </h2>
+
+            <button
+              onClick={
+                handleLogout
+              }
+              className="btn-danger"
+            >
+              <LogOut
+                size={16}
+              />
+
+              Sair
+            </button>
+
+          </div>
+        )}
+
       </div>
 
-      <SavedToast visible={saved} />
+      <SavedToast
+        visible={saved}
+      />
 
     </div>
   )
