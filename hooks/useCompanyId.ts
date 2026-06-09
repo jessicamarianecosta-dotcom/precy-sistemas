@@ -1,124 +1,82 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 /**
- * Hook compartilhado para carregar:
- * - companyId da empresa do usuário autenticado
- * - userId do usuário logado
+ * Hook compartilhado — carrega companyId do usuário autenticado.
+ * Se não encontrar empresa, chama /api/setup-company para criar automaticamente.
  */
-
 export function useCompanyId() {
   const supabase = createClient()
 
   const [companyId, setCompanyId] = useState<string | null>(null)
+  const [userId,    setUserId]    = useState<string | null>(null)
+  const [loading,   setLoading]   = useState(true)
 
-  const [userId, setUserId] = useState<string | null>(null)
-
-  const [loading, setLoading] = useState(true)
+  const setupAttempted = useRef(false)
 
   useEffect(() => {
     let cancelled = false
 
     async function load() {
       try {
-        /**
-         * Usuário autenticado
-         */
+        /* ── 1. Usuário autenticado ── */
+        const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-        const {
-          data: { user },
-          error: authError,
-        } = await supabase.auth.getUser()
-
-        if (authError) {
-          console.error(
-            '[useCompanyId] auth error:',
-            authError
-          )
-
-          if (!cancelled) {
-            setCompanyId(null)
-            setUserId(null)
-            setLoading(false)
-          }
-
+        if (authError || !user) {
+          if (!cancelled) { setCompanyId(null); setUserId(null); setLoading(false) }
           return
         }
 
-        if (!user) {
-          if (!cancelled) {
-            setCompanyId(null)
-            setUserId(null)
-            setLoading(false)
-          }
+        if (!cancelled) setUserId(user.id)
 
-          return
-        }
-
-        if (!cancelled) {
-          setUserId(user.id)
-        }
-
-        /**
-         * Busca empresa do usuário
-         */
-
-        const { data, error } = await (supabase
-          .from('companies') as any)
+        /* ── 2. Busca empresa ── */
+        const { data, error } = await (supabase.from('companies') as any)
           .select('id')
           .eq('user_id', user.id)
           .maybeSingle()
 
-        /**
-         * maybeSingle evita erro 406
-         * quando não existe empresa
-         */
-
         if (error) {
-          console.error(
-            '[useCompanyId] company error:',
-            error
-          )
-
-          if (!cancelled) {
-            setCompanyId(null)
-          }
-
+          console.error('[useCompanyId] company error:', error)
+          if (!cancelled) { setCompanyId(null); setLoading(false) }
           return
         }
 
-        if (!cancelled) {
-          setCompanyId(data?.id ?? null)
+        if (data?.id) {
+          if (!cancelled) setCompanyId(data.id)
+          return
         }
-      } catch (err) {
-        console.error(
-          '[useCompanyId] unexpected error:',
-          err
-        )
 
-        if (!cancelled) {
-          setCompanyId(null)
-          setUserId(null)
+        /* ── 3. Sem empresa → criar via API (uma única vez) ── */
+        if (!setupAttempted.current) {
+          setupAttempted.current = true
+          try {
+            const res = await fetch('/api/setup-company', { method: 'POST' })
+            if (res.ok) {
+              const body = await res.json()
+              if (!cancelled && body.companyId) {
+                setCompanyId(body.companyId)
+                return
+              }
+            }
+          } catch (e) {
+            console.error('[useCompanyId] setup-company fetch error:', e)
+          }
         }
+
+        if (!cancelled) setCompanyId(null)
+      } catch (err) {
+        console.error('[useCompanyId] unexpected error:', err)
+        if (!cancelled) { setCompanyId(null); setUserId(null) }
       } finally {
-        if (!cancelled) {
-          setLoading(false)
-        }
+        if (!cancelled) setLoading(false)
       }
     }
 
     load()
-
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [])
 
-  return {
-    companyId,
-    userId,
-    loading,
-  }
+  return { companyId, userId, loading }
 }
