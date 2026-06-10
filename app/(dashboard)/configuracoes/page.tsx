@@ -223,9 +223,14 @@ export default function ConfiguracoesPage() {
   }, [company, profile])
 
   /* ─── Toast ─── */
-  function showSaved() {
+  function showSaved(msg?: string) {
     setSaved(true)
     setTimeout(() => setSaved(false), 3000)
+  }
+  function showError(msg: string) {
+    console.error('[config]', msg)
+    // fallback visual — alerta nativo até ter toast no configurações
+    window.alert(msg)
   }
 
   /* ─── Mutations ─── */
@@ -287,11 +292,11 @@ export default function ConfiguracoesPage() {
 
     // Validar tipo e tamanho
     if (!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type)) {
-      toast('error', 'Use uma imagem JPG, PNG ou WebP.')
+      showError('Use uma imagem JPG, PNG ou WebP.')
       return
     }
     if (file.size > 2 * 1024 * 1024) {
-      toast('error', 'Imagem muito grande. Máximo 2MB.')
+      showError('Imagem muito grande. Máximo 2MB.')
       return
     }
 
@@ -314,7 +319,7 @@ export default function ConfiguracoesPage() {
 
       if (upErr) {
         console.error('[logo-upload] storage error:', upErr)
-        toast('error', `Erro no upload: ${upErr.message}`)
+        showError(`Erro no upload: ${upErr.message}`)
         return
       }
 
@@ -327,10 +332,10 @@ export default function ConfiguracoesPage() {
 
       setLogoPreview(logoUrl)
       queryClient.invalidateQueries({ queryKey: ['company', companyId] })
-      toast('success', 'Logo salva com sucesso!')
+      showSaved()
     } catch (err: unknown) {
       console.error('[logo-upload] unexpected:', err)
-      toast('error', 'Erro ao salvar logo.')
+      showError('Erro ao salvar logo.')
     } finally {
       setUploadingLogo(false)
     }
@@ -350,11 +355,11 @@ export default function ConfiguracoesPage() {
         .eq('id', companyId)
       if (error) throw error
       queryClient.invalidateQueries({ queryKey: ['company', companyId] })
-      toast('success', 'Cores salvas!')
+      showSaved()
     } catch (err: unknown) {
       const e = err as Error
       console.error('[save-colors]', e)
-      toast('error', `Erro ao salvar cores: ${e.message}`)
+      showError(`Erro ao salvar cores: ${e.message}`)
     } finally {
       setSavingColors(false)
     }
