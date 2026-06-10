@@ -193,7 +193,7 @@ export default function PrecificacaoPage() {
 
   // custo/hora = (custos_fixos + pro_labore) ÷ horas_mes  (MESMA fórmula das Configurações)
   const hourlyRate   = workHours > 0 ? (fixedCostsTotal + prolabore) / workHours : 0
-  const laborCost    = productType === 'produced' ? hourlyRate * productionHours : 0
+  const laborCost    = (productType === 'produced' || productType === 'meter_product') ? hourlyRate * productionHours : 0
   const materialCost = materials.reduce((s, m) => s + m.subtotal, 0)
 
   const extraCost = extraCosts.reduce(
@@ -612,8 +612,8 @@ export default function PrecificacaoPage() {
               </div>
             )}
 
-            {/* ── PRODUZIDO: Mão de obra ── */}
-            {productType === 'produced' && (
+            {/* ── PRODUZIDO + POR METRO: Mão de obra ── */}
+            {(productType === 'produced' || productType === 'meter_product') && (
               <div className="card space-y-4">
                 <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100 flex items-center gap-2">
                   <Hammer size={14} className="text-primary" />
