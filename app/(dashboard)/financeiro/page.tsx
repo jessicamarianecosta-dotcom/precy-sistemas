@@ -784,8 +784,8 @@ export default function FinanceiroPage() {
                 </tbody>
               </table>
             </div>
-              </div>
-            </>          )}
+            </>
+          )}
         </div>
       </div>
 

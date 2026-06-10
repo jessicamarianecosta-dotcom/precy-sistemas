@@ -488,6 +488,9 @@ export default function ClientesPage() {
               )}
               </div>
             </>
+          )}
+        </div>
+      </div>
 
       {/* ══ MODAL CRIAR / EDITAR ══ */}
       {showModal && (
