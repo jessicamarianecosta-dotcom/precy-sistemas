@@ -282,23 +282,22 @@ export default function PedidosPage() {
 
   /* Campos válidos da tabela orders (após migration 004) */
   function buildOrderPayload(data: FormData) {
+    // Colunas seguras — existem na tabela orders atual.
+    // order_date / remaining_amount / product_id precisam da migration 004.
     return {
-      customer_id:     data.customer_id,
-      service_name:    data.service_name   || '',
-      description:     data.description    || null,
-      status:          data.status         || 'pending',
-      payment_status:  data.payment_status || 'pending',
-      payment_method:  data.payment_method || null,
-      subtotal:        Number(data.subtotal)     || 0,
-      discount:        Number(data.discount)     || 0,
-      total:           Number(data.total)        || 0,
-      signal_amount:   Number(data.signal_amount)|| 0,
-      remaining_amount:Math.max(0, (Number(data.total) || 0) - (Number(data.signal_amount) || 0)),
-      notes:           data.notes           || null,
-      due_date:        data.due_date        || null,
-      priority:        data.priority        || 'normal',
-      order_date:      data.order_date      || null,
-      product_id:      data.product_id      || null,
+      customer_id:    data.customer_id,
+      service_name:   data.service_name   || '',
+      description:    data.description    || null,
+      status:         data.status         || 'pending',
+      payment_status: data.payment_status || 'pending',
+      payment_method: data.payment_method || null,
+      subtotal:       Number(data.subtotal)      || 0,
+      discount:       Number(data.discount)      || 0,
+      total:          Number(data.total)         || 0,
+      signal_amount:  Number(data.signal_amount) || 0,
+      notes:          data.notes           || null,
+      due_date:       data.due_date        || null,
+      priority:       data.priority        || 'normal',
     }
   }
 
