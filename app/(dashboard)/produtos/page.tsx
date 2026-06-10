@@ -268,64 +268,113 @@ export default function ProdutosPage() {
               description="Cadastre seus produtos para usar em pedidos e orçamentos."
               action={{ label: '+ Novo Produto', onClick: () => setShowForm(true) }} />
           ) : (
-            <div className="overflow-x-auto w-full">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border dark:border-border-dark">
-                    {['Produto', 'Categoria', 'Custo total', 'Margem', 'Preço Final', 'Ações'].map(h => (
-                      <th key={h} className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider p-4">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map(p => (
-                    <tr key={p.id}
-                      className="border-b border-border dark:border-border-dark last:border-0 hover:bg-primary-50/30 dark:hover:bg-white/[0.02] transition-colors cursor-pointer"
-                      onClick={() => setViewProduct(p)}
-                    >
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-primary-50 dark:bg-primary/10 flex items-center justify-center flex-shrink-0">
-                            <Package size={15} className="text-primary" />
+            <>
+              {/* ── MOBILE: cards ── */}
+              <div className="md:hidden divide-y divide-border dark:divide-border-dark">
+                {filtered.map(p => (
+                  <div key={p.id}
+                    className="p-4 hover:bg-primary-50/20 dark:hover:bg-white/[0.02] transition-colors cursor-pointer"
+                    onClick={() => setViewProduct(p)}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <Package size={16} className="text-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-text-primary dark:text-stone-100 truncate">{p.name}</p>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              <span className="badge badge-primary">{p.category}</span>
+                              {p.product_type && (
+                                <span className="badge badge-info text-[9px]">
+                                  {p.product_type === 'produced' ? 'Produzido' : 'Revenda'}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-sm font-medium text-text-primary dark:text-stone-100">{p.name}</p>
-                            <p className="text-xs text-text-muted">{p.unit} · {p.production_time_hours}h</p>
-                          </div>
+                          <span className="text-base font-bold text-primary flex-shrink-0">{fmt(p.final_price)}</span>
                         </div>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex flex-wrap gap-1">
-                          <span className="badge badge-primary">{p.category}</span>
-                          {p.product_type && (
-                            <span className="badge badge-info text-[9px]">
-                              {p.product_type === 'produced' ? 'Produzido' : 'Revenda'}
-                            </span>
-                          )}
+                        <div className="flex items-center gap-4 mt-2 text-xs text-text-secondary dark:text-stone-400">
+                          <span>Custo: {fmt(safeNum(p.total_cost) || safeNum(p.material_cost))}</span>
+                          <span>Margem: {p.markup_percentage}%</span>
                         </div>
-                      </td>
-                      <td className="p-4 text-sm text-text-secondary dark:text-stone-300">
-                        {fmt(safeNum(p.total_cost) || safeNum(p.material_cost))}
-                      </td>
-                      <td className="p-4 text-sm text-text-secondary dark:text-stone-300">{p.markup_percentage}%</td>
-                      <td className="p-4"><span className="text-sm font-bold text-primary">{fmt(p.final_price)}</span></td>
-                      <td className="p-4" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => setViewProduct(p)}
-                            className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"
-                            title="Ver ficha técnica"
-                          >
-                            <Edit2 size={14} />
+                        <div className="flex items-center gap-2 mt-3" onClick={e => e.stopPropagation()}>
+                          <button onClick={() => setViewProduct(p)}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium rounded-lg border border-border dark:border-border-dark hover:border-primary hover:text-primary transition-colors">
+                            <Edit2 size={12} /> Ficha técnica
                           </button>
-                          <button onClick={() => setDeleteId(p.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors" title="Excluir"><Trash2 size={14} /></button>
+                          <button onClick={() => setDeleteId(p.id)}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors">
+                            <Trash2 size={14} />
+                          </button>
                         </div>
-                      </td>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* ── DESKTOP: tabela ── */}
+              <div className="hidden md:block overflow-x-auto w-full">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border dark:border-border-dark">
+                      {['Produto', 'Categoria', 'Custo total', 'Margem', 'Preço Final', 'Ações'].map(h => (
+                        <th key={h} className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider p-4">{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {filtered.map(p => (
+                      <tr key={p.id}
+                        className="border-b border-border dark:border-border-dark last:border-0 hover:bg-primary-50/30 dark:hover:bg-white/[0.02] transition-colors cursor-pointer"
+                        onClick={() => setViewProduct(p)}
+                      >
+                        <td className="p-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-xl bg-primary-50 dark:bg-primary/10 flex items-center justify-center flex-shrink-0">
+                              <Package size={15} className="text-primary" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-text-primary dark:text-stone-100">{p.name}</p>
+                              <p className="text-xs text-text-muted">{p.unit} · {p.production_time_hours}h</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex flex-wrap gap-1">
+                            <span className="badge badge-primary">{p.category}</span>
+                            {p.product_type && (
+                              <span className="badge badge-info text-[9px]">
+                                {p.product_type === 'produced' ? 'Produzido' : 'Revenda'}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-4 text-sm text-text-secondary dark:text-stone-300">
+                          {fmt(safeNum(p.total_cost) || safeNum(p.material_cost))}
+                        </td>
+                        <td className="p-4 text-sm text-text-secondary dark:text-stone-300">{p.markup_percentage}%</td>
+                        <td className="p-4"><span className="text-sm font-bold text-primary">{fmt(p.final_price)}</span></td>
+                        <td className="p-4" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center gap-1.5">
+                            <button onClick={() => setViewProduct(p)}
+                              className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors" title="Ver ficha técnica">
+                              <Edit2 size={14} />
+                            </button>
+                            <button onClick={() => setDeleteId(p.id)}
+                              className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors" title="Excluir">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       </div>

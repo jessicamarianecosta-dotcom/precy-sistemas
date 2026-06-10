@@ -584,9 +584,58 @@ export default function FinanceiroPage() {
               }}
             />
           ) : (
-            <div className="overflow-x-auto w-full">
+            <>
+              {/* ── MOBILE: cards ── */}
+              <div className="md:hidden divide-y divide-border dark:divide-border-dark">
+                {filtered.map((t: Record<string, unknown>) => (
+                  <div key={t.id as string} className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className={clsx(
+                        'w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0',
+                        t.type === 'income'
+                          ? 'bg-success-light dark:bg-success/10'
+                          : 'bg-error-light dark:bg-error/10'
+                      )}>
+                        {t.type === 'income'
+                          ? <TrendingUp size={16} className="text-success" />
+                          : <TrendingDown size={16} className="text-error" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">
+                              {(t.description as string) || (t.type === 'income' ? 'Receita' : 'Despesa')}
+                            </p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="badge badge-primary text-[10px]">{t.category as string}</span>
+                              <span className="text-[10px] text-text-muted">
+                                {new Date(t.date as string).toLocaleDateString('pt-BR')}
+                              </span>
+                            </div>
+                          </div>
+                          <span className={clsx(
+                            'text-sm font-bold flex-shrink-0',
+                            t.type === 'income' ? 'text-success' : 'text-error'
+                          )}>
+                            {t.type === 'income' ? '+' : '-'}
+                            {new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(t.amount))}
+                          </span>
+                        </div>
+                        <div className="flex justify-end mt-2">
+                          <button onClick={() => setDeleteId(t.id as string)}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
 
-              <table className="w-full">
+              {/* ── DESKTOP: tabela ── */}
+              <div className="hidden md:block overflow-x-auto w-full">
+                <table className="w-full">
 
                 <thead>
                   <tr className="border-b border-border dark:border-border-dark">
@@ -735,7 +784,8 @@ export default function FinanceiroPage() {
                 </tbody>
               </table>
             </div>
-          )}
+              </div>
+            </>          )}
         </div>
       </div>
 
