@@ -221,6 +221,37 @@ export default function DashboardPage() {
     success: 'text-success-dark',
   }
 
+  /* ── Today's events (para o card Hoje) ── */
+  const todayStr = new Date().toISOString().split('T')[0]
+
+  const { data: todayTasks } = useQuery({
+    queryKey: ['today-tasks', companyId],
+    enabled:  !!companyId,
+    queryFn:  async () => {
+      const { data } = await (supabase.from('calendar_tasks') as any)
+        .select('id, title, time, category, status, priority')
+        .eq('company_id', companyId!)
+        .eq('date', todayStr)
+        .neq('status', 'done')
+        .order('time')
+      return data ?? []
+    },
+  })
+
+  const { data: todayOrders } = useQuery({
+    queryKey: ['today-orders', companyId],
+    enabled:  !!companyId,
+    queryFn:  async () => {
+      const { data } = await (supabase.from('orders') as any)
+        .select('id, service_name, status, total, due_date, customers(name)')
+        .eq('company_id', companyId!)
+        .gte('due_date', todayStr + 'T00:00:00')
+        .lte('due_date', todayStr + 'T23:59:59')
+        .not('due_date', 'is', null)
+      return data ?? []
+    },
+  })
+
   /* ── Quick actions ── */
   const quickActions = [
     { href: '/pedidos',     icon: ShoppingCart, label: 'Novo Pedido',     color: 'bg-info-light dark:bg-info/10 text-info-dark dark:text-info' },
@@ -626,6 +657,54 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
+
+            {/* ─── CARD HOJE ─── */}
+            {((todayTasks?.length ?? 0) + (todayOrders?.length ?? 0) > 0) && (
+              <div className="card">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <CalendarDays size={15} className="text-primary" />
+                    <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">
+                      Hoje — {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'short' })}
+                    </h2>
+                  </div>
+                  <Link href="/agenda" className="text-xs text-primary hover:underline">Ver agenda →</Link>
+                </div>
+                <div className="space-y-2">
+                  {(todayOrders ?? []).map((o: any) => (
+                    <Link key={o.id} href="/pedidos"
+                      className="flex items-center gap-3 p-2.5 rounded-xl border border-border dark:border-border-dark hover:border-primary/40 hover:bg-primary-50/30 dark:hover:bg-primary/5 transition-all">
+                      <div className={clsx('w-1.5 h-10 rounded-full flex-shrink-0',
+                        o.status === 'production' ? 'bg-blue-400' : o.status === 'ready' ? 'bg-green-400' : 'bg-amber-400'
+                      )} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">
+                          📦 {o.service_name || 'Pedido'}
+                        </p>
+                        <p className="text-[11px] text-text-muted">{o.customers?.name ?? '—'} · Entrega hoje</p>
+                      </div>
+                      <span className="text-sm font-bold text-primary flex-shrink-0">
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(o.total))}
+                      </span>
+                    </Link>
+                  ))}
+                  {(todayTasks ?? []).slice(0, 4).map((t: any) => (
+                    <Link key={t.id} href="/agenda"
+                      className="flex items-center gap-3 p-2.5 rounded-xl border border-border dark:border-border-dark hover:border-primary/40 hover:bg-primary-50/30 dark:hover:bg-primary/5 transition-all">
+                      <div className={clsx('w-1.5 h-10 rounded-full flex-shrink-0',
+                        t.priority === 'urgent' ? 'bg-red-400' : t.priority === 'high' ? 'bg-amber-400' : 'bg-primary/40'
+                      )} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">
+                          📌 {t.title}
+                        </p>
+                        <p className="text-[11px] text-text-muted">{t.time ? t.time.slice(0, 5) : 'Sem horário'}</p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* ─── AÇÕES RÁPIDAS ─── */}
             <div className="card">

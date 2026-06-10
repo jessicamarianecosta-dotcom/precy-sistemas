@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/hooks/useCompanyId'
@@ -90,7 +90,8 @@ export default function AgendaPage() {
   const [filter,      setFilter]      = useState<FilterType>('all')
   const [showModal,   setShowModal]   = useState(false)
   const [editTask,    setEditTask]    = useState<CalTask | null>(null)
-  const [selectedDay, setSelectedDay] = useState<Date | null>(null)
+  const [selectedDay, setSelectedDay] = useState<Date | null>(new Date())
+  const panelRef = useRef<HTMLDivElement>(null)
   const [viewEvent,   setViewEvent]   = useState<{ type: 'task' | 'order'; data: CalTask | Order } | null>(null)
   const [saving,      setSaving]      = useState(false)
 
@@ -217,6 +218,14 @@ export default function AgendaPage() {
   })
 
   /* ── Handlers ── */
+  function selectDay(day: Date) {
+    setSelectedDay(day)
+    // Scroll suave para o painel do dia
+    setTimeout(() => {
+      panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 50)
+  }
+
   function openNew(day?: Date) {
     setEditTask(null)
     setFTitle(''); setFDesc(''); setFTime(''); setFNotes('')
@@ -311,9 +320,9 @@ export default function AgendaPage() {
               return (
                 <div
                   key={key}
-                  onClick={() => { setSelectedDay(day); if (inMonth) openNew(day) }}
+                  onClick={() => { if (inMonth) selectDay(day) }}
                   className={clsx(
-                    'min-h-[80px] sm:min-h-[100px] border-b border-r border-border dark:border-border-dark p-1.5 sm:p-2 cursor-pointer transition-colors group',
+                    'min-h-[56px] sm:min-h-[90px] border-b border-r border-border dark:border-border-dark p-1 sm:p-2 cursor-pointer transition-colors group',
                     'hover:bg-primary-50/40 dark:hover:bg-primary/5',
                     !inMonth && 'opacity-40',
                     i % 7 === 6 && 'border-r-0',
@@ -387,8 +396,157 @@ export default function AgendaPage() {
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-400"/>{' '}Produção</span>
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-400"/>{' '}Pronto/Entregue</span>
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-primary"/>{' '}Hoje</span>
-          <span className="ml-auto">Clique em qualquer dia para adicionar tarefa</span>
+          <span className="ml-auto text-right">Clique num dia para ver o painel</span>
         </div>
+
+        {/* ── DAY PANEL ── */}
+        {selectedDay && (
+          <div ref={panelRef} className="card p-0 overflow-hidden animate-fadeIn">
+            {/* Panel header */}
+            <div className="flex items-center justify-between px-4 sm:px-5 py-3.5 border-b border-border dark:border-border-dark bg-primary-50/50 dark:bg-primary/5">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <CalendarDays size={16} className="text-primary" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-text-primary dark:text-stone-100 capitalize">
+                    {format(selectedDay, "EEEE, d 'de' MMMM", { locale: ptBR })}
+                  </p>
+                  <p className="text-[11px] text-text-muted dark:text-stone-500">
+                    {(() => {
+                      const key = format(selectedDay, 'yyyy-MM-dd')
+                      const ev  = eventsByDay[key]
+                      const t   = (ev?.tasks?.length ?? 0) + (ev?.orders?.length ?? 0)
+                      return t === 0 ? 'Nenhum evento' : `${t} evento${t !== 1 ? 's' : ''}`
+                    })()}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => openNew(selectedDay)}
+                className="btn-primary flex items-center gap-1.5 text-xs px-3 py-2"
+              >
+                <Plus size={13} /> Nova tarefa
+              </button>
+            </div>
+
+            {/* Panel body */}
+            <div className="p-3 sm:p-4">
+              {(() => {
+                const key    = format(selectedDay, 'yyyy-MM-dd')
+                const ev     = eventsByDay[key]
+                const orders = ev?.orders ?? []
+                const tasks  = ev?.tasks  ?? []
+
+                if (orders.length === 0 && tasks.length === 0) {
+                  return (
+                    <div className="text-center py-8 text-text-muted dark:text-stone-500">
+                      <CalendarDays size={28} className="mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">Nenhum evento neste dia</p>
+                      <button
+                        onClick={() => openNew(selectedDay)}
+                        className="mt-3 text-xs text-primary hover:underline"
+                      >
+                        + Adicionar tarefa
+                      </button>
+                    </div>
+                  )
+                }
+
+                return (
+                  <div className="space-y-4">
+                    {/* Pedidos */}
+                    {orders.length > 0 && (
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted dark:text-stone-500 mb-2 flex items-center gap-1.5">
+                          <Package size={11} /> Pedidos ({orders.length})
+                        </p>
+                        <div className="space-y-2">
+                          {orders.map(order => (
+                            <button
+                              key={order.id}
+                              onClick={() => setViewEvent({ type: 'order', data: order })}
+                              className={clsx(
+                                'w-full text-left p-3 rounded-xl border transition-all hover:-translate-y-0.5 hover:shadow-sm',
+                                ORDER_STATUS_COLOR[order.status] ?? ORDER_STATUS_COLOR.pending
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-semibold truncate">
+                                    {order.service_name || '—'}
+                                  </p>
+                                  <p className="text-[11px] opacity-75 truncate">
+                                    {order.customers?.name ?? 'Sem cliente'} · {order.order_number}
+                                  </p>
+                                </div>
+                                <div className="text-right flex-shrink-0">
+                                  <p className="text-sm font-bold">{fmt(order.total)}</p>
+                                  {order.priority && (
+                                    <span className={clsx('text-[10px] font-semibold', (PRIORITY_CONFIG as any)[order.priority]?.color ?? '')}>
+                                      {(PRIORITY_CONFIG as any)[order.priority]?.label ?? order.priority}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Tarefas */}
+                    {tasks.length > 0 && (
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-text-muted dark:text-stone-500 mb-2 flex items-center gap-1.5">
+                          <CheckCircle2 size={11} /> Tarefas ({tasks.length})
+                        </p>
+                        <div className="space-y-2">
+                          {tasks.map(task => {
+                            const cfg = CATEGORY_CONFIG[task.category] ?? CATEGORY_CONFIG.task
+                            const pri = PRIORITY_CONFIG[task.priority]
+                            return (
+                              <button
+                                key={task.id}
+                                onClick={() => setViewEvent({ type: 'task', data: task })}
+                                className={clsx(
+                                  'w-full text-left p-3 rounded-xl border border-border dark:border-border-dark bg-white dark:bg-white/[0.02] transition-all hover:-translate-y-0.5 hover:shadow-sm hover:border-primary/30',
+                                  task.status === 'done' && 'opacity-60'
+                                )}
+                              >
+                                <div className="flex items-center gap-2.5">
+                                  <div className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0', pri.dot)} />
+                                  <div className="min-w-0 flex-1">
+                                    <p className={clsx('text-sm font-medium text-text-primary dark:text-stone-100 truncate', task.status === 'done' && 'line-through')}>
+                                      {cfg.emoji} {task.title}
+                                    </p>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      {task.time && (
+                                        <span className="text-[10px] text-text-muted flex items-center gap-0.5">
+                                          <Clock size={9} />{task.time.slice(0, 5)}
+                                        </span>
+                                      )}
+                                      <span className={clsx('text-[10px] font-semibold px-1.5 py-0.5 rounded-full', cfg.color)}>
+                                        {cfg.label}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  {task.status === 'done' && (
+                                    <CheckCircle2 size={14} className="text-green-500 flex-shrink-0" />
+                                  )}
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ══════════════════════════════════════════
