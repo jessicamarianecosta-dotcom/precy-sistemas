@@ -394,7 +394,7 @@ export default function ConteudoPage() {
                 Disponível no plano PRO
               </h3>
               <p className="text-sm text-stone-400 mb-1 px-2 leading-relaxed">
-                "{selectedItem.title}"
+                &ldquo;{selectedItem.title}&rdquo;
               </p>
               <p className="text-xs text-stone-500 mb-6 px-4">
                 Assine o PRO e acesse toda a biblioteca de ebooks, materiais premium e suporte prioritário.
