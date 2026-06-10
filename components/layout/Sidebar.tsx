@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Package, Boxes, ShoppingCart,
   Users, FileText, DollarSign, Settings, Calculator,
-  ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays,
+  ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays, BookOpen,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { createClient } from '@/lib/supabase/client'
@@ -43,6 +43,7 @@ const menuItems = [
   {
     title: 'Sistema',
     items: [
+      { href: '/conteudo',     icon: BookOpen, label: 'Conteúdo'      },
       { href: '/configuracoes', icon: Settings, label: 'Configurações' },
     ],
   },
