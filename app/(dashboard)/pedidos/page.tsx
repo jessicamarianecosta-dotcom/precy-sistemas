@@ -601,7 +601,64 @@ export default function PedidosPage() {
             }}
           />
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          <>
+            {/* ── MOBILE: Lista de pedidos ── */}
+            <div className="sm:hidden space-y-2">
+              {filtered.map((order: any) => (
+                <div key={order.id}
+                  className="card p-0 overflow-hidden"
+                  onClick={() => openOrder(order)}
+                >
+                  <div className="flex items-start gap-3 p-3.5">
+                    <div className={clsx(
+                      'w-2 self-stretch rounded-full flex-shrink-0',
+                      order.status === 'production' ? 'bg-blue-400'
+                        : order.status === 'ready'      ? 'bg-green-400'
+                        : order.status === 'delivered'  ? 'bg-primary'
+                        : 'bg-stone-300 dark:bg-stone-600'
+                    )}/>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-text-primary dark:text-stone-100 truncate">
+                            {order.service_name || '—'}
+                          </p>
+                          <p className="text-xs text-text-muted mt-0.5">
+                            {order.customers?.name || 'Sem cliente'} · {order.order_number || ''}
+                          </p>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-sm font-bold text-primary">{formatCurrency(Number(order.total))}</p>
+                          <span className={clsx(
+                            'text-[10px] font-medium px-1.5 py-0.5 rounded-full',
+                            order.payment_status === 'paid'
+                              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                              : 'bg-stone-100 text-stone-500 dark:bg-stone-800 dark:text-stone-400'
+                          )}>
+                            {order.payment_status === 'paid' ? 'Pago' : 'Pendente'}
+                          </span>
+                        </div>
+                      </div>
+                      {order.due_date && (
+                        <div className="flex items-center gap-1 mt-2 text-[11px] text-text-muted">
+                          <CalendarDays size={11}/>
+                          {format(new Date(order.due_date), 'dd/MM/yyyy', {locale: ptBR})}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); openOrder(order) }}
+                      className="p-1.5 rounded-xl text-text-muted hover:text-primary hover:bg-primary-50 flex-shrink-0 self-center"
+                    >
+                      <Edit2 size={13}/>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* ── DESKTOP: Kanban ── */}
+          <div className="hidden sm:grid grid-cols-2 xl:grid-cols-4 gap-3">
 
             {STATUS_COLUMNS.map((col) => {
               const colOrders =
@@ -645,106 +702,93 @@ export default function PedidosPage() {
                         <div
                           key={order.id}
                           draggable
-                          onDragStart={() =>
-                            setDragging(
-                              order.id
-                            )
-                          }
-                          className="bg-white dark:bg-surface-dark rounded-2xl p-4 shadow-card border border-border dark:border-border-dark"
+                          onDragStart={() => setDragging(order.id)}
+                          className={clsx(
+                            "group bg-white dark:bg-surface-dark rounded-2xl p-3.5 shadow-card border transition-all cursor-grab active:cursor-grabbing",
+                            dragging === order.id
+                              ? "border-primary/40 shadow-[0_0_0_2px_rgba(139,108,79,0.15)] scale-[0.98] opacity-70"
+                              : "border-border dark:border-border-dark hover:border-primary/30 hover:shadow-md"
+                          )}
                         >
-
-                          <div className="flex justify-between items-start mb-3">
-
-                            <div className="flex items-center gap-2">
-
-                              <GripVertical
-                                size={13}
-                              />
-
-                              <span className="text-xs font-semibold">
-                                {
-                                  order.order_number
-                                }
-                              </span>
-                            </div>
-
+                          {/* Row 1: number + actions */}
+                          <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-1.5">
+                              <GripVertical size={12} className="text-text-muted/50 flex-shrink-0"/>
+                              <span className="text-[10px] font-mono text-text-muted">{order.order_number||'—'}</span>
+                              {(order as any).priority === 'urgent' && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400">URGENTE</span>
+                              )}
+                              {(order as any).priority === 'high' && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">ALTA</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button
                                 onClick={(e) => { e.stopPropagation(); openOrder(order); }}
                                 className="p-1 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"
                                 title="Editar pedido"
                               >
-                                <Edit2 size={13} />
+                                <Edit2 size={12} />
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(order.id); }}
                                 className="p-1 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"
-                                title="Excluir pedido"
+                                title="Excluir"
                               >
-                                <Trash2 size={13} />
+                                <Trash2 size={12} />
                               </button>
                             </div>
                           </div>
 
-                          <h4 className="font-semibold text-sm">
-                            {
-                              order.service_name
-                            }
-                          </h4>
-
-                          <p className="text-xs text-text-muted mt-1">
-                            {
-                              (
-                                order.customers as any
-                              )?.name
-                            }
+                          {/* Row 2: service name */}
+                          <p className="font-semibold text-sm text-text-primary dark:text-stone-100 leading-tight truncate">
+                            {(order as any).service_name || '—'}
                           </p>
 
-                          <div className="flex items-center justify-between mt-4">
+                          {/* Row 3: client */}
+                          <div className="flex items-center gap-1 mt-1">
+                            <User size={10} className="text-text-muted flex-shrink-0"/>
+                            <p className="text-[11px] text-text-muted truncate">
+                              {(order.customers as any)?.name || 'Sem cliente'}
+                            </p>
+                          </div>
 
-                            <span className="font-bold text-primary">
-                              {formatCurrency(
-                                Number(
-                                  order.total
-                                )
-                              )}
+                          {/* Row 4: value + payment badge */}
+                          <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-border/50 dark:border-border-dark/50">
+                            <span className="font-bold text-sm text-primary">
+                              {formatCurrency(Number(order.total))}
                             </span>
-
-                            <span
-                              className={clsx(
-                                'badge text-[10px]',
-                                order.payment_status ===
-                                  'paid'
-                                  ? 'badge-success'
-                                  : 'badge-warning'
-                              )}
-                            >
-                              {order.payment_status ===
-                              'paid'
-                                ? 'Pago'
+                            <span className={clsx(
+                              'text-[10px] font-semibold px-2 py-0.5 rounded-full',
+                              (order as any).payment_status === 'paid'
+                                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                : (order as any).payment_status === 'partial'
+                                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                                  : 'bg-stone-100 text-stone-500 dark:bg-stone-800 dark:text-stone-400'
+                            )}>
+                              {(order as any).payment_status === 'paid' ? 'Pago'
+                                : (order as any).payment_status === 'partial' ? 'Parcial'
                                 : 'Pendente'}
                             </span>
                           </div>
 
-                          {order.due_date && (
-                            <div className="flex items-center gap-1 mt-3 text-[11px] text-text-muted">
-
-                              <CalendarDays
-                                size={12}
-                              />
-
-                              {format(
-                                new Date(
-                                  order.due_date
-                                ),
-                                'dd/MM/yyyy',
-                                {
-                                  locale:
-                                    ptBR,
-                                }
-                              )}
-                            </div>
-                          )}
+                          {/* Row 5: due date + method */}
+                          <div className="flex items-center justify-between mt-1.5">
+                            {(order as any).due_date ? (
+                              <div className="flex items-center gap-1 text-[10px] text-text-muted">
+                                <CalendarDays size={10}/>
+                                {format(new Date((order as any).due_date), 'dd/MM/yyyy', {locale: ptBR})}
+                              </div>
+                            ) : <span/>}
+                            {(order as any).payment_method && (
+                              <span className="text-[10px] text-text-muted/70 uppercase tracking-wide">
+                                {(order as any).payment_method === 'pix' ? 'PIX'
+                                  : (order as any).payment_method === 'cartao_credito' ? 'Crédito'
+                                  : (order as any).payment_method === 'cartao_debito' ? 'Débito'
+                                  : (order as any).payment_method}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       )
                     )}
@@ -753,6 +797,7 @@ export default function PedidosPage() {
               )
             })}
           </div>
+          </>
         )}
       </div>
 
@@ -896,7 +941,7 @@ export default function PedidosPage() {
                   <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2">
                     <DollarSign size={12} /> Valores
                   </h3>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Subtotal (R$)</label>
                       <input type="number" step="0.01" min="0" className="input" placeholder="0,00" {...register('subtotal')} />
@@ -905,11 +950,17 @@ export default function PedidosPage() {
                       <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Desconto (R$)</label>
                       <input type="number" step="0.01" min="0" className="input" placeholder="0,00" {...register('discount')} />
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Total Final (R$)</label>
-                      <input type="number" step="0.01" min="0" className="input bg-primary-50 dark:bg-primary/10 font-bold text-primary" readOnly {...register('total')} />
-                    </div>
                   </div>
+                  {/* Total calculado automaticamente */}
+                  <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20">
+                    <span className="text-sm font-medium text-text-secondary dark:text-stone-400">Total final</span>
+                    <span className="text-xl font-bold text-primary">
+                      {new Intl.NumberFormat('pt-BR', {style:'currency',currency:'BRL'}).format(
+                        Math.max(0, Number(watch('subtotal') || 0) - Number(watch('discount') || 0))
+                      )}
+                    </span>
+                  </div>
+                  <input type="hidden" {...register('total')} />
                 </section>
 
                 <div className="h-px bg-border dark:bg-border-dark" />
