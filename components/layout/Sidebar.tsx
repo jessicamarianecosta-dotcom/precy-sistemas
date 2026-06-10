@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Package, Boxes, ShoppingCart,
   Users, FileText, DollarSign, Settings, Calculator,
-  ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun,
+  ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { createClient } from '@/lib/supabase/client'
@@ -29,6 +29,7 @@ const menuItems = [
       { href: '/produtos',    icon: Package,     label: 'Produtos'  },
       { href: '/estoque',     icon: Boxes,       label: 'Estoque'   },
       { href: '/pedidos',     icon: ShoppingCart,label: 'Pedidos'   },
+      { href: '/agenda',      icon: CalendarDays,label: 'Agenda'    },
       { href: '/clientes',    icon: Users,       label: 'Clientes'  },
     ],
   },
@@ -47,7 +48,7 @@ const menuItems = [
   },
 ]
 
-const comingSoon = ['IA de Precificação', 'WhatsApp', 'Agenda']
+const comingSoon = ['IA de Precificação', 'WhatsApp']
 
 /* ─── SidebarInner (shared between drawer and fixed) ─── */
 function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: () => void }) {
