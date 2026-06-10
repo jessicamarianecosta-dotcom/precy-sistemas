@@ -761,10 +761,12 @@ export default function PrecificacaoPage() {
                 {productName || 'Produto'} — Preço Ideal
               </p>
               <p className="text-5xl font-bold text-white mb-1 tracking-tight">
-                {fmt(idealPrice)}
+                {fmt(calculated ? snap.idealPrice : 0)}
               </p>
               <p className="text-sm text-white/70">
-                Margem: {margin.toFixed(1)}% · Lucro: {fmt(profit)}
+                {calculated
+                  ? `Margem: ${snap.margin.toFixed(1)}% · Lucro: ${fmt(snap.profit)}`
+                  : 'Clique em "Calcular" para ver o preço'}
               </p>
             </div>
 
@@ -775,15 +777,20 @@ export default function PrecificacaoPage() {
                 Composição do preço
               </h3>
 
-              {productType === 'produced' ? (
+              {!calculated ? (
+                <div className="py-4 text-center text-text-muted dark:text-stone-500 text-sm">
+                  <Calculator size={20} className="mx-auto mb-2 opacity-30" />
+                  Preencha os dados e clique em<br/><strong>Calcular precificação</strong>
+                </div>
+              ) : productType === 'produced' ? (
                 <>
-                  {materialCost > 0 && (
-                    <Row label="Materiais" value={materialCost} color="bg-info-light text-info-dark" />
+                  {snap.materialCost > 0 && (
+                    <Row label="Materiais" value={snap.materialCost} color="bg-info-light text-info-dark" />
                   )}
-                  {laborCost > 0 && (
+                  {snap.laborCost > 0 && (
                     <Row
                       label={`Mão de obra (${productionHours}h × ${fmt(hourlyRate)})`}
-                      value={laborCost}
+                      value={snap.laborCost}
                       color="bg-warning-light text-warning-dark"
                     />
                   )}
@@ -792,16 +799,20 @@ export default function PrecificacaoPage() {
                 <Row label="Custo de compra" value={purchaseCost} color="bg-info-light text-info-dark" />
               )}
 
-              {extraCost > 0 && (
-                <Row label="Extras / embalagem" value={extraCost} color="bg-primary-50 text-primary" />
+              {calculated && snap.extraCost > 0 && (
+                <Row label="Extras / embalagem" value={snap.extraCost} color="bg-primary-50 text-primary" />
               )}
 
-              <Row label="Custo total" value={baseCost} color="bg-error-light text-error-dark" />
-              <Row label={`Lucro (${markup}%)`} value={profit} color="bg-success-light text-success-dark" />
+              {calculated && (
+                <>
+                  <Row label="Custo total" value={snap.baseCost} color="bg-error-light text-error-dark" />
+                  <Row label={`Lucro (${markup}%)`} value={snap.profit} color="bg-success-light text-success-dark" />
+                </>
+              )}
 
               <div className="pt-2 border-t border-border dark:border-border-dark flex items-center justify-between">
                 <span className="text-sm font-semibold text-text-primary dark:text-stone-100">Preço Final</span>
-                <span className="text-xl font-bold text-primary">{fmt(idealPrice)}</span>
+                <span className="text-xl font-bold text-primary">{fmt(calculated ? snap.idealPrice : 0)}</span>
               </div>
             </div>
 
@@ -855,6 +866,14 @@ export default function PrecificacaoPage() {
                 O produto será salvo e aparecerá automaticamente no módulo Produtos e em Orçamentos.
               </p>
 
+              {(!calculated || needsRecalc) && (
+                <div className="flex items-center gap-2 p-3 rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20">
+                  <AlertTriangle size={13} className="text-primary flex-shrink-0" />
+                  <p className="text-xs text-text-secondary dark:text-stone-300">
+                    {needsRecalc ? 'Recalcule antes de salvar — dados foram alterados.' : 'Clique em "Calcular precificação" antes de salvar.'}
+                  </p>
+                </div>
+              )}
               {!productName.trim() && (
                 <div className="flex items-center gap-2 p-3 rounded-xl bg-warning-light dark:bg-warning/10 border border-warning/20">
                   <AlertTriangle size={13} className="text-warning flex-shrink-0" />
@@ -881,7 +900,7 @@ export default function PrecificacaoPage() {
               <button
                 type="button"
                 onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending || !productName.trim()}
+                disabled={saveMutation.isPending || !productName.trim() || !calculated || needsRecalc}
                 className="btn-primary w-full flex items-center justify-center gap-2 py-3"
               >
                 {saveMutation.isPending ? (
