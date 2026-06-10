@@ -285,12 +285,11 @@ export default function ConfiguracoesPage() {
     },
   })
 
-  /* ─── Logo upload ─── */
+  /* ─── Logo upload (server-side via /api/ensure-bucket para evitar RLS) ─── */
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file || !companyId) return
 
-    // Validar tipo e tamanho
     if (!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type)) {
       showError('Use uma imagem JPG, PNG ou WebP.')
       return
@@ -302,35 +301,26 @@ export default function ConfiguracoesPage() {
 
     setUploadingLogo(true)
     try {
-      // Garantir que o bucket existe
-      await fetch('/api/ensure-bucket', { method: 'POST' })
-
-      // Preview imediato
+      // Preview imediato via FileReader
       const reader = new FileReader()
       reader.onload = (ev) => { if (ev.target?.result) setLogoPreview(ev.target.result as string) }
       reader.readAsDataURL(file)
 
-      // Upload para Supabase Storage
-      const ext  = file.name.split('.').pop()?.toLowerCase() ?? 'png'
-      const path = `logos/${companyId}.${ext}`
-      const { error: upErr } = await supabase.storage
-        .from('company-assets')
-        .upload(path, file, { upsert: true, contentType: file.type })
+      // Upload server-side: supabaseAdmin ignora RLS (sem erro de policy)
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('companyId', companyId)
 
-      if (upErr) {
-        console.error('[logo-upload] storage error:', upErr)
-        showError(`Erro no upload: ${upErr.message}`)
+      const res  = await fetch('/api/ensure-bucket', { method: 'POST', body: fd })
+      const json = await res.json()
+
+      if (!res.ok || !json.url) {
+        console.error('[logo-upload] server error:', json)
+        showError(json.error ?? 'Erro ao salvar logo.')
         return
       }
 
-      const { data: urlData } = supabase.storage.from('company-assets').getPublicUrl(path)
-      const logoUrl = urlData.publicUrl
-
-      await (supabase.from('companies') as any)
-        .update({ logo_url: logoUrl, updated_at: new Date().toISOString() })
-        .eq('id', companyId)
-
-      setLogoPreview(logoUrl)
+      setLogoPreview(json.url)
       queryClient.invalidateQueries({ queryKey: ['company', companyId] })
       showSaved()
     } catch (err: unknown) {
