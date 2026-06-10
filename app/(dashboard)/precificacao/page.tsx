@@ -121,6 +121,15 @@ export default function PrecificacaoPage() {
   const [pickerSearch, setPickerSearch] = useState('')
   const [savedOk,     setSavedOk]     = useState(false)
 
+  /* ── Estado do cálculo (fluxo manual) ── */
+  const [calculated,   setCalculated]  = useState(false)
+  const [needsRecalc,  setNeedsRecalc] = useState(false)
+  const [snap, setSnap] = useState({
+    laborCost: 0, materialCost: 0, extraCost: 0,
+    baseCost: 0, idealPrice: 0, profit: 0, margin: 0,
+    scenarios: [] as { label: string; sub: string; price: number; markup: number; active?: boolean }[],
+  })
+
   /* ── load company ── */
   useEffect(() => {
     async function load() {
@@ -256,6 +265,19 @@ export default function PrecificacaoPage() {
   function removeMaterial(tmpId: string) {
     setMaterials(prev => prev.filter(m => m.tmpId !== tmpId))
   }
+
+  /* ── Cálculo manual ── */
+  function handleCalculate() {
+    setSnap({ laborCost, materialCost, extraCost, baseCost, idealPrice, profit, margin, scenarios: [...scenarios] })
+    setCalculated(true)
+    setNeedsRecalc(false)
+  }
+
+  const dataHash = JSON.stringify({ materials, extraCosts, markup, productionHours, productType, purchaseCost })
+  useEffect(() => {
+    if (calculated) { setNeedsRecalc(true); setCalculated(false) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataHash])
 
   /* ── Save mutation ── */
   const saveMutation = useMutation({
