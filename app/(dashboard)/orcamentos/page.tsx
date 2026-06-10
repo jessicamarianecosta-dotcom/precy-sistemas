@@ -15,7 +15,7 @@ import {
   FileText, Plus, X, Loader2, Trash2, Download,
   CheckCircle, XCircle, Clock, Send, ChevronRight,
   ChevronLeft, User, Package, CreditCard, Truck,
-  Eye, Search, Edit3, Minus,
+  Eye, Search, Edit3, Edit2, Minus,
 } from 'lucide-react'
 
 interface BudgetItem {
