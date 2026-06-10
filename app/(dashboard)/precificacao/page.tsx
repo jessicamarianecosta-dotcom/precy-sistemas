@@ -121,15 +121,6 @@ export default function PrecificacaoPage() {
   const [pickerSearch, setPickerSearch] = useState('')
   const [savedOk,     setSavedOk]     = useState(false)
 
-  /* ── Estado do cálculo (fluxo manual) ── */
-  const [calculated,   setCalculated]  = useState(false)
-  const [needsRecalc,  setNeedsRecalc] = useState(false)
-  const [snap, setSnap] = useState({
-    laborCost: 0, materialCost: 0, extraCost: 0,
-    baseCost: 0, idealPrice: 0, profit: 0, margin: 0,
-    scenarios: [] as { label: string; sub: string; price: number; markup: number; active?: boolean }[],
-  })
-
   /* ── load company ── */
   useEffect(() => {
     async function load() {
@@ -147,19 +138,8 @@ export default function PrecificacaoPage() {
     enabled:  !!companyId,
     queryFn:  async () => {
       const res: any = await supabase.from('companies')
-        .select('work_hours_per_month').eq('id', companyId!).single()
+        .select('fixed_costs, work_hours_per_month').eq('id', companyId!).single()
       return res?.data
-    },
-  })
-
-  // Busca a tabela fixed_costs (mesma fonte que Configurações usa)
-  const { data: fixedCostsRows } = useQuery({
-    queryKey: ['fixed-costs', companyId],
-    enabled:  !!companyId,
-    queryFn:  async () => {
-      const { data } = await (supabase.from('fixed_costs') as any)
-        .select('amount').eq('company_id', companyId!)
-      return (data ?? []) as Array<{ amount: number }>
     },
   })
 
@@ -176,23 +156,9 @@ export default function PrecificacaoPage() {
   })
 
   /* ── Calculated values ── */
-  // Soma da tabela fixed_costs (mesma lógica que Configurações)
-  const fixedCostsTotal = (fixedCostsRows ?? []).reduce(
-    (s, row) => s + Number(row.amount ?? 0), 0
-  )
-  // Pró-labore salvo no localStorage pela página de Configurações
-  const storedRoutine = (() => {
-    if (typeof window === 'undefined' || !companyId) return null
-    try {
-      const raw = localStorage.getItem(`precy_routine_${companyId}`)
-      return raw ? JSON.parse(raw) : null
-    } catch { return null }
-  })()
-  const prolabore = Number(storedRoutine?.prolabore ?? 0)
-
-  const workHours  = Number((company as any)?.work_hours_per_month ?? 160)
-  // custo/hora = (custos fixos + pró-labore) ÷ horas/mês  (igual às Configurações)
-  const hourlyRate = workHours > 0 ? (fixedCostsTotal + prolabore) / workHours : 0
+  const fixedCosts   = Number((company as any)?.fixed_costs ?? 0)
+  const workHours    = Number((company as any)?.work_hours_per_month ?? 160)
+  const hourlyRate   = workHours > 0 ? fixedCosts / workHours : 0
   const laborCost    = productType === 'produced' ? hourlyRate * productionHours : 0
   const materialCost = materials.reduce((s, m) => s + m.subtotal, 0)
 
@@ -266,19 +232,6 @@ export default function PrecificacaoPage() {
     setMaterials(prev => prev.filter(m => m.tmpId !== tmpId))
   }
 
-  /* ── Cálculo manual ── */
-  function handleCalculate() {
-    setSnap({ laborCost, materialCost, extraCost, baseCost, idealPrice, profit, margin, scenarios: [...scenarios] })
-    setCalculated(true)
-    setNeedsRecalc(false)
-  }
-
-  const dataHash = JSON.stringify({ materials, extraCosts, markup, productionHours, productType, purchaseCost })
-  useEffect(() => {
-    if (calculated) { setNeedsRecalc(true); setCalculated(false) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataHash])
-
   /* ── Save mutation ── */
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -288,51 +241,70 @@ export default function PrecificacaoPage() {
 
       /* ─────────────────────────────
          1. SALVAR PRODUTO
-         Payload alinhado com colunas reais da tabela products
-         (+ colunas adicionadas pela migration 003)
       ───────────────────────────── */
-      const productPayload = {
-        company_id:            companyId,
-        name:                  productName.trim(),
-        category,
-        unit,
-        product_type:          productType,
-        production_time_hours: productType === 'produced' ? productionHours : 0,
-        material_cost:         productType === 'produced' ? materialCost : 0,
-        purchase_cost:         productType === 'resale'   ? purchaseCost  : 0,
-        labor_cost:            laborCost,
-        extra_cost:            extraCost,
-        total_cost:            baseCost,
-        markup_percentage:     markup,
-        final_price:           idealPrice,
-        is_active:             true,
-      }
-
       const { data: product, error: productError } = await (supabase
         .from('products') as any)
-        .insert(productPayload)
-        .select('id')
+        .insert({
+          company_id: companyId,
+
+          name: productName.trim(),
+
+          category,
+
+          unit,
+
+          production_time_hours:
+            productType === 'produced'
+              ? productionHours
+              : 0,
+
+          material_cost:
+            productType === 'produced'
+              ? materialCost
+              : purchaseCost,
+
+          extra_cost: extraCost,
+          extra_costs: extraCosts,
+
+          markup_percentage: markup,
+
+          final_price: idealPrice,
+
+          product_type: productType,
+
+          is_active: true,
+        })
+        .select()
         .single()
 
       if (productError) {
-        console.error('[precificacao] product insert error:', productError)
-        throw new Error(productError.message)
+        console.error(productError)
+        throw productError
       }
 
       /* ─────────────────────────────
          2. SALVAR MATERIAIS UTILIZADOS
-         Tabela product_materials (criada pela migration 003)
       ───────────────────────────── */
-      if (productType === 'produced' && materials.length > 0 && product?.id) {
+      if (
+        productType === 'produced' &&
+        materials.length > 0
+      ) {
         const materialRows = materials.map(m => ({
-          company_id:    companyId,
-          product_id:    product.id,
-          inventory_id:  m.inventory_id,
+          company_id: companyId,
+
+          product_id: product.id,
+
+          inventory_id: m.inventory_id,
+
           material_name: m.name,
-          quantity:      m.quantity,
-          unit:          m.unit,
-          unit_cost:     m.cost_per_unit,
-          subtotal:      m.subtotal,
+
+          quantity: m.quantity,
+
+          unit: m.unit,
+
+          unit_cost: m.cost_per_unit,
+
+          subtotal: m.subtotal,
         }))
 
         const { error: materialsError } = await (supabase
@@ -340,8 +312,8 @@ export default function PrecificacaoPage() {
           .insert(materialRows)
 
         if (materialsError) {
-          // Log mas não falha — produto já foi salvo
-          console.warn('[precificacao] materials insert warning:', materialsError)
+          console.error(materialsError)
+          throw materialsError
         }
       }
 
@@ -349,9 +321,13 @@ export default function PrecificacaoPage() {
     },
 
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['products', companyId] })
-      queryClient.invalidateQueries({ queryKey: ['inventory-picker', companyId] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
+      queryClient.invalidateQueries({
+        queryKey: ['products', companyId],
+      })
+
+      queryClient.invalidateQueries({
+        queryKey: ['inventory-picker', companyId],
+      })
 
       setSavedOk(true)
 
@@ -388,7 +364,7 @@ export default function PrecificacaoPage() {
       <div className="p-4 sm:p-6 space-y-5">
 
         {/* ── Info banner quando não tem custos fixos ── */}
-        {!fixedCostsTotal && (
+        {!fixedCosts && (
           <div className="flex items-start gap-3 p-4 rounded-xl border border-warning/30 bg-warning-light dark:bg-warning/10">
             <AlertTriangle size={16} className="text-warning flex-shrink-0 mt-0.5" />
             <p className="text-xs text-warning-dark">
@@ -603,7 +579,7 @@ export default function PrecificacaoPage() {
                         {productionHours}h × {fmt(hourlyRate)}/h =
                         <span className="font-bold text-primary ml-1">{fmt(laborCost)}</span>
                       </p>
-                      {!fixedCostsTotal && (
+                      {!fixedCosts && (
                         <p className="text-[10px] text-warning mt-0.5">
                           Configure custos fixos para cálculo preciso
                         </p>
@@ -764,7 +740,7 @@ export default function PrecificacaoPage() {
 
               <div className="mt-4 p-3 rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20">
                 <p className="text-xs text-primary font-medium">
-                  📊 Custos fixos — {fmt(fixedCostsTotal)}{prolabore > 0 ? ` + pró-labore ${fmt(prolabore)}` : ''} ÷ {workHours}h = {fmt(hourlyRate)}/hora
+                  📊 Custos fixos mensais — {fmt(fixedCosts)} ÷ {workHours}h = {fmt(hourlyRate)}/hora
                 </p>
               </div>
             </div>
@@ -783,12 +759,10 @@ export default function PrecificacaoPage() {
                 {productName || 'Produto'} — Preço Ideal
               </p>
               <p className="text-5xl font-bold text-white mb-1 tracking-tight">
-                {fmt(calculated ? snap.idealPrice : 0)}
+                {calculated ? fmt(snap.idealPrice) : 'R$ 0,00'}
               </p>
               <p className="text-sm text-white/70">
-                {calculated
-                  ? `Margem: ${snap.margin.toFixed(1)}% · Lucro: ${fmt(snap.profit)}`
-                  : 'Clique em "Calcular" para ver o preço'}
+                Margem: {calculated ? snap.margin.toFixed(1) : '0.0'}% · Lucro: {calculated ? fmt(snap.profit) : 'R$ 0,00'}
               </p>
             </div>
 
@@ -799,17 +773,12 @@ export default function PrecificacaoPage() {
                 Composição do preço
               </h3>
 
-              {!calculated ? (
-                <div className="py-4 text-center text-text-muted dark:text-stone-500 text-sm">
-                  <Calculator size={20} className="mx-auto mb-2 opacity-30" />
-                  Preencha os dados e clique em<br/><strong>Calcular precificação</strong>
-                </div>
-              ) : productType === 'produced' ? (
+              {productType === 'produced' ? (
                 <>
-                  {snap.materialCost > 0 && (
+                  {calculated && snap.materialCost > 0 && (
                     <Row label="Materiais" value={snap.materialCost} color="bg-info-light text-info-dark" />
                   )}
-                  {snap.laborCost > 0 && (
+                  {calculated && snap.laborCost > 0 && (
                     <Row
                       label={`Mão de obra (${productionHours}h × ${fmt(hourlyRate)})`}
                       value={snap.laborCost}
@@ -825,16 +794,12 @@ export default function PrecificacaoPage() {
                 <Row label="Extras / embalagem" value={snap.extraCost} color="bg-primary-50 text-primary" />
               )}
 
-              {calculated && (
-                <>
-                  <Row label="Custo total" value={snap.baseCost} color="bg-error-light text-error-dark" />
-                  <Row label={`Lucro (${markup}%)`} value={snap.profit} color="bg-success-light text-success-dark" />
-                </>
-              )}
+              <Row label="Custo total" value={calculated ? snap.baseCost : 0} color="bg-error-light text-error-dark" />
+              <Row label={`Lucro (${markup}%)`} value={calculated ? snap.profit : 0} color="bg-success-light text-success-dark" />
 
               <div className="pt-2 border-t border-border dark:border-border-dark flex items-center justify-between">
                 <span className="text-sm font-semibold text-text-primary dark:text-stone-100">Preço Final</span>
-                <span className="text-xl font-bold text-primary">{fmt(calculated ? snap.idealPrice : 0)}</span>
+                <span className="text-xl font-bold text-primary">{calculated ? fmt(snap.idealPrice) : 'R$ 0,00'}</span>
               </div>
             </div>
 
@@ -887,15 +852,15 @@ export default function PrecificacaoPage() {
               <p className="text-xs text-text-secondary dark:text-stone-400">
                 O produto será salvo e aparecerá automaticamente no módulo Produtos e em Orçamentos.
               </p>
-
               {(!calculated || needsRecalc) && (
-                <div className="flex items-center gap-2 p-3 rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20">
-                  <AlertTriangle size={13} className="text-primary flex-shrink-0" />
-                  <p className="text-xs text-text-secondary dark:text-stone-300">
-                    {needsRecalc ? 'Recalcule antes de salvar — dados foram alterados.' : 'Clique em "Calcular precificação" antes de salvar.'}
+                <div className="flex items-center gap-2 p-2.5 rounded-xl bg-warning-light dark:bg-warning/10 border border-warning/20">
+                  <AlertTriangle size={12} className="text-warning flex-shrink-0" />
+                  <p className="text-xs text-warning-dark dark:text-warning">
+                    {needsRecalc ? 'Recalcule antes de salvar' : 'Calcule a precificação primeiro'}
                   </p>
                 </div>
               )}
+
               {!productName.trim() && (
                 <div className="flex items-center gap-2 p-3 rounded-xl bg-warning-light dark:bg-warning/10 border border-warning/20">
                   <AlertTriangle size={13} className="text-warning flex-shrink-0" />
@@ -923,7 +888,7 @@ export default function PrecificacaoPage() {
                 type="button"
                 onClick={() => saveMutation.mutate()}
                 disabled={saveMutation.isPending || !productName.trim() || !calculated || needsRecalc}
-                className="btn-primary w-full flex items-center justify-center gap-2 py-3"
+                className={`btn-primary w-full flex items-center justify-center gap-2 py-3 ${(!calculated || needsRecalc) ? "opacity-40 cursor-not-allowed" : ""}`}
               >
                 {saveMutation.isPending ? (
                   <Loader2 size={15} className="animate-spin" />
