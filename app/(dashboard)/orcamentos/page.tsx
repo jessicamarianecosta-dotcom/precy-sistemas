@@ -529,7 +529,7 @@ export default function OrcamentosPage() {
                   <div className="space-y-2">
                     <div className="p-3.5 rounded-xl border border-border dark:border-stone-700 bg-white dark:bg-white/[0.02]">
                       <div className="flex items-center gap-2 mb-2"><User size={13} className="text-primary"/><span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Cliente</span></div>
-                      <p className="text-sm font-medium text-text-primary dark:text-stone-100">{clientMode==='new'?newClient.name|'—':(customers??[]).find((c:any)=>c.id===clientId)?.name??'—'}</p>
+                      <p className="text-sm font-medium text-text-primary dark:text-stone-100">{clientMode==='new'?newClient.name||'—':(customers??[]).find((c:any)=>c.id===clientId)?.name??'—'}</p>
                     </div>
                     <div className="p-3.5 rounded-xl border border-border dark:border-stone-700 bg-white dark:bg-white/[0.02]">
                       <div className="flex items-center gap-2 mb-2"><Package size={13} className="text-primary"/><span className="text-xs font-semibold text-text-muted uppercase tracking-wider">{items.length} item{items.length!==1?'s':''}</span></div>
