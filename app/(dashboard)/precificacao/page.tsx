@@ -101,6 +101,12 @@ export default function PrecificacaoPage() {
   const [markup,           setMarkup]           = useState(100)
   const [productionHours,  setProductionHours]  = useState(1)
   const [purchaseCost,     setPurchaseCost]     = useState(0)
+  // ── Produto por metro ──
+  const [mWidth,           setMWidth]           = useState<number>(0)
+  const [mHeight,          setMHeight]          = useState<number>(0)
+  const [mUnit,            setMUnit]            = useState<'cm'|'m'>('cm')
+  const [pricePerM2,       setPricePerM2]       = useState<number>(0)
+  const [finishingCost,    setFinishingCost]    = useState<number>(0)
   const [extraCosts, setExtraCosts] = useState<
     {
       id: string
@@ -899,18 +905,24 @@ export default function PrecificacaoPage() {
                   {materialCost > 0 && (
                     <Row label="Materiais" value={materialCost} color="bg-info-light text-info-dark" />
                   )}
-                  {productType === 'meter_product' && mMaterialCost > 0 && (
-                    <Row label={`Material (${mAreaM2.toFixed(4)}m² × ${fmt(pricePerM2)}/m²)`} value={mMaterialCost} color="bg-info-light text-info-dark" />
-                  )}
-                  {productType === 'meter_product' && finishingCost > 0 && (
-                    <Row label="Acabamento / corte" value={finishingCost} color="bg-warning-light text-warning-dark" />
-                  )}
                   {laborCost > 0 && (
                     <Row
                       label={`Mão de obra (${productionHours}h × ${fmt(hourlyRate)})`}
                       value={laborCost}
                       color="bg-warning-light text-warning-dark"
                     />
+                  )}
+                </>
+              ) : productType === 'meter_product' ? (
+                <>
+                  {mMaterialCost > 0 && (
+                    <Row label={`Material (${mAreaM2.toFixed(4)}m² × ${fmt(pricePerM2)}/m²)`} value={mMaterialCost} color="bg-info-light text-info-dark" />
+                  )}
+                  {finishingCost > 0 && (
+                    <Row label="Acabamento / corte" value={finishingCost} color="bg-warning-light text-warning-dark" />
+                  )}
+                  {laborCost > 0 && (
+                    <Row label={`Mão de obra (${productionHours}h × ${fmt(hourlyRate)})`} value={laborCost} color="bg-warning-light text-warning-dark" />
                   )}
                 </>
               ) : (
