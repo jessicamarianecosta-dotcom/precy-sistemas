@@ -348,7 +348,70 @@ export default function ClientesPage() {
               </div>
 
               {/* ── DESKTOP: tabela ── */}
-              <div className="hidden md:block overflow-x-auto w-full">
+              {/* ── MOBILE: cards ── */}
+            <div className="md:hidden divide-y divide-border dark:divide-border-dark">
+              {filtered.map(c => (
+                <div key={c.id} className="p-4">
+                  <div className="flex items-start gap-3">
+                    <div className={clsx(
+                      'w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-sm font-bold mt-0.5',
+                      avatarColor(c.id)
+                    )}>
+                      {initials(c.name)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-text-primary dark:text-stone-100 truncate">{c.name}</p>
+                          {c.cpf_cnpj && <p className="text-[10px] text-text-muted mt-0.5">{c.cpf_cnpj}</p>}
+                        </div>
+                        {c.total_purchases > 0 && (
+                          <span className="text-sm font-bold text-primary flex-shrink-0">
+                            {new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(c.total_purchases)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        {c.email && (
+                          <div className="flex items-center gap-1.5 text-xs text-text-secondary dark:text-stone-400">
+                            <Mail size={11} className="text-text-muted flex-shrink-0" />
+                            <span className="truncate">{c.email}</span>
+                          </div>
+                        )}
+                        {c.phone && (
+                          <div className="flex items-center gap-1.5 text-xs text-text-secondary dark:text-stone-400">
+                            <Phone size={11} className="text-text-muted flex-shrink-0" />
+                            <span>{c.phone}</span>
+                          </div>
+                        )}
+                        {(c.city || c.state) && (
+                          <div className="flex items-center gap-1.5 text-xs text-text-muted">
+                            <MapPin size={11} className="flex-shrink-0" />
+                            <span>{[c.city, c.state].filter(Boolean).join(', ')}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-3">
+                        <button
+                          onClick={() => openEdit(c)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg border border-border dark:border-border-dark hover:border-primary hover:text-primary transition-colors"
+                        >
+                          <Edit2 size={12} /> Editar
+                        </button>
+                        <button
+                          onClick={() => setDeleteId(c.id)}
+                          className="p-2 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="hidden md:block overflow-x-auto w-full">
 <table className="w-full">
                 <thead>
                   <tr className="border-b border-border dark:border-border-dark">
@@ -490,7 +553,6 @@ export default function ClientesPage() {
           )}
         </div>
       </div>
-            </>
 
       {/* ══ MODAL CRIAR / EDITAR ══ */}
       {showModal && (
