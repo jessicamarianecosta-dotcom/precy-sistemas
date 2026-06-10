@@ -2,9 +2,17 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
 interface PDFParams {
-  budget: Record<string, unknown>
-  items: Record<string, unknown>[]
+  budget:  Record<string, unknown>
+  items:   Record<string, unknown>[]
   company: Record<string, unknown> | null
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const sanitized = hex.replace('#', '')
+  const r = parseInt(sanitized.substring(0, 2), 16) || 0
+  const g = parseInt(sanitized.substring(2, 4), 16) || 0
+  const b = parseInt(sanitized.substring(4, 6), 16) || 0
+  return [r, g, b]
 }
 
 function fmt(v: number) {
@@ -28,23 +36,14 @@ export async function generateBudgetPDF({
     format: 'a4',
   })
 
-  const PRIMARY = [
-    139,
-    108,
-    79,
-  ] as [number, number, number]
-
-  const SECONDARY = [
-    184,
-    149,
-    106,
-  ] as [number, number, number]
-
-  const TEXT = [
-    44,
-    32,
-    24,
-  ] as [number, number, number]
+  // Cores dinâmicas da empresa (fallback para cores padrão)
+  const PRIMARY:   [number,number,number] = hexToRgb(
+    String(company?.primary_color ?? '#8B6C4F')
+  )
+  const SECONDARY: [number,number,number] = hexToRgb(
+    String(company?.secondary_color ?? '#B8956A')
+  )
+  const TEXT: [number,number,number] = [44, 32, 24]
 
   const MUTED = [
     184,
@@ -80,18 +79,32 @@ export async function generateBudgetPDF({
 
   doc.setTextColor(...WHITE)
 
-  doc.setFont(
-    'helvetica',
-    'bold'
-  )
-
-  doc.setFontSize(22)
-
-  doc.text(
-    'Precy+',
-    marginX,
-    18
-  )
+  // Logo da empresa (se disponível)
+  const logoUrl = company?.logo_url as string | undefined
+  if (logoUrl) {
+    try {
+      // jsPDF suporta PNG/JPEG via URL para data URIs
+      // Para URL externa, usamos texto como fallback
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(16)
+      doc.text(String(company?.name ?? 'Precy+'), marginX, 20)
+    } catch {
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(22)
+      doc.text('Precy+', marginX, 18)
+    }
+  } else {
+    doc.setFont(
+      'helvetica',
+      'bold'
+    )
+    doc.setFontSize(22)
+    doc.text(
+      'Precy+',
+      marginX,
+      18
+    )
+  }
 
   doc.setFontSize(9)
 

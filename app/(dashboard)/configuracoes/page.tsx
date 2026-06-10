@@ -101,6 +101,9 @@ export default function ConfiguracoesPage() {
   const [saved,          setSaved]          = useState(false)
   const [logoPreview,    setLogoPreview]    = useState<string | null>(null)
   const [uploadingLogo,  setUploadingLogo]  = useState(false)
+  const [primaryColor,   setPrimaryColor]   = useState('#8B6C4F')
+  const [secondaryColor, setSecondaryColor] = useState('#2C2018')
+  const [savingColors,   setSavingColors]   = useState(false)
   /* rotina de trabalho — persiste via localStorage */
   const [daysPerWeek,    setDaysPerWeek]    = useState(5)
   const [hoursPerDay,    setHoursPerDay]    = useState(8)
@@ -213,7 +216,9 @@ export default function ConfiguracoesPage() {
         work_hours_per_month: (company as any)?.work_hours_per_month ?? 160,
         email:                (company as any)?.email ?? '',
       })
-      if ((company as any)?.logo_url) setLogoPreview((company as any).logo_url)
+      if ((company as any)?.logo_url)     setLogoPreview((company as any).logo_url)
+      if ((company as any)?.primary_color)   setPrimaryColor((company as any).primary_color)
+      if ((company as any)?.secondary_color) setSecondaryColor((company as any).secondary_color)
     }
   }, [company, profile])
 
@@ -279,20 +284,79 @@ export default function ConfiguracoesPage() {
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file || !companyId) return
+
+    // Validar tipo e tamanho
+    if (!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type)) {
+      toast('error', 'Use uma imagem JPG, PNG ou WebP.')
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast('error', 'Imagem muito grande. Máximo 2MB.')
+      return
+    }
+
     setUploadingLogo(true)
     try {
-      const ext  = file.name.split('.').pop()
+      // Garantir que o bucket existe
+      await fetch('/api/ensure-bucket', { method: 'POST' })
+
+      // Preview imediato
+      const reader = new FileReader()
+      reader.onload = (ev) => { if (ev.target?.result) setLogoPreview(ev.target.result as string) }
+      reader.readAsDataURL(file)
+
+      // Upload para Supabase Storage
+      const ext  = file.name.split('.').pop()?.toLowerCase() ?? 'png'
       const path = `logos/${companyId}.${ext}`
-      const { error } = await supabase.storage.from('company-assets').upload(path, file, { upsert: true })
-      if (!error) {
-        const { data: urlData } = supabase.storage.from('company-assets').getPublicUrl(path)
-        await (supabase.from('companies') as any).update({ logo_url: urlData.publicUrl }).eq('id', companyId)
-        setLogoPreview(urlData.publicUrl)
-        queryClient.invalidateQueries({ queryKey: ['company', companyId] })
-        showSaved()
+      const { error: upErr } = await supabase.storage
+        .from('company-assets')
+        .upload(path, file, { upsert: true, contentType: file.type })
+
+      if (upErr) {
+        console.error('[logo-upload] storage error:', upErr)
+        toast('error', `Erro no upload: ${upErr.message}`)
+        return
       }
+
+      const { data: urlData } = supabase.storage.from('company-assets').getPublicUrl(path)
+      const logoUrl = urlData.publicUrl
+
+      await (supabase.from('companies') as any)
+        .update({ logo_url: logoUrl, updated_at: new Date().toISOString() })
+        .eq('id', companyId)
+
+      setLogoPreview(logoUrl)
+      queryClient.invalidateQueries({ queryKey: ['company', companyId] })
+      toast('success', 'Logo salva com sucesso!')
+    } catch (err: unknown) {
+      console.error('[logo-upload] unexpected:', err)
+      toast('error', 'Erro ao salvar logo.')
     } finally {
       setUploadingLogo(false)
+    }
+  }
+
+  /* ─── Salvar cores de branding ─── */
+  async function handleSaveColors() {
+    if (!companyId) return
+    setSavingColors(true)
+    try {
+      const { error } = await (supabase.from('companies') as any)
+        .update({
+          primary_color:   primaryColor,
+          secondary_color: secondaryColor,
+          updated_at:      new Date().toISOString(),
+        })
+        .eq('id', companyId)
+      if (error) throw error
+      queryClient.invalidateQueries({ queryKey: ['company', companyId] })
+      toast('success', 'Cores salvas!')
+    } catch (err: unknown) {
+      const e = err as Error
+      console.error('[save-colors]', e)
+      toast('error', `Erro ao salvar cores: ${e.message}`)
+    } finally {
+      setSavingColors(false)
     }
   }
 
@@ -490,32 +554,88 @@ export default function ConfiguracoesPage() {
                   </div>
                 </div>
 
-                {/* Cores */}
-                <div className="grid grid-cols-2 gap-4">
+                {/* Cores controladas */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <FieldLabel>Cor principal</FieldLabel>
                     <div className="flex items-center gap-2">
-                      <div className="w-10 h-10 rounded-xl border border-border dark:border-border-dark overflow-hidden flex-shrink-0">
-                        <input type="color" defaultValue="#8B6C4F" className="w-full h-full cursor-pointer border-0 p-0" />
+                      <div className="w-10 h-10 rounded-xl border border-border dark:border-border-dark overflow-hidden flex-shrink-0 cursor-pointer">
+                        <input
+                          type="color"
+                          value={primaryColor}
+                          onChange={e => setPrimaryColor(e.target.value)}
+                          className="w-full h-full cursor-pointer border-0 p-0"
+                        />
                       </div>
-                      <input type="text" defaultValue="#8B6C4F" className="input font-mono text-sm" readOnly />
+                      <input
+                        type="text"
+                        value={primaryColor}
+                        onChange={e => setPrimaryColor(e.target.value)}
+                        className="input font-mono text-sm uppercase"
+                        maxLength={7}
+                      />
                     </div>
                   </div>
                   <div>
                     <FieldLabel>Cor secundária</FieldLabel>
                     <div className="flex items-center gap-2">
-                      <div className="w-10 h-10 rounded-xl border border-border dark:border-border-dark overflow-hidden flex-shrink-0">
-                        <input type="color" defaultValue="#2C2018" className="w-full h-full cursor-pointer border-0 p-0" />
+                      <div className="w-10 h-10 rounded-xl border border-border dark:border-border-dark overflow-hidden flex-shrink-0 cursor-pointer">
+                        <input
+                          type="color"
+                          value={secondaryColor}
+                          onChange={e => setSecondaryColor(e.target.value)}
+                          className="w-full h-full cursor-pointer border-0 p-0"
+                        />
                       </div>
-                      <input type="text" defaultValue="#2C2018" className="input font-mono text-sm" readOnly />
+                      <input
+                        type="text"
+                        value={secondaryColor}
+                        onChange={e => setSecondaryColor(e.target.value)}
+                        className="input font-mono text-sm uppercase"
+                        maxLength={7}
+                      />
                     </div>
                   </div>
                 </div>
 
+                {/* Preview de identidade */}
+                <div className="rounded-xl overflow-hidden border border-border dark:border-border-dark">
+                  <div className="h-10 flex items-center px-4 gap-3"
+                    style={{ background: primaryColor }}>
+                    <span className="text-xs font-bold text-white">Precy+</span>
+                    <span className="text-[10px] text-white/70 ml-auto">Preview do cabeçalho do PDF</span>
+                  </div>
+                  <div className="p-3 flex items-center gap-3 bg-white dark:bg-surface-dark">
+                    {logoPreview && (
+                      <img src={logoPreview} alt="Logo preview" className="w-10 h-10 rounded-lg object-cover border border-border" />
+                    )}
+                    <div>
+                      <p className="text-xs font-semibold" style={{ color: primaryColor }}>
+                        Orçamento #ORC-0001
+                      </p>
+                      <p className="text-[10px] text-text-muted">Como seu PDF vai aparecer</p>
+                    </div>
+                    <div className="ml-auto">
+                      <div className="h-2 w-16 rounded-full mb-1.5" style={{ background: primaryColor }} />
+                      <div className="h-1.5 w-10 rounded-full opacity-50" style={{ background: secondaryColor }} />
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSaveColors}
+                  disabled={savingColors}
+                  className="btn-primary flex items-center gap-2 w-full sm:w-auto"
+                >
+                  {savingColors ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                  {savingColors ? 'Salvando cores...' : 'Salvar cores e logo'}
+                </button>
+
                 <div className="flex items-center gap-2 p-3 rounded-xl bg-info-light dark:bg-info/10 border border-info/20">
                   <AlertCircle size={14} className="text-info flex-shrink-0" />
                   <p className="text-xs text-info-dark dark:text-info">
-                    As cores serão usadas nos PDFs de orçamento e no cabeçalho do sistema.
+                    Cores e logo são aplicados automaticamente nos PDFs de orçamento gerados pelo sistema.
                   </p>
                 </div>
               </div>
