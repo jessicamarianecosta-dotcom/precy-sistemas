@@ -27,15 +27,15 @@ const PRO_FEATURES = [
   'Tudo do Basic',
   'Produtos ilimitados',
   'Pedidos ilimitados',
-  'Orçamentos profissionais em PDF',
   'Cadastro completo de clientes',
   'Histórico de clientes e pedidos',
+  'Agenda integrada com pedidos e entregas',
   'Controle financeiro básico',
   'Registro de entradas e saídas',
   'Status de pedidos e orçamentos',
-  'Relatórios avançados',
+  'Orçamentos profissionais em PDF',
+  'Biblioteca de conteúdos de gestão e precificação',
   'Suporte por e-mail e WhatsApp',
-  'Sem marca d\'água nos PDFs',
 ]
 
 const COMPARE: Feature[] = [
