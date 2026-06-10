@@ -37,21 +37,32 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
   const logoUrl      = co.logo_url as string | undefined
 
   /* ── Dados do orçamento ── */
-  const budgetNum  = esc(budget.budget_number ?? 'ORC-0001')
-  const createdAt  = fmtDate(budget.created_at as string)
-  const validUntil = fmtDate(budget.valid_until as string)
-  const notes      = esc(budget.notes ?? '')
-  const payMethod  = esc((budget as any).payment_method ?? '')
-  const subtotal   = Number(budget.subtotal) || items.reduce((s, i) => s + (Number(i.subtotal) || 0), 0)
-  const discount   = Number(budget.discount) || 0
-  const total      = Number(budget.total) || 0
+  const b2         = budget as any
+  const budgetNum  = esc(b2.budget_number  ?? 'ORC-0001')
+  const createdAt  = fmtDate(b2.created_at)
+  const validUntil = fmtDate(b2.valid_until)
+  const notes      = esc(b2.notes          ?? '')
+  const payMethod  = esc(b2.payment_method ?? '')
+  const delivType  = esc(b2.delivery_type  ?? '')
+  const delivFee   = Number(b2.delivery_fee) || 0
+  const delivAddr  = esc(b2.delivery_addr  ?? '')
+  const delivDays  = esc(b2.delivery_days  ?? '')
+  const prodDays   = esc(b2.production_days ?? '')
+  const bStatus    = esc(b2.status         ?? '')
+  const subtotal   = Number(b2.subtotal) || items.reduce((s, i) => s + (Number(i.subtotal) || 0), 0)
+  const discount   = Number(b2.discount)  || 0
+  const total      = Number(b2.total)     || 0
 
   /* ── Dados do cliente ── */
-  const cust       = (budget.customers as any) ?? {}
-  const clientName  = esc(cust.name  ?? '—')
-  const clientPhone = esc(cust.phone ?? '—')
-  const clientEmail = esc(cust.email ?? '—')
-  const clientCity  = esc(cust.city  ?? '')
+  const cust        = (b2.customers as any) ?? {}
+  const clientName  = esc(cust.name     ?? '—')
+  const clientPhone = esc(cust.phone    ?? '—')
+  const clientEmail = esc(cust.email    ?? '—')
+  const clientCity  = esc(cust.city     ?? '')
+  const clientState = esc(cust.state    ?? '')
+  const clientCpf   = esc(cust.cpf_cnpj ?? '')
+  const clientAddr  = esc(cust.address  ?? '')
+  const clientLoc   = [clientCity, clientState].filter(Boolean).join(' — ') || '—'
 
   /* ── Logo ── */
   const logoBlock = logoUrl
@@ -395,16 +406,19 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
       <div class="client-cell">
         <span class="cell-label">Cliente</span>
         <div class="cell-value">${clientName}</div>
+        ${clientCpf ? `<div class="cell-sub">CPF/CNPJ: ${clientCpf}</div>` : ''}
+        ${clientAddr ? `<div class="cell-sub">${clientAddr}</div>` : ''}
       </div>
       <div class="client-cell">
-        <span class="cell-label">Contato</span>
+        <span class="cell-label">Telefone / E-mail</span>
         <div class="cell-value">${clientPhone}</div>
         ${clientEmail !== '—' ? `<div class="cell-sub">${clientEmail}</div>` : ''}
       </div>
       <div class="client-cell">
-        <span class="cell-label">Localidade</span>
-        <div class="cell-value">${clientCity || '—'}</div>
-        <div class="cell-sub">Data: ${createdAt}</div>
+        <span class="cell-label">Localidade / Data</span>
+        <div class="cell-value">${clientLoc}</div>
+        <div class="cell-sub">Emitido em ${createdAt}</div>
+        ${bStatus ? `<div class="cell-sub" style="margin-top:4px;"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;background:#f0ece6;color:#555;">${bStatus}</span></div>` : ''}
       </div>
     </div>
   </div>
@@ -432,7 +446,6 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
   <div class="bottom-wrap">
     <div class="bottom-left">
 
-      ${(payMethod || validUntil !== '—') ? `
       <div class="cond-block">
         ${payMethod ? `
         <div class="cond-row">
@@ -444,11 +457,26 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
           <span class="cond-key">Validade</span>
           <span class="cond-val">Até ${validUntil}</span>
         </div>` : ''}
+        ${delivType ? `
+        <div class="cond-row">
+          <span class="cond-key">Entrega</span>
+          <span class="cond-val">${delivType === 'pickup' ? 'Retirada no local' : delivType === 'delivery' ? 'Entrega' : delivType === 'motoboy' ? 'Motoboy' : delivType === 'correios' ? 'Correios' : delivType === 'carrier' ? 'Transportadora' : delivType}${delivAddr ? ' — ' + delivAddr : ''}${delivFee > 0 ? ' (+ ' + fmt(delivFee) + ')' : ''}</span>
+        </div>` : `
         <div class="cond-row">
           <span class="cond-key">Entrega</span>
           <span class="cond-val">A confirmar após aprovação</span>
-        </div>
-      </div>` : ''}
+        </div>`}
+        ${prodDays ? `
+        <div class="cond-row">
+          <span class="cond-key">Produção</span>
+          <span class="cond-val">${prodDays}</span>
+        </div>` : ''}
+        ${delivDays ? `
+        <div class="cond-row">
+          <span class="cond-key">Prazo entrega</span>
+          <span class="cond-val">${delivDays}</span>
+        </div>` : ''}
+      </div>
 
       <div class="sign-block">
         <div class="sign-cell">

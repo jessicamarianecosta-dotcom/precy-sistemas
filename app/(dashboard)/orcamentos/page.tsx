@@ -97,7 +97,7 @@ export default function OrcamentosPage() {
   const {data:budgets,isLoading}=useQuery<any[]>({
     queryKey:['budgets',companyId],enabled:!!companyId,
     queryFn:async()=>{
-      const r:any=await supabase.from('budgets').select('*,customers(name,email,phone)').eq('company_id',companyId!).order('created_at',{ascending:false})
+      const r:any=await supabase.from('budgets').select('*,customers(name,email,phone,city,state,cpf_cnpj)').eq('company_id',companyId!).order('created_at',{ascending:false})
       return r?.data??[]
     },
   })
@@ -199,11 +199,18 @@ export default function OrcamentosPage() {
       }
 
       const budgetPayload={
-        customer_id:finalCustomerId||null,
-        notes:notes||null,
-        valid_until:validUntil?new Date(validUntil).toISOString():null,
+        customer_id:    finalCustomerId||null,
+        notes:          notes||null,
+        valid_until:    validUntil?new Date(validUntil).toISOString():null,
         subtotal,discount:totalDisc,total,status,
-        updated_at:new Date().toISOString(),
+        updated_at:     new Date().toISOString(),
+        // Campos extras (requerem migration 007 — ignorados silenciosamente se coluna não existe)
+        payment_method:  payMethod||null,
+        delivery_type:   deliveryType||null,
+        delivery_fee:    deliveryFee||0,
+        delivery_addr:   deliveryAddr||null,
+        delivery_days:   delivDays||null,
+        production_days: prodDays||null,
       }
 
       let budgetId:string
@@ -248,9 +255,33 @@ export default function OrcamentosPage() {
     setGenerating(true)
     try{
       const{generateBudgetPDF}=await import('@/lib/pdf/generateBudgetPDF')
-      const{data:bi}=await(supabase.from('budget_items')as any).select('*').eq('budget_id',b.id)
-      await generateBudgetPDF({budget:b,items:bi??[],company:companyData})
-    }catch{toast('error','Erro ao gerar PDF.')}
+
+      // Buscar orçamento completo com cliente expandido
+      const {data:fullBudget}=await(supabase.from('budgets')as any)
+        .select('*,customers(id,name,email,phone,city,state,cpf_cnpj,address)')
+        .eq('id',b.id).single()
+
+      // Buscar itens com produto vinculado (para pegar nome se não salvo no item)
+      const {data:bi}=await(supabase.from('budget_items')as any)
+        .select('*,products(name,description,category)')
+        .eq('budget_id',b.id)
+
+      // Enriquecer itens: usar nome do produto se item não tem nome próprio
+      const enrichedItems=(bi??[]).map((item:any)=>({
+        ...item,
+        name: item.name || item.products?.name || 'Item',
+        description: item.description || item.products?.description || '',
+      }))
+
+      await generateBudgetPDF({
+        budget: fullBudget??b,
+        items:  enrichedItems,
+        company:companyData,
+      })
+    }catch(err){
+      console.error('[pdf]',err)
+      toast('error','Erro ao gerar PDF.')
+    }
     finally{setGenerating(false)}
   }
 
