@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { Header } from '@/components/layout/Header'
 import {
-  Calculator, TrendingUp, Plus, X, Package,
+  Calculator, TrendingUp, Plus, X, Package, Ruler,
   Save, CheckCircle, Loader2, AlertTriangle,
   ShoppingBag, Hammer, ChevronRight,
   ArrowRight, Info,
@@ -13,7 +13,7 @@ import {
 import { clsx } from 'clsx'
 
 /* ─────────────────────────── Types ─── */
-type ProductType = 'produced' | 'resale'
+type ProductType = 'produced' | 'resale' | 'meter_product'
 
 interface InventoryItem {
   id: string
@@ -167,9 +167,27 @@ export default function PrecificacaoPage() {
     0
   )
 
+  // ── Cálculos para Produto por metro ──
+  const mAreaM2 = productType === 'meter_product'
+    ? (mUnit === 'cm'
+        ? (mWidth / 100) * (mHeight / 100)
+        : mWidth * mHeight)
+    : 0
+  const mAreaCm2 = productType === 'meter_product'
+    ? (mUnit === 'cm'
+        ? mWidth * mHeight
+        : mWidth * 100 * mHeight * 100)
+    : 0
+  const mMaterialCost = productType === 'meter_product'
+    ? mAreaM2 * pricePerM2
+    : 0
+  const pricePerCm2 = pricePerM2 > 0 ? pricePerM2 / 10000 : 0
+
   const baseCost     = productType === 'produced'
     ? materialCost + laborCost + extraCost
-    : purchaseCost + extraCost
+    : productType === 'meter_product'
+      ? mMaterialCost + finishingCost + laborCost + extraCost
+      : purchaseCost + extraCost
 
   const idealPrice   = baseCost > 0 ? baseCost * (1 + markup / 100) : 0
   const profit       = idealPrice - baseCost
@@ -391,19 +409,25 @@ export default function PrecificacaoPage() {
                   <p className="text-xs text-text-muted dark:text-stone-400">Selecione para adaptar o cálculo</p>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-2">
                 {[
                   {
                     type: 'produced' as ProductType,
                     icon: Hammer,
-                    label: 'Produto produzido',
-                    sub: 'Você fabrica ou personaliza',
+                    label: 'Produzido',
+                    sub: 'Você fabrica',
                   },
                   {
                     type: 'resale' as ProductType,
                     icon: ShoppingBag,
-                    label: 'Produto para revenda',
-                    sub: 'Você compra e revende',
+                    label: 'Revenda',
+                    sub: 'Compra e revende',
+                  },
+                  {
+                    type: 'meter_product' as ProductType,
+                    icon: Ruler,
+                    label: 'Por metro',
+                    sub: 'Banners, lonas, ACM',
                   },
                 ].map(opt => {
                   const Icon = opt.icon
@@ -622,6 +646,103 @@ export default function PrecificacaoPage() {
               </div>
             )}
 
+            {/* ── PRODUTO POR METRO: Dimensões ── */}
+            {productType === 'meter_product' && (
+              <div className="card space-y-4 animate-fadeIn">
+                <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100 flex items-center gap-2">
+                  <Ruler size={14} className="text-primary" />
+                  Dimensões do produto
+                </h3>
+
+                {/* Unidade de medida */}
+                <div>
+                  <label className="block text-xs font-semibold text-text-muted dark:text-stone-400 uppercase tracking-wider mb-2">Unidade de medida</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['cm', 'm'] as const).map(u => (
+                      <button key={u} type="button" onClick={() => setMUnit(u)}
+                        className={clsx('py-2.5 rounded-xl text-sm font-semibold border transition-all',
+                          mUnit === u
+                            ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary'
+                            : 'border-border dark:border-border-dark text-text-muted hover:border-primary/50'
+                        )}>
+                        {u === 'cm' ? 'Centímetros (cm)' : 'Metros (m)'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Largura × Altura */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
+                      Largura ({mUnit})
+                    </label>
+                    <input type="number" min={0} step={0.01} className="input"
+                      placeholder={mUnit === 'cm' ? 'Ex: 100' : 'Ex: 1.00'}
+                      value={mWidth || ''}
+                      onChange={e => setMWidth(parseFloat(e.target.value) || 0)} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
+                      Altura ({mUnit})
+                    </label>
+                    <input type="number" min={0} step={0.01} className="input"
+                      placeholder={mUnit === 'cm' ? 'Ex: 80' : 'Ex: 0.80'}
+                      value={mHeight || ''}
+                      onChange={e => setMHeight(parseFloat(e.target.value) || 0)} />
+                  </div>
+                </div>
+
+                {/* Área calculada */}
+                {mAreaM2 > 0 && (
+                  <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-info-light dark:bg-info/10 border border-info/20">
+                    <div>
+                      <p className="text-xs font-semibold text-info-dark dark:text-info uppercase tracking-wider">Área calculada</p>
+                      <p className="text-xl font-bold text-info-dark dark:text-info mt-0.5">{mAreaM2.toFixed(4)} m²</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-text-muted dark:text-stone-500">= {mAreaCm2.toFixed(0)} cm²</p>
+                      <p className="text-xs text-text-muted dark:text-stone-500 mt-0.5">
+                        {mUnit === 'cm'
+                          ? `${mWidth}cm × ${mHeight}cm`
+                          : `${mWidth}m × ${mHeight}m`}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Preço por m² */}
+                <div>
+                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
+                    Preço do fornecedor (R$/m²)
+                  </label>
+                  <input type="number" min={0} step={0.01} className="input"
+                    placeholder="Ex: 50,00"
+                    value={pricePerM2 || ''}
+                    onChange={e => setPricePerM2(parseFloat(e.target.value) || 0)} />
+                  {pricePerM2 > 0 && (
+                    <p className="mt-1 text-xs text-text-muted dark:text-stone-500">
+                      = {fmt(pricePerCm2)}/cm² · Custo total material: {fmt(mMaterialCost)}
+                    </p>
+                  )}
+                </div>
+
+                {/* Custo de acabamento */}
+                <div>
+                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
+                    Acabamento / corte / laminação (R$)
+                  </label>
+                  <input type="number" min={0} step={0.01} className="input"
+                    placeholder="0,00"
+                    value={finishingCost || ''}
+                    onChange={e => setFinishingCost(parseFloat(e.target.value) || 0)} />
+                  <p className="mt-1 text-xs text-text-muted dark:text-stone-500">
+                    Corte, acabamento, ilhós, laminação, enrolamento, etc.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Custos extras */}
             <div className="card space-y-4">
 
@@ -777,6 +898,12 @@ export default function PrecificacaoPage() {
                 <>
                   {materialCost > 0 && (
                     <Row label="Materiais" value={materialCost} color="bg-info-light text-info-dark" />
+                  )}
+                  {productType === 'meter_product' && mMaterialCost > 0 && (
+                    <Row label={`Material (${mAreaM2.toFixed(4)}m² × ${fmt(pricePerM2)}/m²)`} value={mMaterialCost} color="bg-info-light text-info-dark" />
+                  )}
+                  {productType === 'meter_product' && finishingCost > 0 && (
+                    <Row label="Acabamento / corte" value={finishingCost} color="bg-warning-light text-warning-dark" />
                   )}
                   {laborCost > 0 && (
                     <Row
