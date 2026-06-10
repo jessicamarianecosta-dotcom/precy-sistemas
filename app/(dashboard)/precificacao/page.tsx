@@ -759,10 +759,10 @@ export default function PrecificacaoPage() {
                 {productName || 'Produto'} — Preço Ideal
               </p>
               <p className="text-5xl font-bold text-white mb-1 tracking-tight">
-                {calculated ? fmt(snap.idealPrice) : 'R$ 0,00'}
+                {fmt(idealPrice)}
               </p>
               <p className="text-sm text-white/70">
-                Margem: {calculated ? snap.margin.toFixed(1) : '0.0'}% · Lucro: {calculated ? fmt(snap.profit) : 'R$ 0,00'}
+                Margem: {margin.toFixed(1)}% · Lucro: {fmt(profit)}
               </p>
             </div>
 
@@ -775,13 +775,13 @@ export default function PrecificacaoPage() {
 
               {productType === 'produced' ? (
                 <>
-                  {calculated && snap.materialCost > 0 && (
-                    <Row label="Materiais" value={snap.materialCost} color="bg-info-light text-info-dark" />
+                  {materialCost > 0 && (
+                    <Row label="Materiais" value={materialCost} color="bg-info-light text-info-dark" />
                   )}
-                  {calculated && snap.laborCost > 0 && (
+                  {laborCost > 0 && (
                     <Row
                       label={`Mão de obra (${productionHours}h × ${fmt(hourlyRate)})`}
-                      value={snap.laborCost}
+                      value={laborCost}
                       color="bg-warning-light text-warning-dark"
                     />
                   )}
@@ -790,16 +790,16 @@ export default function PrecificacaoPage() {
                 <Row label="Custo de compra" value={purchaseCost} color="bg-info-light text-info-dark" />
               )}
 
-              {calculated && snap.extraCost > 0 && (
-                <Row label="Extras / embalagem" value={snap.extraCost} color="bg-primary-50 text-primary" />
+              {extraCost > 0 && (
+                <Row label="Extras / embalagem" value={extraCost} color="bg-primary-50 text-primary" />
               )}
 
-              <Row label="Custo total" value={calculated ? snap.baseCost : 0} color="bg-error-light text-error-dark" />
-              <Row label={`Lucro (${markup}%)`} value={calculated ? snap.profit : 0} color="bg-success-light text-success-dark" />
+              <Row label="Custo total" value={baseCost} color="bg-error-light text-error-dark" />
+              <Row label={`Lucro (${markup}%)`} value={profit} color="bg-success-light text-success-dark" />
 
               <div className="pt-2 border-t border-border dark:border-border-dark flex items-center justify-between">
                 <span className="text-sm font-semibold text-text-primary dark:text-stone-100">Preço Final</span>
-                <span className="text-xl font-bold text-primary">{calculated ? fmt(snap.idealPrice) : 'R$ 0,00'}</span>
+                <span className="text-xl font-bold text-primary">{fmt(idealPrice)}</span>
               </div>
             </div>
 
@@ -852,14 +852,7 @@ export default function PrecificacaoPage() {
               <p className="text-xs text-text-secondary dark:text-stone-400">
                 O produto será salvo e aparecerá automaticamente no módulo Produtos e em Orçamentos.
               </p>
-              {(!calculated || needsRecalc) && (
-                <div className="flex items-center gap-2 p-2.5 rounded-xl bg-warning-light dark:bg-warning/10 border border-warning/20">
-                  <AlertTriangle size={12} className="text-warning flex-shrink-0" />
-                  <p className="text-xs text-warning-dark dark:text-warning">
-                    {needsRecalc ? 'Recalcule antes de salvar' : 'Calcule a precificação primeiro'}
-                  </p>
-                </div>
-              )}
+
 
               {!productName.trim() && (
                 <div className="flex items-center gap-2 p-3 rounded-xl bg-warning-light dark:bg-warning/10 border border-warning/20">
@@ -887,8 +880,8 @@ export default function PrecificacaoPage() {
               <button
                 type="button"
                 onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending || !productName.trim() || !calculated || needsRecalc}
-                className={`btn-primary w-full flex items-center justify-center gap-2 py-3 ${(!calculated || needsRecalc) ? "opacity-40 cursor-not-allowed" : ""}`}
+                disabled={saveMutation.isPending || !productName.trim() || idealPrice <= 0}
+                className="btn-primary w-full flex items-center justify-center gap-2 py-3"
               >
                 {saveMutation.isPending ? (
                   <Loader2 size={15} className="animate-spin" />
