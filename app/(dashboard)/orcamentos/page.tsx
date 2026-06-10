@@ -56,6 +56,7 @@ const DELIVERY_OPTIONS=[
 export default function OrcamentosPage() {
   const supabase=createClient(), qc=useQueryClient(), {toast}=useToast(), {companyId}=useCompanyId()
   const [showWizard,setShowWizard]=useState(false)
+  const [editingBudgetId,setEditingBudgetId]=useState<string|null>(null)
   const [deleteId,setDeleteId]=useState<string|null>(null)
   const [generating,setGenerating]=useState(false)
   const [step,setStep]=useState<Step>(1)
@@ -129,10 +130,42 @@ export default function OrcamentosPage() {
     return true
   }
   function openWizard(){
+    setEditingBudgetId(null)
     setStep(1);setItems([]);setClientId('');setClientSearch('');setNewClient({name:'',phone:'',email:''})
     setClientMode('existing');setGlobalDisc(0);setPayMethod('');setPayCond('avista')
     setDelivType('pickup');setDelivFee(0);setDelivAddr('');setValidUntil('')
     setProdDays('');setDelivDays('');setNotes('');setStatus('draft');setShowWizard(true)
+  }
+
+  async function openEdit(b:any){
+    setEditingBudgetId(b.id)
+    // Carregar itens do orçamento
+    const {data:bi}=await(supabase.from('budget_items')as any).select('*').eq('budget_id',b.id)
+    const loadedItems=(bi??[]).map((i:any)=>({
+      id:i.id||uid(),type:'product' as const,
+      name:i.product_name||i.name||'Item',description:i.description||'',
+      quantity:Number(i.quantity)||1,unit_price:Number(i.unit_price)||0,
+      discount:0,subtotal:Number(i.subtotal)||0,product_id:i.product_id||undefined,
+    }))
+    setItems(loadedItems)
+    // Cliente
+    if(b.customer_id){setClientId(b.customer_id);setClientMode('existing')}
+    else{setClientMode('existing');setClientId('')}
+    setClientSearch('')
+    setNewClient({name:'',phone:'',email:''})
+    // Valores
+    setGlobalDisc(Number(b.discount)||0)
+    // Pagamento
+    setPayMethod((b as any).payment_method||'')
+    setPayCond('avista')
+    // Entrega
+    setDelivType('pickup');setDelivFee(0);setDelivAddr('')
+    // Prazos
+    setValidUntil(b.valid_until?b.valid_until.split('T')[0]:'')
+    setProdDays('');setDelivDays('')
+    // Notas + status
+    setNotes(b.notes||'');setStatus(b.status||'draft')
+    setStep(1);setShowWizard(true)
   }
   function addItemFromProduct(p:any){
     setItems(prev=>[...prev,{id:uid(),type:'product',name:p.name,description:'',quantity:1,unit_price:Number(p.final_price),discount:0,subtotal:Number(p.final_price),product_id:p.id}])
@@ -164,16 +197,43 @@ export default function OrcamentosPage() {
         finalCustomerId=nc.id
         qc.invalidateQueries({queryKey:['customers-select',companyId]})
       }
-      const {data:budget,error:bErr}=await(supabase.from('budgets')as any).insert([{company_id:companyId!,customer_id:finalCustomerId||null,notes:notes||null,valid_until:validUntil?new Date(validUntil).toISOString():null,subtotal,discount:totalDisc,total,status,budget_number:''}]).select('id').single()
-      if(bErr)throw bErr
-      if(budget?.id&&items.length>0){
-        await(supabase.from('budget_items')as any).insert(items.map(i=>({budget_id:budget.id,product_id:i.product_id||null,quantity:i.quantity,unit_price:i.unit_price,subtotal:i.subtotal})))
+
+      const budgetPayload={
+        customer_id:finalCustomerId||null,
+        notes:notes||null,
+        valid_until:validUntil?new Date(validUntil).toISOString():null,
+        subtotal,discount:totalDisc,total,status,
+        updated_at:new Date().toISOString(),
+      }
+
+      let budgetId:string
+
+      if(editingBudgetId){
+        // UPDATE orçamento existente
+        const {error:uErr}=await(supabase.from('budgets')as any).update(budgetPayload).eq('id',editingBudgetId)
+        if(uErr)throw uErr
+        budgetId=editingBudgetId
+        // Deletar itens antigos e reinserir
+        await(supabase.from('budget_items')as any).delete().eq('budget_id',budgetId)
+      }else{
+        // INSERT novo orçamento
+        const {data:budget,error:bErr}=await(supabase.from('budgets')as any)
+          .insert([{company_id:companyId!,...budgetPayload,budget_number:''}]).select('id').single()
+        if(bErr)throw bErr
+        budgetId=budget.id
+      }
+
+      if(budgetId&&items.length>0){
+        await(supabase.from('budget_items')as any).insert(items.map(i=>({
+          budget_id:budgetId,product_id:i.product_id||null,
+          name:i.name||null,quantity:i.quantity,unit_price:i.unit_price,subtotal:i.subtotal,
+        })))
       }
     },
     onSuccess:()=>{
       qc.invalidateQueries({queryKey:['budgets',companyId]})
-      toast('success','Orçamento salvo!')
-      setShowWizard(false);setSaving(false)
+      toast('success',editingBudgetId?'Orçamento atualizado!':'Orçamento salvo!')
+      setShowWizard(false);setSaving(false);setEditingBudgetId(null)
     },
     onError:(err:Error)=>{console.error('[orcamentos]',err);toast('error',`Erro: ${err.message}`);setSaving(false)},
   })
@@ -223,6 +283,9 @@ export default function OrcamentosPage() {
                         </div>
                       </div>
                       <div className="flex gap-2">
+                        <button onClick={()=>openEdit(b)} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-xl border border-border dark:border-border-dark hover:border-primary hover:text-primary transition-all">
+                          <Edit2 size={12}/>Editar
+                        </button>
                         <button onClick={()=>handleGeneratePDF(b)} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-xl border border-border dark:border-border-dark hover:border-primary hover:text-primary transition-all">
                           {generating?<Loader2 size={12} className="animate-spin"/>:<Download size={12}/>}PDF
                         </button>
@@ -252,6 +315,9 @@ export default function OrcamentosPage() {
                           <td className="p-4 text-sm text-text-secondary dark:text-stone-300">{b.valid_until?format(new Date(b.valid_until),'dd/MM/yyyy',{locale:ptBR}):'—'}</td>
                           <td className="p-4">
                             <div className="flex items-center gap-1.5">
+                              <button onClick={()=>openEdit(b)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors" title="Editar">
+                                <Edit2 size={14}/>
+                              </button>
                               <button onClick={()=>handleGeneratePDF(b)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors" title="PDF">
                                 {generating?<Loader2 size={14} className="animate-spin"/>:<Download size={14}/>}
                               </button>
@@ -277,7 +343,7 @@ export default function OrcamentosPage() {
             {/* Header + stepper */}
             <div className="flex-shrink-0 px-4 sm:px-6 pt-4 pb-3 border-b border-border dark:border-stone-800">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-base font-bold text-text-primary dark:text-stone-100">Novo Orçamento</h2>
+                <h2 className="text-base font-bold text-text-primary dark:text-stone-100">{editingBudgetId?"Editar Orçamento":"Novo Orçamento"}</h2>
                 <button onClick={()=>setShowWizard(false)} className="p-1.5 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted transition-colors"><X size={16}/></button>
               </div>
               <div className="flex items-center gap-1">
