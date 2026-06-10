@@ -1,6 +1,6 @@
 /* ============================================================
-   PRECY+ — Gerador de PDF Premium para Orçamentos
-   Abordagem: HTML template → window.print() → PDF via browser
+   PRECY+ — Template PDF Profissional (Estilo Gráfica/ERP)
+   Estrutura editorial clean premium, sem aparência web
    ============================================================ */
 
 interface PDFParams {
@@ -9,7 +9,7 @@ interface PDFParams {
   company: Record<string, unknown> | null
 }
 
-function fmt(v: number | unknown) {
+function fmt(v: unknown) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0)
 }
 
@@ -18,529 +18,588 @@ function fmtDate(iso?: string | null) {
   try { return new Date(iso).toLocaleDateString('pt-BR') } catch { return '—' }
 }
 
+function esc(s: unknown) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')
+}
+
 export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
-  const primary   = String(company?.primary_color   ?? '#8B6C4F')
-  const secondary = String(company?.secondary_color ?? '#B8956A')
+  const primary = String(company?.primary_color ?? '#1a1a1a')
 
-  const companyName = String(company?.name ?? 'Precy+')
-  const companyEmail = String(company?.email ?? '')
-  const companyPhone = String((company as any)?.phone ?? '')
-  const companyCnpj  = String((company as any)?.cnpj  ?? '')
-  const companyAddr  = String((company as any)?.address ?? '')
-  const logoUrl      = (company as any)?.logo_url as string | undefined
+  /* ── Company data ── */
+  const co = company as any ?? {}
+  const companyName  = esc(co.name  ?? 'Precy+')
+  const companyEmail = esc(co.email ?? '')
+  const companyPhone = esc(co.phone ?? '')
+  const companyCnpj  = esc(co.cnpj  ?? '')
+  const companyAddr  = esc(co.address ?? '')
+  const companySite  = esc(co.website ?? '')
+  const logoUrl      = co.logo_url as string | undefined
 
-  const budgetNum  = String(budget.budget_number || 'ORC-0001')
+  /* ── Budget data ── */
+  const budgetNum  = esc(budget.budget_number ?? 'ORC-0001')
   const createdAt  = fmtDate(budget.created_at as string)
   const validUntil = fmtDate(budget.valid_until as string)
-  const notes      = String(budget.notes ?? '')
+  const notes      = esc(budget.notes ?? '')
+  const payMethod  = esc((budget as any).payment_method ?? '')
+  const subtotal   = Number(budget.subtotal) || items.reduce((s,i) => s + (Number(i.subtotal)||0), 0)
   const discount   = Number(budget.discount) || 0
   const total      = Number(budget.total)    || 0
-  const subtotal   = Number(budget.subtotal) || items.reduce((s, i) => s + (Number(i.subtotal) || 0), 0)
 
-  const customer = (budget.customers as any) ?? {}
-  const clientName  = String(customer.name  ?? (budget as any).customer_name ?? '—')
-  const clientPhone = String(customer.phone ?? '')
-  const clientEmail = String(customer.email ?? '')
+  /* ── Client data ── */
+  const cust = (budget.customers as any) ?? {}
+  const clientName  = esc(cust.name  ?? (budget as any).customer_name ?? '—')
+  const clientPhone = esc(cust.phone ?? '')
+  const clientEmail = esc(cust.email ?? '')
+  const clientCity  = esc(cust.city  ?? '')
 
+  /* ── Logo HTML ── */
   const logoHTML = logoUrl
-    ? `<img src="${logoUrl}" alt="${companyName}" class="company-logo" />`
-    : `<div class="logo-text">${companyName.charAt(0)}</div>`
+    ? `<img src="${logoUrl}" alt="${companyName}" style="max-height:56px;max-width:160px;object-fit:contain;">`
+    : `<div style="width:56px;height:56px;background:${primary};border-radius:10px;display:flex;align-items:center;justify-content:center;color:white;font-size:22px;font-weight:700;">${String(co.name ?? 'P').charAt(0).toUpperCase()}</div>`
 
-  const rowsHTML = items.map((item, i) => `
-    <tr class="${i % 2 === 0 ? 'row-even' : 'row-odd'}">
-      <td class="td-num">${i + 1}</td>
-      <td class="td-desc">
-        <div class="item-name">${String(item.material_name ?? item.name ?? item.product_name ?? 'Item')}</div>
-      </td>
-      <td class="td-center">${Number(item.quantity) || 1}</td>
-      <td class="td-right">${fmt(item.unit_price)}</td>
-      <td class="td-right td-total">${fmt(item.subtotal)}</td>
+  /* ── Items rows ── */
+  const rowsHTML = items.length === 0
+    ? `<tr><td colspan="5" style="text-align:center;padding:32px;color:#999;font-size:13px;">Nenhum item adicionado</td></tr>`
+    : items.map((item, i) => {
+        const name = esc(item.material_name ?? item.name ?? item.product_name ?? 'Item')
+        const qty  = Number(item.quantity) || 1
+        const up   = Number(item.unit_price) || 0
+        const sub  = Number(item.subtotal)   || 0
+        return `
+        <tr style="background:${i % 2 === 0 ? '#ffffff' : '#f9f9f9'};">
+          <td style="padding:10px 12px;border-bottom:1px solid #ebebeb;color:#555;font-size:12px;text-align:center;width:36px;">${i+1}</td>
+          <td style="padding:10px 14px;border-bottom:1px solid #ebebeb;font-size:12.5px;color:#1a1a1a;">${name}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #ebebeb;text-align:center;font-size:12.5px;color:#333;width:60px;">${qty}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #ebebeb;text-align:right;font-size:12.5px;color:#333;width:100px;">${fmt(up)}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #ebebeb;text-align:right;font-size:12.5px;font-weight:600;color:#1a1a1a;width:110px;">${fmt(sub)}</td>
+        </tr>`
+      }).join('')
+
+  /* ── Totals ── */
+  const totalsHTML = `
+    <tr>
+      <td colspan="3"></td>
+      <td style="padding:8px 12px;font-size:12px;color:#666;text-align:right;border-top:1px solid #ddd;">Subtotal</td>
+      <td style="padding:8px 12px;font-size:12.5px;font-weight:500;text-align:right;color:#1a1a1a;border-top:1px solid #ddd;">${fmt(subtotal)}</td>
     </tr>
-  `).join('')
+    ${discount > 0 ? `
+    <tr>
+      <td colspan="3"></td>
+      <td style="padding:6px 12px;font-size:12px;color:#666;text-align:right;">Desconto</td>
+      <td style="padding:6px 12px;font-size:12.5px;font-weight:500;text-align:right;color:#2a7a2a;">−${fmt(discount)}</td>
+    </tr>` : ''}
+    <tr style="background:#1a1a1a;">
+      <td colspan="3"></td>
+      <td style="padding:11px 14px;font-size:12px;font-weight:700;color:rgba(255,255,255,0.8);text-align:right;letter-spacing:0.5px;text-transform:uppercase;">TOTAL</td>
+      <td style="padding:11px 14px;font-size:15px;font-weight:700;color:white;text-align:right;">${fmt(total)}</td>
+    </tr>`
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <title>Orçamento ${budgetNum}</title>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+<meta charset="UTF-8">
+<title>Orçamento ${budgetNum}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
 
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+  @page {
+    size: A4;
+    margin: 15mm 12mm 18mm 12mm;
+  }
 
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: #f5f5f5;
-      color: #1a1208;
-      font-size: 13px;
-      line-height: 1.5;
-    }
+  body {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    background: #e8e8e8;
+    color: #1a1a1a;
+    font-size: 13px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 
-    .page {
-      background: white;
-      width: 210mm;
-      min-height: 297mm;
-      margin: 20px auto;
-      padding: 0;
-      box-shadow: 0 4px 40px rgba(0,0,0,0.12);
-      position: relative;
-    }
+  /* ── Print bar (hidden on print) ── */
+  .printbar {
+    background: #1a1a1a;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 999;
+  }
+  .printbar button {
+    padding: 9px 22px;
+    border-radius: 6px;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn-print { background: white; color: #1a1a1a; }
+  .btn-close { background: transparent; color: rgba(255,255,255,0.6); border: 1px solid rgba(255,255,255,0.2) !important; }
+  .printbar span { color: rgba(255,255,255,0.5); font-size: 12px; margin-left: auto; }
 
-    /* ── HEADER ── */
-    .header {
-      background: ${primary};
-      padding: 28px 32px 24px;
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 20px;
-    }
+  @media print {
+    body { background: white; }
+    .printbar { display: none !important; }
+    .page { margin: 0 !important; box-shadow: none !important; }
+  }
 
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
+  /* ── Page ── */
+  .page {
+    background: white;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 20px auto;
+    box-shadow: 0 2px 32px rgba(0,0,0,0.18);
+    position: relative;
+    overflow: hidden;
+  }
 
-    .company-logo {
-      width: 64px;
-      height: 64px;
-      object-fit: contain;
-      border-radius: 12px;
-      background: rgba(255,255,255,0.15);
-      padding: 4px;
-    }
+  /* ── Top stripe ── */
+  .stripe-top {
+    height: 5px;
+    background: ${primary};
+    width: 100%;
+  }
 
-    .logo-text {
-      width: 64px;
-      height: 64px;
-      background: rgba(255,255,255,0.2);
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 28px;
-      font-weight: 700;
-      color: white;
-      flex-shrink: 0;
-    }
+  /* ── Header ── */
+  .header {
+    padding: 24px 32px 20px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    border-bottom: 1px solid #ebebeb;
+    gap: 24px;
+  }
 
-    .company-info h1 {
-      font-size: 20px;
-      font-weight: 700;
-      color: white;
-      letter-spacing: -0.3px;
-    }
+  .header-left {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    flex: 1;
+  }
 
-    .company-info p {
-      font-size: 11px;
-      color: rgba(255,255,255,0.75);
-      margin-top: 2px;
-      line-height: 1.6;
-    }
+  .company-meta h1 {
+    font-size: 17px;
+    font-weight: 700;
+    color: #1a1a1a;
+    letter-spacing: -0.2px;
+    margin-bottom: 5px;
+  }
 
-    .header-right {
-      text-align: right;
-      flex-shrink: 0;
-    }
+  .company-meta p {
+    font-size: 11px;
+    color: #888;
+    line-height: 1.8;
+  }
 
-    .budget-badge {
-      background: rgba(255,255,255,0.2);
-      border: 1px solid rgba(255,255,255,0.3);
-      border-radius: 8px;
-      padding: 8px 16px;
-      display: inline-block;
-      margin-bottom: 8px;
-    }
+  /* ── Budget card ── */
+  .budget-card {
+    flex-shrink: 0;
+    border: 1.5px solid #1a1a1a;
+    border-radius: 8px;
+    padding: 14px 20px;
+    text-align: right;
+    min-width: 160px;
+  }
 
-    .budget-badge .label {
-      font-size: 9px;
-      font-weight: 600;
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
-      color: rgba(255,255,255,0.7);
-    }
+  .budget-card .doc-type {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: #888;
+    margin-bottom: 3px;
+  }
 
-    .budget-badge .number {
-      font-size: 18px;
-      font-weight: 700;
-      color: white;
-      font-family: monospace;
-    }
+  .budget-card .doc-num {
+    font-size: 20px;
+    font-weight: 700;
+    color: #1a1a1a;
+    font-family: 'Courier New', monospace;
+    letter-spacing: -0.5px;
+    margin-bottom: 10px;
+  }
 
-    .header-meta p {
-      font-size: 11px;
-      color: rgba(255,255,255,0.7);
-      text-align: right;
-    }
+  .budget-card .meta-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    font-size: 10.5px;
+    margin-top: 3px;
+  }
+  .budget-card .meta-row .meta-label { color: #aaa; }
+  .budget-card .meta-row .meta-val   { font-weight: 600; color: #333; }
 
-    .header-meta span {
-      color: white;
-      font-weight: 500;
-    }
+  /* ── Section label ── */
+  .section-label {
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: #aaa;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #ebebeb;
+  }
 
-    /* ── ACCENT BAR ── */
-    .accent-bar {
-      height: 4px;
-      background: linear-gradient(90deg, ${primary}, ${secondary}, ${primary}40);
-    }
+  /* ── Body ── */
+  .body { padding: 24px 32px; }
 
-    /* ── BODY ── */
-    .body {
-      padding: 28px 32px;
-    }
+  /* ── Client block ── */
+  .client-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1px;
+    background: #ebebeb;
+    border: 1px solid #ebebeb;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 28px;
+  }
 
-    /* ── SECTION TITLE ── */
-    .section-title {
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: ${primary};
-      margin-bottom: 10px;
-      padding-bottom: 6px;
-      border-bottom: 1.5px solid ${primary}20;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
+  .client-cell {
+    background: white;
+    padding: 13px 16px;
+  }
 
-    .section-title::before {
-      content: '';
-      display: inline-block;
-      width: 3px;
-      height: 14px;
-      background: ${primary};
-      border-radius: 2px;
-    }
+  .client-cell .cell-label {
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #bbb;
+    margin-bottom: 4px;
+  }
 
-    /* ── CLIENT SECTION ── */
-    .client-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
-      margin-bottom: 28px;
-    }
+  .client-cell .cell-value {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: #1a1a1a;
+    line-height: 1.4;
+  }
 
-    .info-card {
-      background: #faf7f4;
-      border: 1px solid #ede8e2;
-      border-radius: 10px;
-      padding: 16px;
-    }
+  /* ── Table ── */
+  .table-wrap {
+    margin-bottom: 8px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    overflow: hidden;
+    page-break-inside: auto;
+  }
 
-    .info-card p {
-      font-size: 12px;
-      color: #5a4a3b;
-      margin-bottom: 4px;
-    }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
 
-    .info-card .field-label {
-      font-size: 9px;
-      font-weight: 600;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      color: #b8a898;
-      margin-bottom: 2px;
-    }
+  thead { display: table-header-group; }
+  tbody { display: table-row-group; }
 
-    .info-card .field-value {
-      font-size: 13px;
-      font-weight: 500;
-      color: #1a1208;
-      margin-bottom: 0;
-    }
+  thead tr {
+    background: #1a1a1a;
+  }
 
-    /* ── ITEMS TABLE ── */
-    .table-wrap {
-      margin-bottom: 24px;
-      border-radius: 10px;
-      overflow: hidden;
-      border: 1px solid #ede8e2;
-    }
+  thead th {
+    padding: 10px 12px;
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.85);
+    text-align: left;
+  }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-    }
+  thead th.th-c { text-align: center; }
+  thead th.th-r { text-align: right; }
 
-    thead tr {
-      background: ${primary};
-    }
+  tbody tr { page-break-inside: avoid; }
 
-    thead th {
-      padding: 10px 12px;
-      font-size: 9px;
-      font-weight: 700;
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
-      color: rgba(255,255,255,0.9);
-      text-align: left;
-    }
+  /* ── Bottom grid ── */
+  .bottom-grid {
+    display: grid;
+    grid-template-columns: 1fr 220px;
+    gap: 20px;
+    margin-top: 8px;
+    margin-bottom: 24px;
+    align-items: start;
+  }
 
-    thead th.th-right  { text-align: right; }
-    thead th.th-center { text-align: center; }
+  .info-block {
+    background: #fafafa;
+    border: 1px solid #ebebeb;
+    border-radius: 8px;
+    padding: 16px 18px;
+  }
 
-    .row-even { background: white; }
-    .row-odd  { background: #faf7f4; }
+  .info-block .ib-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 9px;
+  }
+  .info-block .ib-row:last-child { margin-bottom: 0; }
+  .info-block .ib-label {
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: #aaa;
+    width: 100px;
+    flex-shrink: 0;
+    padding-top: 1px;
+  }
+  .info-block .ib-value {
+    font-size: 12px;
+    color: #333;
+    line-height: 1.5;
+    flex: 1;
+  }
 
-    td {
-      padding: 10px 12px;
-      font-size: 12px;
-      color: #3a2d22;
-      border-bottom: 1px solid #f0ece6;
-      vertical-align: middle;
-    }
+  /* ── Totals panel ── */
+  .totals-panel {
+    border: 1.5px solid #1a1a1a;
+    border-radius: 8px;
+    overflow: hidden;
+  }
 
-    tr:last-child td { border-bottom: none; }
+  .totals-panel .tp-row {
+    padding: 10px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12.5px;
+    border-bottom: 1px solid #ebebeb;
+  }
+  .totals-panel .tp-row:last-child { border-bottom: none; }
+  .tp-row .tp-label { color: #888; }
+  .tp-row .tp-val   { font-weight: 600; color: #1a1a1a; }
+  .tp-row.tp-discount .tp-val { color: #2a7a2a; }
+  .tp-row.tp-total {
+    background: #1a1a1a;
+    padding: 13px 16px;
+  }
+  .tp-row.tp-total .tp-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.7);
+  }
+  .tp-row.tp-total .tp-val {
+    font-size: 16px;
+    font-weight: 700;
+    color: white;
+  }
 
-    .td-num    { width: 32px; color: #b8a898; font-size: 11px; text-align: center; }
-    .td-desc   { min-width: 200px; }
-    .td-center { text-align: center; width: 60px; }
-    .td-right  { text-align: right; width: 90px; }
-    .td-total  { font-weight: 600; color: ${primary}; }
+  /* ── Obs ── */
+  .obs-block {
+    background: #fffef5;
+    border: 1px solid #e8e4cc;
+    border-left: 3px solid #c8b04a;
+    border-radius: 0 6px 6px 0;
+    padding: 14px 18px;
+    margin-bottom: 24px;
+  }
+  .obs-block p { font-size: 12px; color: #555; line-height: 1.7; }
 
-    .item-name { font-weight: 500; color: #1a1208; }
+  /* ── Signature ── */
+  .sign-block {
+    margin-top: 28px;
+    padding-top: 16px;
+    border-top: 1px solid #ebebeb;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+  }
+  .sign-line {
+    border-top: 1.5px solid #1a1a1a;
+    padding-top: 6px;
+    font-size: 10px;
+    color: #aaa;
+    text-align: center;
+  }
 
-    /* ── TOTALS ── */
-    .totals-grid {
-      display: flex;
-      justify-content: flex-end;
-      margin-bottom: 24px;
-    }
-
-    .totals-box {
-      width: 260px;
-      background: #faf7f4;
-      border: 1px solid #ede8e2;
-      border-radius: 10px;
-      overflow: hidden;
-    }
-
-    .total-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 9px 16px;
-      border-bottom: 1px solid #ede8e2;
-      font-size: 12px;
-    }
-
-    .total-row:last-child { border-bottom: none; }
-    .total-row .label { color: #7a6855; }
-    .total-row .value { font-weight: 500; color: #1a1208; }
-
-    .total-row.final {
-      background: ${primary};
-      padding: 13px 16px;
-    }
-    .total-row.final .label { color: rgba(255,255,255,0.8); font-weight: 600; font-size: 13px; }
-    .total-row.final .value { color: white; font-weight: 700; font-size: 16px; }
-
-    /* ── BOTTOM SECTIONS ── */
-    .bottom-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-
-    /* ── NOTES ── */
-    .notes-box {
-      background: #fffdf9;
-      border: 1px solid #ede8e2;
-      border-left: 3px solid ${secondary};
-      border-radius: 0 8px 8px 0;
-      padding: 14px 16px;
-      margin-bottom: 24px;
-    }
-
-    .notes-box p {
-      font-size: 11.5px;
-      color: #5a4a3b;
-      line-height: 1.7;
-    }
-
-    /* ── FOOTER ── */
-    .footer {
-      border-top: 1px solid #ede8e2;
-      padding: 16px 32px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .footer-left p {
-      font-size: 10px;
-      color: #b8a898;
-    }
-
-    .footer-brand {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 10px;
-      color: #b8a898;
-    }
-
-    .footer-brand strong { color: ${primary}; }
-
-    /* ── PRINT ── */
-    @media print {
-      body { background: white; }
-      .page {
-        margin: 0;
-        box-shadow: none;
-        width: 100%;
-      }
-      .no-print { display: none !important; }
-    }
-  </style>
+  /* ── Footer ── */
+  .footer {
+    padding: 14px 32px;
+    border-top: 1px solid #ebebeb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #fafafa;
+  }
+  .footer p { font-size: 10px; color: #bbb; }
+  .footer strong { color: #888; }
+</style>
 </head>
 <body>
-  <!-- Print button -->
-  <div class="no-print" style="display:flex;justify-content:center;gap:12px;padding:16px;background:#f0ece6;">
-    <button onclick="window.print()"
-      style="background:${primary};color:white;border:none;padding:10px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">
-      ⬇ Baixar / Imprimir PDF
-    </button>
-    <button onclick="window.close()"
-      style="background:white;color:#7a6855;border:1px solid #ede8e2;padding:10px 20px;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit;">
-      Fechar
-    </button>
-  </div>
 
-  <div class="page">
-    <!-- HEADER -->
-    <div class="header">
-      <div class="header-left">
-        ${logoHTML}
-        <div class="company-info">
-          <h1>${companyName}</h1>
-          <p>
-            ${companyCnpj  ? `CNPJ: ${companyCnpj}<br>` : ''}
-            ${companyPhone ? `${companyPhone}<br>` : ''}
-            ${companyEmail ? `${companyEmail}<br>` : ''}
-            ${companyAddr  ? companyAddr : ''}
-          </p>
-        </div>
-      </div>
-      <div class="header-right">
-        <div class="budget-badge">
-          <div class="label">Orçamento</div>
-          <div class="number">${budgetNum}</div>
-        </div>
-        <div class="header-meta">
-          <p>Data: <span>${createdAt}</span></p>
-          ${validUntil !== '—' ? `<p>Válido até: <span>${validUntil}</span></p>` : ''}
-        </div>
+<!-- Print toolbar -->
+<div class="printbar">
+  <button class="btn-print" onclick="window.print()">⬇ Baixar / Imprimir PDF</button>
+  <button class="btn-close" onclick="window.close()">Fechar</button>
+  <span>Orçamento ${budgetNum} · ${companyName}</span>
+</div>
+
+<div class="page">
+  <!-- Top stripe -->
+  <div class="stripe-top"></div>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-left">
+      ${logoHTML}
+      <div class="company-meta">
+        <h1>${companyName}</h1>
+        <p>
+          ${companyCnpj  ? `CNPJ: ${companyCnpj}<br>` : ''}
+          ${companyPhone ? `Tel: ${companyPhone}<br>` : ''}
+          ${companyEmail ? `${companyEmail}<br>` : ''}
+          ${companyAddr  ? companyAddr : ''}
+        </p>
       </div>
     </div>
 
-    <div class="accent-bar"></div>
-
-    <div class="body">
-      <!-- CLIENT -->
-      <p class="section-title">Dados do Cliente</p>
-      <div class="client-grid">
-        <div class="info-card">
-          <p class="field-label">Cliente</p>
-          <p class="field-value">${clientName}</p>
-          ${clientPhone ? `<p class="field-label" style="margin-top:10px">Telefone</p><p class="field-value">${clientPhone}</p>` : ''}
-        </div>
-        <div class="info-card">
-          ${clientEmail ? `<p class="field-label">E-mail</p><p class="field-value">${clientEmail}</p>` : ''}
-          <p class="field-label" style="margin-top:${clientEmail ? '10px' : '0'}">Data do Orçamento</p>
-          <p class="field-value">${createdAt}</p>
-        </div>
+    <div class="budget-card">
+      <div class="doc-type">Orçamento</div>
+      <div class="doc-num">${budgetNum}</div>
+      <div class="meta-row">
+        <span class="meta-label">Data:</span>
+        <span class="meta-val">${createdAt}</span>
       </div>
-
-      <!-- ITEMS -->
-      <p class="section-title">Itens do Orçamento</p>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th class="th-center">#</th>
-              <th>Descrição / Produto</th>
-              <th class="th-center">Qtd</th>
-              <th class="th-right">Valor Unit.</th>
-              <th class="th-right">Subtotal</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHTML || '<tr><td colspan="5" style="text-align:center;padding:24px;color:#b8a898;">Nenhum item</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-
-      <!-- TOTALS -->
-      <div class="totals-grid">
-        <div class="totals-box">
-          <div class="total-row">
-            <span class="label">Subtotal</span>
-            <span class="value">${fmt(subtotal)}</span>
-          </div>
-          ${discount > 0 ? `
-          <div class="total-row">
-            <span class="label">Desconto</span>
-            <span class="value" style="color:#5c8b4f;">−${fmt(discount)}</span>
-          </div>` : ''}
-          <div class="total-row final">
-            <span class="label">TOTAL FINAL</span>
-            <span class="value">${fmt(total)}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- BOTTOM SECTIONS -->
-      <div class="bottom-grid">
-        <div class="info-card">
-          <p class="section-title" style="margin-bottom:8px;">Condições de Pagamento</p>
-          <p class="field-label">Forma</p>
-          <p class="field-value" style="margin-bottom:8px;">${(budget as any).payment_method || 'A combinar'}</p>
-          ${validUntil !== '—' ? `
-          <p class="field-label">Validade da Proposta</p>
-          <p class="field-value">${validUntil}</p>` : ''}
-        </div>
-        <div class="info-card">
-          <p class="section-title" style="margin-bottom:8px;">Entrega / Logística</p>
-          <p class="field-value" style="color:#7a6855;font-size:12px;">
-            Prazo e condições de entrega a confirmar após aprovação do orçamento.
-          </p>
-          <div style="margin-top:16px;padding-top:12px;border-top:1px solid #ede8e2;">
-            <p class="field-label">Área de Assinatura</p>
-            <div style="height:28px;border-bottom:1.5px solid #1a1208;margin-top:6px;"></div>
-            <p style="font-size:10px;color:#b8a898;margin-top:4px;text-align:center;">
-              Assinatura e carimbo do cliente
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <!-- NOTES -->
-      ${notes ? `
-      <p class="section-title">Observações</p>
-      <div class="notes-box">
-        <p>${notes.replace(/\n/g, '<br>')}</p>
+      ${validUntil !== '—' ? `
+      <div class="meta-row">
+        <span class="meta-label">Validade:</span>
+        <span class="meta-val">${validUntil}</span>
       </div>` : ''}
     </div>
+  </div>
 
-    <!-- FOOTER -->
-    <div class="footer">
-      <div class="footer-left">
-        <p>Orçamento gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
-        <p>Este documento é válido conforme condições descritas acima.</p>
+  <!-- BODY -->
+  <div class="body">
+
+    <!-- CLIENT -->
+    <p class="section-label">Dados do Cliente</p>
+    <div class="client-grid">
+      <div class="client-cell">
+        <p class="cell-label">Cliente</p>
+        <p class="cell-value">${clientName}</p>
       </div>
-      <div class="footer-brand">
-        Gerado por <strong>Precy+</strong>
+      <div class="client-cell">
+        <p class="cell-label">Telefone / E-mail</p>
+        <p class="cell-value">
+          ${clientPhone || '—'}
+          ${clientEmail ? `<br><span style="color:#888;font-size:11px;">${clientEmail}</span>` : ''}
+        </p>
+      </div>
+      <div class="client-cell">
+        <p class="cell-label">Localidade</p>
+        <p class="cell-value">${clientCity || '—'}</p>
       </div>
     </div>
+
+    <!-- ITEMS TABLE -->
+    <p class="section-label">Itens do Orçamento</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:36px;" class="th-c">#</th>
+            <th>Descrição / Produto</th>
+            <th style="width:60px;" class="th-c">Qtd</th>
+            <th style="width:100px;" class="th-r">Vlr. Unit.</th>
+            <th style="width:110px;" class="th-r">Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHTML}
+          ${totalsHTML}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- BOTTOM: info + totals -->
+    <div class="bottom-grid">
+      <div>
+        ${(payMethod || validUntil !== '—') ? `
+        <p class="section-label" style="margin-top:0;">Condições</p>
+        <div class="info-block">
+          ${payMethod ? `
+          <div class="ib-row">
+            <span class="ib-label">Pagamento</span>
+            <span class="ib-value">${payMethod}</span>
+          </div>` : ''}
+          ${validUntil !== '—' ? `
+          <div class="ib-row">
+            <span class="ib-label">Validade</span>
+            <span class="ib-value">Proposta válida até ${validUntil}</span>
+          </div>` : ''}
+          <div class="ib-row">
+            <span class="ib-label">Entrega</span>
+            <span class="ib-value">A combinar após aprovação</span>
+          </div>
+        </div>` : ''}
+
+        <!-- Signature -->
+        <div class="sign-block">
+          <div>
+            <div class="sign-line">Assinatura do Cliente</div>
+          </div>
+          <div>
+            <div class="sign-line">Data de Aprovação</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p class="section-label" style="margin-top:0;">Valores</p>
+        <div class="totals-panel">
+          <div class="tp-row">
+            <span class="tp-label">Subtotal</span>
+            <span class="tp-val">${fmt(subtotal)}</span>
+          </div>
+          ${discount > 0 ? `
+          <div class="tp-row tp-discount">
+            <span class="tp-label">Desconto</span>
+            <span class="tp-val">−${fmt(discount)}</span>
+          </div>` : ''}
+          <div class="tp-row tp-total">
+            <span class="tp-label">TOTAL</span>
+            <span class="tp-val">${fmt(total)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- NOTES -->
+    ${notes ? `
+    <p class="section-label">Observações</p>
+    <div class="obs-block">
+      <p>${notes}</p>
+    </div>` : ''}
+
   </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <p>Gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})} &nbsp;·&nbsp; ${companyName}</p>
+    <p>Sistema <strong>Precy+</strong></p>
+  </div>
+</div>
+
 </body>
 </html>`
 
-  const win = window.open('', '_blank', 'width=900,height=700')
+  const win = window.open('', '_blank', 'width=960,height=760')
   if (win) {
     win.document.write(html)
     win.document.close()
