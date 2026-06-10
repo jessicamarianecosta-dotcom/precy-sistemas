@@ -5,7 +5,7 @@ import {
   TrendingUp, ShoppingCart, AlertTriangle,
   Package, DollarSign, BarChart3, Clock, Plus, Users,
   FileText, ArrowRight, CheckCircle, Zap, Activity,
-  ChevronUp, ChevronDown,
+  ChevronUp, ChevronDown, CalendarDays,
 } from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis,
