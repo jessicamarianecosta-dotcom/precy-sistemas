@@ -554,17 +554,25 @@ export default function AgendaPage() {
       ══════════════════════════════════════════ */}
       {viewEvent && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setViewEvent(null)} />
-          <div className="relative bg-white dark:bg-surface-dark w-full sm:max-w-md rounded-2xl shadow-modal animate-scaleIn overflow-hidden">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setViewEvent(null)} />
+          <div className="relative bg-white dark:bg-[#1C1714] border border-border dark:border-stone-800 w-full sm:max-w-md rounded-2xl shadow-[0_24px_48px_rgba(0,0,0,0.4)] animate-scaleIn overflow-hidden">
 
             {viewEvent.type === 'order' ? (
               /* ── Order view ── */
               (() => {
                 const o = viewEvent.data as Order
                 const colorCls = ORDER_STATUS_COLOR[o.status] ?? ORDER_STATUS_COLOR.pending
+                // Header com gradiente dark-safe
+                const headerBg = o.status === 'production'
+                  ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-stone-700'
+                  : o.status === 'ready'
+                  ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-stone-700'
+                  : o.status === 'delivered'
+                  ? 'bg-stone-50 dark:bg-stone-800/50 border-stone-200 dark:border-stone-700'
+                  : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-stone-700'
                 return (
                   <>
-                    <div className={clsx('p-4 border-b border-border dark:border-border-dark', colorCls.split(' ').filter(c => c.startsWith('bg')).join(' '))}>
+                    <div className={clsx('p-4 border-b', headerBg)}>
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
@@ -582,9 +590,9 @@ export default function AgendaPage() {
                         </button>
                       </div>
                     </div>
-                    <div className="p-4 space-y-3">
+                    <div className="p-4 space-y-3 bg-white dark:bg-[#1C1714]">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-text-muted">Entrega</span>
+                        <span className="text-xs text-text-muted dark:text-stone-400">Entrega</span>
                         <span className="text-sm font-semibold text-text-primary dark:text-stone-100">
                           {o.due_date ? format(parseISO(o.due_date), 'dd/MM/yyyy', { locale: ptBR }) : '—'}
                         </span>
@@ -613,7 +621,7 @@ export default function AgendaPage() {
                 const pri = PRIORITY_CONFIG[t.priority]
                 return (
                   <>
-                    <div className="p-4 border-b border-border dark:border-border-dark">
+                    <div className="p-4 border-b border-border dark:border-stone-800 bg-white dark:bg-[#1C1714]">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 mb-1.5">
@@ -625,14 +633,14 @@ export default function AgendaPage() {
                           <p className={clsx('text-base font-bold text-text-primary dark:text-stone-100', t.status === 'done' && 'line-through opacity-60')}>{t.title}</p>
                           {t.description && <p className="text-sm text-text-muted mt-0.5 truncate">{t.description}</p>}
                         </div>
-                        <button onClick={() => setViewEvent(null)} className="p-1.5 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted flex-shrink-0">
+                        <button onClick={() => setViewEvent(null)} className="p-1.5 rounded-xl hover:bg-primary-50 dark:hover:bg-stone-700 text-text-muted dark:text-stone-400 flex-shrink-0">
                           <X size={15} />
                         </button>
                       </div>
                     </div>
-                    <div className="p-4 space-y-2.5">
+                    <div className="p-4 space-y-2.5 bg-white dark:bg-[#1C1714]">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-text-muted flex items-center gap-1"><CalendarDays size={11}/>Data</span>
+                        <span className="text-xs text-text-muted dark:text-stone-400 flex items-center gap-1"><CalendarDays size={11}/>Data</span>
                         <span className="text-sm font-medium text-text-primary dark:text-stone-100">
                           {format(parseISO(t.date), "dd 'de' MMMM", { locale: ptBR })}
                           {t.time && <span className="ml-2 text-text-muted">• {t.time.slice(0, 5)}</span>}
@@ -645,12 +653,12 @@ export default function AgendaPage() {
                         </span>
                       </div>
                       {t.notes && (
-                        <p className="text-xs text-text-muted border border-border dark:border-border-dark rounded-xl p-3 bg-primary-50/30 dark:bg-primary/5">
+                        <p className="text-xs text-text-muted dark:text-stone-400 border border-border dark:border-stone-700 rounded-xl p-3 bg-primary-50/30 dark:bg-primary/10">
                           {t.notes}
                         </p>
                       )}
                     </div>
-                    <div className="flex gap-2 p-4 border-t border-border dark:border-border-dark">
+                    <div className="flex gap-2 p-4 border-t border-border dark:border-stone-800 bg-white dark:bg-[#1C1714]">
                       <button onClick={() => openEdit(t)} className="btn-secondary flex-1 flex items-center justify-center gap-1.5 text-xs py-2">
                         <Edit3 size={12} /> Editar
                       </button>
