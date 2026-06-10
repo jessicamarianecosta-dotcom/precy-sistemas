@@ -4,7 +4,7 @@ import { useRef, useState, useEffect } from 'react'
 import { CheckCircle, Lock, Zap, ArrowRight, Send, Loader2, Sparkles } from 'lucide-react'
 
 /* ── Types ─────────────────────────────── */
-type Visibility = boolean | 'coming'
+type Visibility = boolean | string
 interface Feature { label: string; basic: Visibility; pro: Visibility; highlight?: boolean }
 
 /* ── Data ─────────────────────────────── */
