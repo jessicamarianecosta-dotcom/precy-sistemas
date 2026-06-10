@@ -223,34 +223,30 @@ export default function DashboardPage() {
 
   /* ── Today's events (para o card Hoje) ── */
   const todayStr = new Date().toISOString().split('T')[0]
+  const [todayTasks,  setTodayTasks]  = useState<any[]>([])
+  const [todayOrders, setTodayOrders] = useState<any[]>([])
 
-  const { data: todayTasks } = useQuery({
-    queryKey: ['today-tasks', companyId],
-    enabled:  !!companyId,
-    queryFn:  async () => {
-      const { data } = await (supabase.from('calendar_tasks') as any)
+  useEffect(() => {
+    if (!companyId) return
+    async function loadToday() {
+      const { data: tasks } = await (supabase.from('calendar_tasks') as any)
         .select('id, title, time, category, status, priority')
-        .eq('company_id', companyId!)
+        .eq('company_id', companyId)
         .eq('date', todayStr)
         .neq('status', 'done')
         .order('time')
-      return data ?? []
-    },
-  })
+      setTodayTasks(tasks ?? [])
 
-  const { data: todayOrders } = useQuery({
-    queryKey: ['today-orders', companyId],
-    enabled:  !!companyId,
-    queryFn:  async () => {
-      const { data } = await (supabase.from('orders') as any)
+      const { data: orders } = await (supabase.from('orders') as any)
         .select('id, service_name, status, total, due_date, customers(name)')
-        .eq('company_id', companyId!)
+        .eq('company_id', companyId)
         .gte('due_date', todayStr + 'T00:00:00')
         .lte('due_date', todayStr + 'T23:59:59')
         .not('due_date', 'is', null)
-      return data ?? []
-    },
-  })
+      setTodayOrders(orders ?? [])
+    }
+    loadToday()
+  }, [companyId, todayStr])
 
   /* ── Quick actions ── */
   const quickActions = [
