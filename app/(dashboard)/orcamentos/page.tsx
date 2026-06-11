@@ -198,13 +198,16 @@ export default function OrcamentosPage() {
         qc.invalidateQueries({queryKey:['customers-select',companyId]})
       }
 
-      const budgetPayload={
-        customer_id:    finalCustomerId||null,
-        notes:          notes||null,
-        valid_until:    validUntil?new Date(validUntil).toISOString():null,
-        subtotal,discount:totalDisc,total,status,
-        updated_at:     new Date().toISOString(),
-        // Campos extras (requerem migration 007 — ignorados silenciosamente se coluna não existe)
+      // Payload base (colunas que sempre existem)
+      const basePayload={
+        customer_id: finalCustomerId||null,
+        notes:       notes||null,
+        valid_until: validUntil?new Date(validUntil).toISOString():null,
+        subtotal, discount:totalDisc, total, status,
+      }
+      // Payload extra (colunas adicionadas pelas migrations)
+      const extraPayload={
+        updated_at:      new Date().toISOString(),
         payment_method:  payMethod||null,
         delivery_type:   deliveryType||null,
         delivery_fee:    deliveryFee||0,
@@ -212,20 +215,31 @@ export default function OrcamentosPage() {
         delivery_days:   delivDays||null,
         production_days: prodDays||null,
       }
+      // Tenta salvar com todos os campos; se falhar por coluna inexistente, salva só o base
+      const budgetPayload = { ...basePayload, ...extraPayload }
 
       let budgetId:string
 
       if(editingBudgetId){
         // UPDATE orçamento existente
-        const {error:uErr}=await(supabase.from('budgets')as any).update(budgetPayload).eq('id',editingBudgetId)
-        if(uErr)throw uErr
+        let updateRes:any=await(supabase.from('budgets')as any).update(budgetPayload).eq('id',editingBudgetId)
+        if(updateRes?.error?.code==='42703'){
+          updateRes=await(supabase.from('budgets')as any).update(basePayload).eq('id',editingBudgetId)
+        }
+        if(updateRes?.error)throw updateRes.error
         budgetId=editingBudgetId
         // Deletar itens antigos e reinserir
         await(supabase.from('budget_items')as any).delete().eq('budget_id',budgetId)
       }else{
         // INSERT novo orçamento
-        const {data:budget,error:bErr}=await(supabase.from('budgets')as any)
+        let budgetRes:any = await(supabase.from('budgets')as any)
           .insert([{company_id:companyId!,...budgetPayload,budget_number:''}]).select('id').single()
+        // Se falhou por coluna inexistente, tentar com payload base
+        if(budgetRes?.error?.code==='42703'){
+          budgetRes=await(supabase.from('budgets')as any)
+            .insert([{company_id:companyId!,...basePayload,budget_number:''}]).select('id').single()
+        }
+        const {data:budget,error:bErr}=budgetRes
         if(bErr)throw bErr
         budgetId=budget.id
       }

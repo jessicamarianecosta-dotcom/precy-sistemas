@@ -461,11 +461,7 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
         <div class="cond-row">
           <span class="cond-key">Entrega</span>
           <span class="cond-val">${delivType === 'pickup' ? 'Retirada no local' : delivType === 'delivery' ? 'Entrega' : delivType === 'motoboy' ? 'Motoboy' : delivType === 'correios' ? 'Correios' : delivType === 'carrier' ? 'Transportadora' : delivType}${delivAddr ? ' — ' + delivAddr : ''}${delivFee > 0 ? ' (+ ' + fmt(delivFee) + ')' : ''}</span>
-        </div>` : `
-        <div class="cond-row">
-          <span class="cond-key">Entrega</span>
-          <span class="cond-val">A confirmar após aprovação</span>
-        </div>`}
+        </div>` : ''}
         ${prodDays ? `
         <div class="cond-row">
           <span class="cond-key">Produção</span>
