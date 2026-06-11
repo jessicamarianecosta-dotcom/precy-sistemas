@@ -13,6 +13,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { clsx } from 'clsx'
 import { useSidebar } from '@/providers/SidebarProvider'
+import { useQueryClient } from '@tanstack/react-query'
 
 /* ─── Menu ─── */
 const menuItems = [
@@ -54,12 +55,14 @@ const comingSoon = ['IA de Precificação', 'WhatsApp']
 
 /* ─── SidebarInner (shared between drawer and fixed) ─── */
 function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: () => void }) {
-  const pathname  = usePathname()
+  const pathname    = usePathname()
   const { theme, setTheme } = useTheme()
-  const router    = useRouter()
+  const router      = useRouter()
+  const queryClient = useQueryClient()
   const supabase  = createClient()
 
   async function handleLogout() {
+    queryClient.clear()   // Limpar dados sensíveis do cache antes do logout
     await supabase.auth.signOut()
     onClose?.()
     router.push('/login')
