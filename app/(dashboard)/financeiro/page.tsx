@@ -1,1082 +1,658 @@
 'use client'
 
-import {
-  useQuery,
-  useMutation,
-  useQueryClient,
-} from '@tanstack/react-query'
-
+import { useState, useMemo } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-
-import { Header } from '@/components/layout/Header'
-
-import { SkeletonTable } from '@/components/ui/Skeleton'
-
-import { EmptyState } from '@/components/ui/EmptyState'
-
-import { useToast } from '@/components/ui/Toaster'
-
 import { useCompanyId } from '@/hooks/useCompanyId'
-
-import {
-  DollarSign,
-  Plus,
-  TrendingUp,
-  TrendingDown,
-  X,
-  Loader2,
-  Trash2,
-  CalendarDays,
-  BadgeDollarSign,
-  Receipt,
-} from 'lucide-react'
-
-import { useForm } from 'react-hook-form'
-
-import { zodResolver } from '@hookform/resolvers/zod'
-
-import { z } from 'zod'
-
-import { useState } from 'react'
-
+import { useToast } from '@/components/ui/Toaster'
+import { Header } from '@/components/layout/Header'
+import { SkeletonTable } from '@/components/ui/Skeleton'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { clsx } from 'clsx'
+import {
+  Plus, X, Trash2, Loader2, TrendingUp, TrendingDown,
+  DollarSign, ArrowUpRight, ArrowDownRight, Search,
+  Filter, Edit3, CheckCircle, Clock, AlertTriangle,
+  Calendar, Tag, User, ShoppingCart, FileText,
+} from 'lucide-react'
+import { format, startOfMonth, endOfMonth, startOfWeek, isToday, parseISO, subMonths } from 'date-fns'
+import { ptBR } from 'date-fns/locale'
 
-import { format } from 'date-fns'
-
-/* ─────────────────────────────────────────────
-   Schema
-───────────────────────────────────────────── */
-
-const schema = z.object({
-  type: z.enum([
-    'income',
-    'expense',
-  ]),
-
-  category: z
-    .string()
-    .min(
-      1,
-      'Categoria obrigatória'
-    ),
-
-  amount: z.coerce
-    .number()
-    .min(
-      0.01,
-      'Valor deve ser maior que 0'
-    ),
-
-  description: z.string().optional(),
-
-  date: z.string(),
-})
-
-type FormData = z.infer<typeof schema>
-
-/* ─────────────────────────────────────────────
-   Helpers
-───────────────────────────────────────────── */
-
-function fmt(v: number) {
-  return new Intl.NumberFormat(
-    'pt-BR',
-    {
-      style: 'currency',
-      currency: 'BRL',
-    }
-  ).format(v)
+/* ─── Types ─── */
+interface Transaction {
+  id:          string
+  type:        'income' | 'expense'
+  category:    string
+  amount:      number
+  description: string
+  date:        string
+  status?:     string
+  client_name?: string
+  order_id?:   string | null
+  notes?:      string
 }
 
-/* ─────────────────────────────────────────────
-   Page
-───────────────────────────────────────────── */
+type Period = 'all' | 'today' | 'week' | 'month' | 'last_month'
+type TypeFilter = 'all' | 'income' | 'expense'
 
+/* ─── Categories ─── */
+const INCOME_CATS = [
+  { value: 'pedidos',   label: 'Pedidos',             color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'    },
+  { value: 'vendas',    label: 'Vendas',               color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
+  { value: 'orcamento', label: 'Orçamento aprovado',   color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300'    },
+  { value: 'servicos',  label: 'Serviços',             color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
+  { value: 'outros',    label: 'Outros',               color: 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-300'   },
+]
+const EXPENSE_CATS = [
+  { value: 'fornecedores', label: 'Fornecedores',  color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'           },
+  { value: 'material',     label: 'Material',      color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },
+  { value: 'aluguel',      label: 'Aluguel',       color: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300' },
+  { value: 'frete',        label: 'Frete',         color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'   },
+  { value: 'energia',      label: 'Energia',       color: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300'       },
+  { value: 'marketing',    label: 'Marketing',     color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' },
+  { value: 'manutencao',   label: 'Manutenção',    color: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'      },
+  { value: 'software',     label: 'Software/App',  color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300' },
+  { value: 'outros',       label: 'Outros',        color: 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-300'      },
+]
+const ALL_CATS = [...INCOME_CATS, ...EXPENSE_CATS]
+
+const STATUS_INCOME = [
+  { value: 'received', label: 'Recebido',  badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300', icon: CheckCircle },
+  { value: 'partial',  label: 'Parcial',   badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',  icon: Clock       },
+  { value: 'pending',  label: 'Pendente',  badge: 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-300',    icon: Clock       },
+  { value: 'overdue',  label: 'Atrasado',  badge: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',         icon: AlertTriangle },
+]
+const STATUS_EXPENSE = [
+  { value: 'paid',    label: 'Pago',     badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300', icon: CheckCircle },
+  { value: 'to_pay',  label: 'A pagar',  badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',  icon: Clock       },
+  { value: 'due',     label: 'Vencido',  badge: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',         icon: AlertTriangle },
+]
+
+function getCatInfo(cat: string) { return ALL_CATS.find(c => c.value === cat) }
+function getStatusInfo(type: string, status?: string) {
+  const list = type === 'income' ? STATUS_INCOME : STATUS_EXPENSE
+  return list.find(s => s.value === status) ?? list[0]
+}
+
+function fmt(v: number) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
+}
+
+/* ══════════════════════════════════════════════
+   PAGE
+══════════════════════════════════════════════ */
 export default function FinanceiroPage() {
-  const supabase = createClient()
+  const supabase    = createClient()
+  const qc          = useQueryClient()
+  const { toast }   = useToast()
+  const { companyId } = useCompanyId()
 
-  const qc = useQueryClient()
+  /* ── UI state ── */
+  const [period,      setPeriod]     = useState<Period>('month')
+  const [typeFilter,  setTypeFilter] = useState<TypeFilter>('all')
+  const [search,      setSearch]     = useState('')
+  const [showModal,   setShowModal]  = useState(false)
+  const [editTx,      setEditTx]     = useState<Transaction | null>(null)
+  const [deleteId,    setDeleteId]   = useState<string | null>(null)
+  const [saving,      setSaving]     = useState(false)
 
-  const { toast } = useToast()
+  /* ── Form state ── */
+  const [fType,     setFType]     = useState<'income' | 'expense'>('income')
+  const [fCat,      setFCat]      = useState('pedidos')
+  const [fAmount,   setFAmount]   = useState('')
+  const [fDesc,     setFDesc]     = useState('')
+  const [fDate,     setFDate]     = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [fStatus,   setFStatus]   = useState('received')
+  const [fClient,   setFClient]   = useState('')
+  const [fNotes,    setFNotes]    = useState('')
 
-  const {
-    companyId,
-    userId,
-  } = useCompanyId()
-
-  const [showModal, setShowModal] =
-    useState(false)
-
-  const [deleteId, setDeleteId] =
-    useState<string | null>(null)
-
-  const [filterType, setFilterType] =
-    useState('all')
-
-  /* ─────────────────────────────────────────────
-     Query
-  ───────────────────────────────────────────── */
-
-  const {
-    data: transactions,
-    isLoading,
-  } = useQuery({
-    queryKey: [
-      'transactions',
-      companyId,
-    ],
-
-    enabled:
-      !!companyId && !!userId,
-
-    queryFn: async () => {
-      const { data, error } =
-        await (
-          supabase.from(
-            'transactions'
-          ) as any
-        )
-          .select('*')
-          .eq(
-            'company_id',
-            companyId!
-          )
-          .order('date', {
-            ascending: false,
-          })
-
+  /* ── Query ── */
+  const { data: transactions, isLoading } = useQuery<Transaction[]>({
+    queryKey: ['financial-transactions', companyId],
+    enabled:  !!companyId,
+    queryFn:  async () => {
+      const { data, error } = await (supabase.from('financial_transactions') as any)
+        .select('*')
+        .eq('company_id', companyId!)
+        .order('date', { ascending: false })
       if (error) throw error
-
-      return data ?? []
+      return (data ?? []) as Transaction[]
     },
   })
 
-  /* ─────────────────────────────────────────────
-     Form
-  ───────────────────────────────────────────── */
+  /* ── Filtered ── */
+  const filtered = useMemo(() => {
+    const now = new Date()
+    return (transactions ?? []).filter(t => {
+      // Period filter
+      if (period !== 'all') {
+        const d = parseISO(t.date)
+        if (period === 'today'      && !isToday(d)) return false
+        if (period === 'week'       && d < startOfWeek(now, { locale: ptBR })) return false
+        if (period === 'month'      && (d < startOfMonth(now) || d > endOfMonth(now))) return false
+        if (period === 'last_month') {
+          const lm = subMonths(now, 1)
+          if (d < startOfMonth(lm) || d > endOfMonth(lm)) return false
+        }
+      }
+      if (typeFilter !== 'all' && t.type !== typeFilter) return false
+      if (search.trim()) {
+        const q = search.toLowerCase()
+        return (
+          (t.description ?? '').toLowerCase().includes(q) ||
+          (t.category ?? '').toLowerCase().includes(q) ||
+          (t.client_name ?? '').toLowerCase().includes(q) ||
+          String(t.amount).includes(q)
+        )
+      }
+      return true
+    })
+  }, [transactions, period, typeFilter, search])
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    watch,
-    formState: { errors },
-  } = useForm<FormData>({
-    resolver:
-      zodResolver(schema),
+  /* ── Computed stats ── */
+  const stats = useMemo(() => {
+    const all = transactions ?? []
+    const totalInc    = all.filter(t => t.type === 'income') .reduce((s, t) => s + Number(t.amount), 0)
+    const totalExp    = all.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0)
+    const balance     = totalInc - totalExp
+    const incCount    = all.filter(t => t.type === 'income').length
+    const ticketAvg   = incCount > 0 ? totalInc / incCount : 0
+    // Month stats
+    const now = new Date()
+    const monthTx = all.filter(t => {
+      const d = parseISO(t.date)
+      return d >= startOfMonth(now) && d <= endOfMonth(now)
+    })
+    const monthInc = monthTx.filter(t => t.type === 'income') .reduce((s, t) => s + Number(t.amount), 0)
+    const monthExp = monthTx.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0)
+    // Top expense category
+    const expByCat = EXPENSE_CATS.map(c => ({
+      label: c.label,
+      total: all.filter(t => t.type === 'expense' && t.category === c.value).reduce((s,t) => s + Number(t.amount), 0)
+    })).sort((a,b) => b.total - a.total)
 
-    defaultValues: {
-      type: 'income',
+    return { totalInc, totalExp, balance, incCount, ticketAvg, monthInc, monthExp, topExpCat: expByCat[0]?.label ?? '—' }
+  }, [transactions])
 
-      date: format(
-        new Date(),
-        'yyyy-MM-dd'
-      ),
+  /* ── Mutations ── */
+  function openNew() {
+    setEditTx(null)
+    setFType('income'); setFCat('pedidos'); setFAmount(''); setFDesc('')
+    setFDate(format(new Date(), 'yyyy-MM-dd'))
+    setFStatus('received'); setFClient(''); setFNotes('')
+    setShowModal(true)
+  }
 
-      category: 'vendas',
-    },
-  })
-
-  const currentType =
-    watch('type')
-
-  /* ─────────────────────────────────────────────
-     Save
-  ───────────────────────────────────────────── */
+  function openEdit(tx: Transaction) {
+    setEditTx(tx)
+    setFType(tx.type); setFCat(tx.category); setFAmount(String(tx.amount))
+    setFDesc(tx.description ?? ''); setFDate(tx.date)
+    setFStatus(tx.status ?? (tx.type === 'income' ? 'received' : 'paid'))
+    setFClient(tx.client_name ?? ''); setFNotes(tx.notes ?? '')
+    setShowModal(true)
+  }
 
   const saveMutation = useMutation({
-    mutationFn: async (
-      d: FormData
-    ) => {
-      if (!companyId)
-        throw new Error(
-          'Empresa não encontrada'
-        )
-
-      if (!userId)
-        throw new Error(
-          'Usuário não autenticado'
-        )
-
-      const { error } = await (
-        supabase.from(
-          'transactions'
-        ) as any
-      )
-        .insert([
-          {
-            ...d,
-
-            company_id:
-              companyId,
-
-            user_id: userId,
-          },
-        ])
-        .select()
-
-      if (error) throw error
+    mutationFn: async () => {
+      if (!companyId) throw new Error('Empresa não encontrada')
+      const amount = parseFloat(fAmount.replace(',', '.'))
+      if (!amount || amount <= 0) throw new Error('Valor inválido')
+      setSaving(true)
+      const payload = {
+        company_id:  companyId,
+        type:        fType,
+        category:    fCat,
+        amount,
+        description: fDesc.trim() || null,
+        date:        fDate,
+        // Extra fields (gracious fallback if columns don't exist)
+        status:      fStatus || null,
+        client_name: fClient.trim() || null,
+        notes:       fNotes.trim() || null,
+      }
+      if (editTx?.id) {
+        const { error } = await (supabase.from('financial_transactions') as any)
+          .update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editTx.id)
+        if (error?.code === '42703') {
+          // Retry without extra columns
+          await (supabase.from('financial_transactions') as any)
+            .update({ company_id: payload.company_id, type: payload.type, category: payload.category, amount, description: payload.description, date: payload.date })
+            .eq('id', editTx.id)
+        } else if (error) throw error
+      } else {
+        const { error } = await (supabase.from('financial_transactions') as any).insert([payload]).select()
+        if (error?.code === '42703') {
+          await (supabase.from('financial_transactions') as any)
+            .insert([{ company_id: payload.company_id, type: payload.type, category: payload.category, amount, description: payload.description, date: payload.date }]).select()
+        } else if (error) throw error
+      }
     },
-
     onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: [
-          'transactions',
-          companyId,
-        ],
-      })
-
-      qc.invalidateQueries({
-        queryKey: [
-          'dashboard',
-          companyId,
-        ],
-      })
-
-      toast(
-        'success',
-        'Transação registrada!'
-      )
-
-      setShowModal(false)
-
-      reset({
-        type: 'income',
-
-        date: format(
-          new Date(),
-          'yyyy-MM-dd'
-        ),
-
-        category: 'vendas',
-      })
+      qc.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
+      toast('success', editTx ? 'Atualizado!' : 'Lançamento salvo!')
+      setShowModal(false); setSaving(false)
     },
-
-    onError: (err: Error) => {
-      console.error(
-        '[financeiro] save error:',
-        err
-      )
-
-      toast(
-        'error',
-        `Erro ao registrar: ${err.message}`
-      )
-    },
+    onError: (err: Error) => { toast('error', err.message); setSaving(false) },
   })
-
-  /* ─────────────────────────────────────────────
-     Delete
-  ───────────────────────────────────────────── */
 
   const deleteMutation = useMutation({
-    mutationFn: async (
-      id: string
-    ) => {
-      const { error } = await (
-        supabase.from(
-          'transactions'
-        ) as any
-      )
-        .delete()
-        .eq('id', id)
-
+    mutationFn: async (id: string) => {
+      const { error } = await (supabase.from('financial_transactions') as any).delete().eq('id', id)
       if (error) throw error
     },
-
     onSuccess: () => {
-      qc.invalidateQueries({
-        queryKey: [
-          'transactions',
-          companyId,
-        ],
-      })
-
-      qc.invalidateQueries({
-        queryKey: [
-          'dashboard',
-          companyId,
-        ],
-      })
-
-      toast(
-        'success',
-        'Transação removida.'
-      )
-
-      setDeleteId(null)
+      qc.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
+      toast('success', 'Removido.'); setDeleteId(null)
     },
-
-    onError: (err: Error) => {
-      console.error(
-        '[financeiro] delete error:',
-        err
-      )
-
-      toast(
-        'error',
-        `Erro ao excluir: ${err.message}`
-      )
-    },
+    onError: (err: Error) => toast('error', err.message),
   })
 
-  /* ─────────────────────────────────────────────
-     Computed
-  ───────────────────────────────────────────── */
-
-  const totalIncome =
-    (transactions ?? [])
-      .filter(
-        (
-          t: Record<
-            string,
-            unknown
-          >
-        ) =>
-          t.type === 'income'
-      )
-      .reduce(
-        (
-          s: number,
-          t: Record<
-            string,
-            unknown
-          >
-        ) =>
-          s + Number(t.amount),
-        0
-      )
-
-  const totalExpense =
-    (transactions ?? [])
-      .filter(
-        (
-          t: Record<
-            string,
-            unknown
-          >
-        ) =>
-          t.type === 'expense'
-      )
-      .reduce(
-        (
-          s: number,
-          t: Record<
-            string,
-            unknown
-          >
-        ) =>
-          s + Number(t.amount),
-        0
-      )
-
-  const balance =
-    totalIncome - totalExpense
-
-  const filtered =
-    (transactions ?? []).filter(
-      (
-        t: Record<
-          string,
-          unknown
-        >
-      ) =>
-        filterType === 'all' ||
-        t.type === filterType
-    )
-
-  /* ─────────────────────────────────────────────
-     Render
-  ───────────────────────────────────────────── */
+  /* ── Category options for current type ── */
+  const catOptions = fType === 'income' ? INCOME_CATS : EXPENSE_CATS
+  const statusOptions = fType === 'income' ? STATUS_INCOME : STATUS_EXPENSE
 
   return (
     <div className="page-enter">
+      <Header title="Financeiro" subtitle="Central financeira integrada com pedidos e orçamentos" />
 
-      <Header
-        title="Financeiro"
-        subtitle="Controle de receitas e despesas"
-      />
+      <div className="p-3 sm:p-5 lg:p-6 space-y-4">
 
-      <div className="p-4 sm:p-6 space-y-4">
-
-        {/* Summary */}
-
+        {/* ── CARDS SUPERIORES ── */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-
-          {[
-            {
-              label: 'Receitas',
-
-              value: totalIncome,
-
-              icon: TrendingUp,
-
-              color: 'text-success',
-
-              bg: 'bg-success-light dark:bg-success/10',
-            },
-
-            {
-              label: 'Despesas',
-
-              value: totalExpense,
-
-              icon: TrendingDown,
-
-              color: 'text-error',
-
-              bg: 'bg-error-light dark:bg-error/10',
-            },
-
-            {
-              label: 'Saldo',
-
-              value: balance,
-
-              icon: DollarSign,
-
-              color:
-                balance >= 0
-                  ? 'text-success'
-                  : 'text-error',
-
-              bg:
-                balance >= 0
-                  ? 'bg-success-light dark:bg-success/10'
-                  : 'bg-error-light dark:bg-error/10',
-            },
-          ].map((card) => {
-            const Icon =
-              card.icon
-
-            return (
-              <div
-                key={card.label}
-                className="card flex items-center gap-4 p-4"
-              >
-                <div
-                  className={clsx(
-                    'p-3 rounded-2xl flex-shrink-0',
-                    card.bg
-                  )}
-                >
-                  <Icon
-                    size={22}
-                    className={
-                      card.color
-                    }
-                  />
-                </div>
-
-                <div>
-                  <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
-                    {card.label}
-                  </p>
-
-                  <p
-                    className={clsx(
-                      'text-2xl font-bold',
-                      card.color
-                    )}
-                  >
-                    {fmt(
-                      card.value
-                    )}
-                  </p>
-                </div>
+          {/* Receitas */}
+          <div className="card bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/10 dark:to-emerald-900/10 border-green-200/60 dark:border-green-800/30">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">Receitas totais</p>
+                <p className="text-2xl font-bold text-success-dark dark:text-green-400 mt-1">{fmt(stats.totalInc)}</p>
               </div>
-            )
-          })}
+              <div className="w-10 h-10 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
+                <TrendingUp size={18} className="text-success-dark dark:text-green-400" />
+              </div>
+            </div>
+            <div className="flex items-center gap-3 pt-2 border-t border-green-200/60 dark:border-green-800/20">
+              <div className="text-center flex-1">
+                <p className="text-[10px] text-text-muted dark:text-stone-500 uppercase tracking-wider">Qtd</p>
+                <p className="text-sm font-bold text-success-dark dark:text-green-400">{stats.incCount}</p>
+              </div>
+              <div className="w-px h-6 bg-green-200/60 dark:bg-green-800/30" />
+              <div className="text-center flex-1">
+                <p className="text-[10px] text-text-muted dark:text-stone-500 uppercase tracking-wider">Ticket médio</p>
+                <p className="text-sm font-bold text-success-dark dark:text-green-400">{fmt(stats.ticketAvg)}</p>
+              </div>
+              <div className="w-px h-6 bg-green-200/60 dark:bg-green-800/30" />
+              <div className="text-center flex-1">
+                <p className="text-[10px] text-text-muted dark:text-stone-500 uppercase tracking-wider">Mês atual</p>
+                <p className="text-sm font-bold text-success-dark dark:text-green-400">{fmt(stats.monthInc)}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Despesas */}
+          <div className="card bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/10 dark:to-orange-900/10 border-red-200/60 dark:border-red-800/30">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">Despesas totais</p>
+                <p className="text-2xl font-bold text-error dark:text-red-400 mt-1">{fmt(stats.totalExp)}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                <TrendingDown size={18} className="text-error dark:text-red-400" />
+              </div>
+            </div>
+            <div className="flex items-center gap-3 pt-2 border-t border-red-200/60 dark:border-red-800/20">
+              <div className="text-center flex-1">
+                <p className="text-[10px] text-text-muted dark:text-stone-500 uppercase tracking-wider">Categoria</p>
+                <p className="text-xs font-bold text-error dark:text-red-400 truncate">{stats.topExpCat}</p>
+              </div>
+              <div className="w-px h-6 bg-red-200/60 dark:bg-red-800/30" />
+              <div className="text-center flex-1">
+                <p className="text-[10px] text-text-muted dark:text-stone-500 uppercase tracking-wider">Mês atual</p>
+                <p className="text-sm font-bold text-error dark:text-red-400">{fmt(stats.monthExp)}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Saldo */}
+          <div className={clsx(
+            'card bg-gradient-to-br border',
+            stats.balance >= 0
+              ? 'from-primary-50/60 to-amber-50/40 dark:from-primary/10 dark:to-amber-900/5 border-primary/20'
+              : 'from-red-50 to-orange-50 dark:from-red-900/10 dark:to-orange-900/5 border-red-200/60 dark:border-red-800/30'
+          )}>
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">Saldo atual</p>
+                <p className={clsx('text-2xl font-bold mt-1', stats.balance >= 0 ? 'text-primary' : 'text-error dark:text-red-400')}>
+                  {fmt(stats.balance)}
+                </p>
+              </div>
+              <div className={clsx('w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0',
+                stats.balance >= 0 ? 'bg-primary/10' : 'bg-red-100 dark:bg-red-900/30')}>
+                <DollarSign size={18} className={stats.balance >= 0 ? 'text-primary' : 'text-error dark:text-red-400'} />
+              </div>
+            </div>
+            <div className="flex items-center gap-3 pt-2 border-t border-primary/10">
+              <div className="text-center flex-1">
+                <p className="text-[10px] text-text-muted dark:text-stone-500 uppercase tracking-wider">Lucro líquido</p>
+                <p className={clsx('text-sm font-bold', stats.balance >= 0 ? 'text-primary' : 'text-error dark:text-red-400')}>
+                  {fmt(stats.balance)}
+                </p>
+              </div>
+              <div className="w-px h-6 bg-primary/10" />
+              <div className="text-center flex-1">
+                <p className="text-[10px] text-text-muted dark:text-stone-500 uppercase tracking-wider">Margem</p>
+                <p className={clsx('text-sm font-bold', stats.balance >= 0 ? 'text-primary' : 'text-error dark:text-red-400')}>
+                  {stats.totalInc > 0 ? ((stats.balance / stats.totalInc) * 100).toFixed(1) + '%' : '—'}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Toolbar */}
+        {/* ── TOOLBAR ── */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          {/* Search */}
+          <div className="relative flex-1 min-w-0">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+            <input className="input pl-9 text-sm" placeholder="Buscar por descrição, cliente, categoria..."
+              value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-
-          <div className="flex gap-2 flex-wrap">
-
-            {[
-              {
-                v: 'all',
-                l: 'Todos',
-              },
-
-              {
-                v: 'income',
-                l: 'Receitas',
-              },
-
-              {
-                v: 'expense',
-                l: 'Despesas',
-              },
-            ].map((btn) => (
-              <button
-                key={btn.v}
-                onClick={() =>
-                  setFilterType(
-                    btn.v
-                  )
-                }
-                className={clsx(
-                  'px-4 py-2 rounded-xl text-sm font-medium transition-all',
-
-                  filterType ===
-                    btn.v
-                    ? 'bg-primary text-white shadow-md'
-                    : 'text-text-secondary hover:bg-primary-50 dark:hover:bg-white/5'
-                )}
-              >
-                {btn.l}
+          {/* Period filter */}
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-primary-50 dark:bg-white/[0.04] flex-shrink-0">
+            {([['all','Todos'],['today','Hoje'],['week','Semana'],['month','Mês'],['last_month','Mês ant.']] as const).map(([k,l]) => (
+              <button key={k} onClick={() => setPeriod(k)}
+                className={clsx('px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all',
+                  period === k ? 'bg-white dark:bg-surface-dark text-primary shadow-sm' : 'text-text-muted dark:text-stone-500 hover:text-text-primary')}>
+                {l}
               </button>
             ))}
           </div>
 
-          <button
-            onClick={() => {
-              reset({
-                type:
-                  'income',
+          {/* Type filter */}
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-primary-50 dark:bg-white/[0.04] flex-shrink-0">
+            {([['all','Todos'],['income','Receitas'],['expense','Despesas']] as const).map(([k,l]) => (
+              <button key={k} onClick={() => setTypeFilter(k)}
+                className={clsx('px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all',
+                  typeFilter === k ? 'bg-white dark:bg-surface-dark text-primary shadow-sm' : 'text-text-muted dark:text-stone-500 hover:text-text-primary')}>
+                {l}
+              </button>
+            ))}
+          </div>
 
-                date: format(
-                  new Date(),
-                  'yyyy-MM-dd'
-                ),
-
-                category:
-                  'vendas',
-              })
-
-              setShowModal(
-                true
-              )
-            }}
-            className="btn-primary flex items-center gap-2 w-full sm:w-auto"
-          >
-            <Plus size={16} />
-            Nova Transação
+          <button onClick={openNew} className="btn-primary flex items-center gap-1.5 text-sm px-4 flex-shrink-0">
+            <Plus size={15} /> Novo lançamento
           </button>
         </div>
 
-        {/* Table */}
-
+        {/* ── TABELA / LISTA ── */}
         <div className="card p-0 overflow-hidden">
-
           {isLoading ? (
-            <div className="p-6">
-              <SkeletonTable rows={6} />
-            </div>
+            <div className="p-6"><SkeletonTable rows={5} /></div>
           ) : filtered.length === 0 ? (
-            <EmptyState
-              icon={
-                DollarSign
-              }
-              title="Sem transações"
-              description="Registre receitas e despesas para controlar suas finanças."
-              action={{
-                label:
-                  '+ Nova Transação',
-
-                onClick: () =>
-                  setShowModal(
-                    true
-                  ),
-              }}
-            />
+            <EmptyState icon={DollarSign} title="Nenhum lançamento"
+              description="Registre receitas e despesas para acompanhar o financeiro."
+              action={{ label: '+ Novo lançamento', onClick: openNew }} />
           ) : (
             <>
-              {/* ── MOBILE: cards ── */}
+              {/* Mobile list */}
               <div className="md:hidden divide-y divide-border dark:divide-border-dark">
-                {filtered.map((t: Record<string, unknown>) => (
-                  <div key={t.id as string} className="p-4">
-                    <div className="flex items-start gap-3">
-                      <div className={clsx(
-                        'w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0',
-                        t.type === 'income'
-                          ? 'bg-success-light dark:bg-success/10'
-                          : 'bg-error-light dark:bg-error/10'
-                      )}>
-                        {t.type === 'income'
-                          ? <TrendingUp size={16} className="text-success" />
-                          : <TrendingDown size={16} className="text-error" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">
-                              {(t.description as string) || (t.type === 'income' ? 'Receita' : 'Despesa')}
-                            </p>
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className="badge badge-primary text-[10px]">{t.category as string}</span>
-                              <span className="text-[10px] text-text-muted">
-                                {new Date(t.date as string).toLocaleDateString('pt-BR')}
-                              </span>
-                            </div>
+                {filtered.map(t => {
+                  const cat    = getCatInfo(t.category)
+                  const status = getStatusInfo(t.type, t.status)
+                  const SIcon  = status.icon
+                  return (
+                    <div key={t.id} className="p-4">
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full', cat?.color ?? 'bg-stone-100 text-stone-600')}>
+                              {cat?.label ?? t.category}
+                            </span>
+                            <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1', status.badge)}>
+                              <SIcon size={9} /> {status.label}
+                            </span>
                           </div>
-                          <span className={clsx(
-                            'text-sm font-bold flex-shrink-0',
-                            t.type === 'income' ? 'text-success' : 'text-error'
-                          )}>
-                            {t.type === 'income' ? '+' : '-'}
-                            {new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(t.amount))}
-                          </span>
+                          <p className="text-sm font-semibold text-text-primary dark:text-stone-100 truncate">
+                            {t.description || (t.type === 'income' ? 'Receita' : 'Despesa')}
+                          </p>
+                          <div className="flex items-center gap-3 mt-0.5">
+                            <span className="text-xs text-text-muted">
+                              {format(parseISO(t.date), 'dd/MM/yyyy', { locale: ptBR })}
+                            </span>
+                            {t.client_name && (
+                              <span className="text-xs text-text-muted flex items-center gap-0.5">
+                                <User size={9} /> {t.client_name}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex justify-end mt-2">
-                          <button onClick={() => setDeleteId(t.id as string)}
-                            className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors">
-                            <Trash2 size={14} />
-                          </button>
+                        <div className="text-right flex-shrink-0">
+                          <p className={clsx('text-base font-bold', t.type === 'income' ? 'text-success-dark dark:text-green-400' : 'text-error dark:text-red-400')}>
+                            {t.type === 'income' ? '+' : '−'}{fmt(t.amount)}
+                          </p>
                         </div>
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <button onClick={() => openEdit(t)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>
+                        <button onClick={() => setDeleteId(t.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
 
-              {/* ── DESKTOP: tabela ── */}
-              <div className="hidden md:block overflow-x-auto w-full">
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full">
-
-                <thead>
-                  <tr className="border-b border-border dark:border-border-dark">
-
-                    {[
-                      'Tipo',
-                      'Descrição',
-                      'Categoria',
-                      'Data',
-                      'Valor',
-                      '',
-                    ].map((h) => (
-                      <th
-                        key={h}
-                        className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider p-4"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-
-                <tbody>
-
-                  {filtered.map(
-                    (
-                      t: Record<
-                        string,
-                        unknown
-                      >
-                    ) => (
-                      <tr
-                        key={
-                          t.id as string
-                        }
-                        className="border-b border-border dark:border-border-dark last:border-0 hover:bg-primary-50/30 dark:hover:bg-white/[0.02] transition-colors"
-                      >
-
-                        <td className="p-4">
-
-                          <div
-                            className={clsx(
-                              'w-10 h-10 rounded-2xl flex items-center justify-center',
-
-                              t.type ===
-                                'income'
-                                ? 'bg-success-light dark:bg-success/10'
-                                : 'bg-error-light dark:bg-error/10'
+                  <thead>
+                    <tr className="border-b border-border dark:border-border-dark">
+                      {['Data','Descrição','Categoria','Status','Cliente','Valor','Ações'].map(h => (
+                        <th key={h} className="text-left text-[11px] font-semibold text-text-muted uppercase tracking-wider p-4 whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map(t => {
+                      const cat    = getCatInfo(t.category)
+                      const status = getStatusInfo(t.type, t.status)
+                      const SIcon  = status.icon
+                      return (
+                        <tr key={t.id} className="border-b border-border dark:border-border-dark last:border-0 hover:bg-primary-50/20 dark:hover:bg-white/[0.02] transition-colors group">
+                          <td className="p-4 text-sm text-text-secondary dark:text-stone-300 whitespace-nowrap">
+                            {format(parseISO(t.date), 'dd/MM/yy', { locale: ptBR })}
+                          </td>
+                          <td className="p-4 max-w-[220px]">
+                            <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">
+                              {t.description || (t.type === 'income' ? 'Receita' : 'Despesa')}
+                            </p>
+                            {t.order_id && (
+                              <span className="text-[10px] text-text-muted flex items-center gap-0.5 mt-0.5">
+                                <ShoppingCart size={9} /> Pedido vinculado
+                              </span>
                             )}
-                          >
-                            {t.type ===
-                            'income' ? (
-                              <TrendingUp
-                                size={
-                                  16
-                                }
-                                className="text-success"
-                              />
-                            ) : (
-                              <TrendingDown
-                                size={
-                                  16
-                                }
-                                className="text-error"
-                              />
-                            )}
-                          </div>
-                        </td>
-
-                        <td className="p-4">
-
-                          <p className="text-sm font-semibold text-text-primary dark:text-stone-100">
-
-                            {(t.description as string) ||
-                              (t.type ===
-                              'income'
-                                ? 'Receita'
-                                : 'Despesa')}
-                          </p>
-                        </td>
-
-                        <td className="p-4">
-
-                          <span className="badge badge-primary">
-                            {
-                              t.category as string
-                            }
-                          </span>
-                        </td>
-
-                        <td className="p-4 text-sm text-text-secondary dark:text-stone-300">
-
-                          {format(
-                            new Date(
-                              t.date as string
-                            ),
-                            'dd/MM/yyyy'
-                          )}
-                        </td>
-
-                        <td className="p-4">
-
-                          <span
-                            className={clsx(
-                              'text-sm font-bold',
-
-                              t.type ===
-                                'income'
-                                ? 'text-success'
-                                : 'text-error'
-                            )}
-                          >
-                            {t.type ===
-                            'income'
-                              ? '+'
-                              : '-'}
-
-                            {fmt(
-                              Number(
-                                t.amount
-                              )
-                            )}
-                          </span>
-                        </td>
-
-                        <td className="p-4">
-
-                          <button
-                            onClick={() =>
-                              setDeleteId(
-                                t.id as string
-                              )
-                            }
-                            className="p-2 rounded-xl text-text-muted hover:text-error hover:bg-error-light transition-colors"
-                          >
-                            <Trash2
-                              size={
-                                15
-                              }
-                            />
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  )}
-                </tbody>
-              </table>
-            </div>
+                          </td>
+                          <td className="p-4">
+                            <span className={clsx('text-[11px] font-semibold px-2 py-1 rounded-full whitespace-nowrap', cat?.color ?? 'bg-stone-100 text-stone-600')}>
+                              {cat?.label ?? t.category}
+                            </span>
+                          </td>
+                          <td className="p-4">
+                            <span className={clsx('text-[11px] font-semibold px-2 py-1 rounded-full flex items-center gap-1 w-fit whitespace-nowrap', status.badge)}>
+                              <SIcon size={10} /> {status.label}
+                            </span>
+                          </td>
+                          <td className="p-4 text-sm text-text-secondary dark:text-stone-400">
+                            {t.client_name || '—'}
+                          </td>
+                          <td className="p-4 whitespace-nowrap">
+                            <div className="flex items-center gap-1">
+                              {t.type === 'income'
+                                ? <ArrowUpRight size={14} className="text-success-dark dark:text-green-400" />
+                                : <ArrowDownRight size={14} className="text-error dark:text-red-400" />}
+                              <span className={clsx('text-sm font-bold', t.type === 'income' ? 'text-success-dark dark:text-green-400' : 'text-error dark:text-red-400')}>
+                                {fmt(t.amount)}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => openEdit(t)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>
+                              <button onClick={() => setDeleteId(t.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </>
           )}
         </div>
+
+        {/* ── Resumo do período ── */}
+        {filtered.length > 0 && (
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: 'Receitas', value: filtered.filter(t=>t.type==='income').reduce((s,t)=>s+Number(t.amount),0), color:'text-success-dark dark:text-green-400' },
+              { label: 'Despesas', value: filtered.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.amount),0), color:'text-error dark:text-red-400' },
+              { label: 'Saldo',    value: filtered.filter(t=>t.type==='income').reduce((s,t)=>s+Number(t.amount),0) - filtered.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.amount),0), color:'text-primary' },
+            ].map(s => (
+              <div key={s.label} className="card py-3 text-center">
+                <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1">{s.label}</p>
+                <p className={clsx('text-base font-bold', s.color)}>{fmt(s.value)}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Modal */}
-
+      {/* ══════════════════════════════════════════════
+          MODAL NOVO / EDITAR
+      ══════════════════════════════════════════════ */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowModal(false)} />
+          <div className="relative bg-white dark:bg-surface-dark w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-modal animate-scaleIn max-h-[92dvh] flex flex-col overflow-hidden">
 
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() =>
-              setShowModal(
-                false
-              )
-            }
-          />
-
-          <div className="relative bg-white dark:bg-surface-dark rounded-3xl shadow-modal w-full max-w-lg animate-scaleIn max-h-[92vh] overflow-y-auto">
-
-            {/* Header */}
-
-            <div className="p-4 sm:p-6 border-b border-border dark:border-border-dark flex items-center justify-between">
-
-              <div>
-                <h2 className="text-2xl font-bold text-text-primary dark:text-stone-100">
-                  Nova Transação
-                </h2>
-
-                <p className="text-sm text-text-muted mt-1">
-                  Registre entradas e saídas financeiras
-                </p>
-              </div>
-
-              <button
-                onClick={() =>
-                  setShowModal(
-                    false
-                  )
-                }
-                className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted"
-              >
-                <X size={18} />
-              </button>
+            <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border dark:border-border-dark flex-shrink-0">
+              <h2 className="text-base font-bold text-text-primary dark:text-stone-100">
+                {editTx ? 'Editar lançamento' : 'Novo lançamento'}
+              </h2>
+              <button onClick={() => setShowModal(false)} className="p-1.5 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted"><X size={15}/></button>
             </div>
 
-            {/* Form */}
-
-            <form
-              onSubmit={handleSubmit(
-                (d) =>
-                  saveMutation.mutate(
-                    d
-                  )
-              )}
-              className="p-4 sm:p-6 space-y-5"
-            >
-
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
               {/* Tipo */}
-
-              <div className="space-y-2">
-
-                <label className="text-sm font-semibold flex items-center gap-2">
-                  <BadgeDollarSign
-                    size={14}
-                  />
-                  Tipo
-                </label>
-
-                <select
-                  className="input h-12"
-                  {...register(
-                    'type'
-                  )}
-                >
-                  <option value="income">
-                    Receita
-                  </option>
-
-                  <option value="expense">
-                    Despesa
-                  </option>
-                </select>
+              <div className="grid grid-cols-2 gap-2">
+                {([['income','Receita','TrendingUp'],['expense','Despesa','TrendingDown']] as const).map(([val, label, _]) => (
+                  <button key={val} type="button" onClick={() => { setFType(val); setFCat(val === 'income' ? 'pedidos' : 'fornecedores'); setFStatus(val === 'income' ? 'received' : 'to_pay') }}
+                    className={clsx('flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-all',
+                      fType === val
+                        ? val === 'income'
+                          ? 'border-success bg-success-light dark:bg-success/10 text-success-dark dark:text-green-400'
+                          : 'border-error bg-error-light dark:bg-error/10 text-error dark:text-red-400'
+                        : 'border-border dark:border-border-dark text-text-muted')}>
+                    {val === 'income' ? <TrendingUp size={15}/> : <TrendingDown size={15}/>}
+                    {label}
+                  </button>
+                ))}
               </div>
 
               {/* Categoria */}
-
-              <div className="space-y-2">
-
-                <label className="text-sm font-semibold flex items-center gap-2">
-                  <Receipt
-                    size={14}
-                  />
-                  Categoria
-                </label>
-
-                <input
-                  className="input h-12"
-                  placeholder="Ex: vendas, fornecedores..."
-                  {...register(
-                    'category'
-                  )}
-                />
-
-                {errors.category && (
-                  <p className="text-xs text-error">
-                    {
-                      errors
-                        .category
-                        .message
-                    }
-                  </p>
-                )}
+              <div>
+                <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Categoria *</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {catOptions.map(c => (
+                    <button key={c.value} type="button" onClick={() => setFCat(c.value)}
+                      className={clsx('text-xs font-medium px-2.5 py-1 rounded-full border transition-all',
+                        fCat === c.value ? c.color + ' border-transparent' : 'border-border dark:border-border-dark text-text-muted hover:text-text-primary')}>
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {/* Valor */}
-
-              <div className="space-y-2">
-
-                <label className="text-sm font-semibold flex items-center gap-2">
-                  <DollarSign
-                    size={14}
-                  />
-                  Valor (R$)
-                </label>
-
-                <input
-                  type="number"
-                  step="0.01"
-                  className={clsx(
-                    'input h-12 font-semibold',
-
-                    currentType ===
-                      'income'
-                      ? 'text-success'
-                      : 'text-error'
-                  )}
-                  placeholder="0,00"
-                  {...register(
-                    'amount'
-                  )}
-                />
-
-                {errors.amount && (
-                  <p className="text-xs text-error">
-                    {
-                      errors
-                        .amount
-                        .message
-                    }
-                  </p>
-                )}
+              {/* Valor + Data */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Valor (R$) *</label>
+                  <input type="number" step="0.01" min="0" className="input"
+                    placeholder="0,00" value={fAmount} onChange={e => setFAmount(e.target.value)} autoFocus />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Data *</label>
+                  <input type="date" className="input" value={fDate} onChange={e => setFDate(e.target.value)} />
+                </div>
               </div>
 
-              {/* Data */}
-
-              <div className="space-y-2">
-
-                <label className="text-sm font-semibold flex items-center gap-2">
-                  <CalendarDays
-                    size={14}
-                  />
-                  Data
-                </label>
-
-                <input
-                  type="date"
-                  className="input h-12"
-                  {...register(
-                    'date'
-                  )}
-                />
+              {/* Status */}
+              <div>
+                <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Status</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {statusOptions.map(s => {
+                    const SIcon = s.icon
+                    return (
+                      <button key={s.value} type="button" onClick={() => setFStatus(s.value)}
+                        className={clsx('text-xs font-medium px-2.5 py-1 rounded-full border transition-all flex items-center gap-1',
+                          fStatus === s.value ? s.badge + ' border-transparent' : 'border-border dark:border-border-dark text-text-muted')}>
+                        <SIcon size={10} /> {s.label}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
 
               {/* Descrição */}
-
-              <div className="space-y-2">
-
-                <label className="text-sm font-semibold">
-                  Descrição
-                </label>
-
-                <textarea
-                  rows={3}
-                  className="input resize-none"
-                  placeholder="Detalhes adicionais..."
-                  {...register(
-                    'description'
-                  )}
-                />
+              <div>
+                <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Descrição</label>
+                <input className="input text-sm" placeholder="Ex: Pedido PED-0042 — banner Ana"
+                  value={fDesc} onChange={e => setFDesc(e.target.value)} />
               </div>
 
-              {/* Footer */}
-
-              <div className="flex flex-col sm:flex-row gap-3 pt-2">
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowModal(
-                      false
-                    )
-                  }
-                  className="btn-secondary flex-1 h-12"
-                >
-                  Cancelar
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={
-                    saveMutation.isPending
-                  }
-                  className="btn-primary flex-1 h-12 flex items-center justify-center gap-2"
-                >
-                  {saveMutation.isPending && (
-                    <Loader2
-                      size={15}
-                      className="animate-spin"
-                    />
-                  )}
-
-                  {saveMutation.isPending
-                    ? 'Salvando...'
-                    : 'Salvar'}
-                </button>
+              {/* Cliente */}
+              <div>
+                <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Cliente (opcional)</label>
+                <input className="input text-sm" placeholder="Nome do cliente"
+                  value={fClient} onChange={e => setFClient(e.target.value)} />
               </div>
-            </form>
+
+              {/* Observações */}
+              <div>
+                <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Observações</label>
+                <textarea rows={2} className="input resize-none text-sm" placeholder="Notas extras..."
+                  value={fNotes} onChange={e => setFNotes(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="flex gap-3 p-4 sm:p-5 border-t border-border dark:border-border-dark flex-shrink-0">
+              <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancelar</button>
+              <button onClick={() => saveMutation.mutate()} disabled={saving || !fAmount.trim() || !fDate}
+                className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50">
+                {saving && <Loader2 size={14} className="animate-spin"/>}
+                {saving ? 'Salvando...' : editTx ? 'Atualizar' : 'Salvar'}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Delete */}
-
+      {/* ── Delete confirm ── */}
       {deleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() =>
-              setDeleteId(null)
-            }
-          />
-
-          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm animate-scaleIn p-6 text-center">
-
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setDeleteId(null)} />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm p-6 text-center animate-scaleIn">
             <div className="w-12 h-12 rounded-2xl bg-error-light flex items-center justify-center mx-auto mb-4">
-
-              <Trash2
-                size={20}
-                className="text-error"
-              />
+              <Trash2 size={20} className="text-error" />
             </div>
-
-            <h3 className="text-base font-semibold mb-2 text-text-primary dark:text-stone-100">
-              Excluir transação?
-            </h3>
-
-            <p className="text-sm text-text-secondary dark:text-stone-400 mb-6">
-              Esta ação não pode ser desfeita.
-            </p>
-
+            <h3 className="text-base font-semibold text-text-primary dark:text-stone-100 mb-2">Excluir lançamento?</h3>
+            <p className="text-sm text-text-secondary dark:text-stone-400 mb-6">Esta ação não pode ser desfeita.</p>
             <div className="flex gap-3">
-
-              <button
-                onClick={() =>
-                  setDeleteId(null)
-                }
-                className="btn-secondary flex-1"
-              >
-                Cancelar
-              </button>
-
-              <button
-                onClick={() =>
-                  deleteMutation.mutate(
-                    deleteId!
-                  )
-                }
-                disabled={
-                  deleteMutation.isPending
-                }
-                className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-error hover:opacity-90 disabled:opacity-50"
-              >
-                {deleteMutation.isPending && (
-                  <Loader2
-                    size={14}
-                    className="animate-spin"
-                  />
-                )}
-
-                Excluir
+              <button onClick={() => setDeleteId(null)} className="btn-secondary flex-1">Cancelar</button>
+              <button onClick={() => deleteMutation.mutate(deleteId)} disabled={deleteMutation.isPending}
+                className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-error hover:opacity-90 disabled:opacity-50">
+                {deleteMutation.isPending && <Loader2 size={14} className="animate-spin"/>} Excluir
               </button>
             </div>
           </div>
