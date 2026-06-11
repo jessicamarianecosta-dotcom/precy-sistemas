@@ -32,7 +32,7 @@ interface Transaction {
   notes?:      string
 }
 
-type Period = 'all' | 'today' | 'week' | 'month' | 'last_month' | 'next_month'
+type Period = 'all' | 'today' | 'week' | 'month' | 'last_month' | 'next_month' | 'custom'
 type TypeFilter = 'all' | 'income' | 'expense'
 
 /* ─── Categories ─── */
@@ -89,6 +89,9 @@ export default function FinanceiroPage() {
 
   /* ── UI state ── */
   const [period,      setPeriod]     = useState<Period>('month')
+  const [customStart, setCustomStart] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'))
+  const [customEnd,   setCustomEnd]   = useState(format(endOfMonth(new Date()),   'yyyy-MM-dd'))
+  const [showCustom,  setShowCustom]  = useState(false)
   const [typeFilter,  setTypeFilter] = useState<TypeFilter>('all')
   const [search,      setSearch]     = useState('')
   const [showModal,   setShowModal]  = useState(false)
@@ -138,6 +141,11 @@ export default function FinanceiroPage() {
           const nm = addMonths(now, 1)
           if (d < startOfMonth(nm) || d > endOfMonth(nm)) return false
         }
+        if (period === 'custom' && customStart && customEnd) {
+          const start = parseISO(customStart)
+          const end   = parseISO(customEnd)
+          if (d < start || d > end) return false
+        }
       }
       if (typeFilter !== 'all' && t.type !== typeFilter) return false
       if (search.trim()) {
@@ -151,7 +159,7 @@ export default function FinanceiroPage() {
       }
       return true
     })
-  }, [transactions, period, typeFilter, search])
+  }, [transactions, period, typeFilter, search, customStart, customEnd])
 
   /* ── Computed stats: REALIZADO vs PREVISTO ── */
   const stats = useMemo(() => {
@@ -394,14 +402,95 @@ export default function FinanceiroPage() {
           </div>
 
           {/* Period filter */}
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-primary-50 dark:bg-white/[0.04] flex-shrink-0">
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-primary-50 dark:bg-white/[0.04] flex-shrink-0 flex-wrap">
             {([['all','Todos'],['month','Mês atual'],['next_month','Próx. mês'],['last_month','Mês ant.'],['week','Semana'],['today','Hoje']] as const).map(([k,l]) => (
-              <button key={k} onClick={() => setPeriod(k)}
-                className={clsx('px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all',
+              <button key={k} onClick={() => { setPeriod(k); setShowCustom(false) }}
+                className={clsx('px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all whitespace-nowrap',
                   period === k ? 'bg-white dark:bg-surface-dark text-primary shadow-sm' : 'text-text-muted dark:text-stone-500 hover:text-text-primary')}>
                 {l}
               </button>
             ))}
+            {/* Personalizado */}
+            <div className="relative">
+              <button
+                onClick={() => { setPeriod('custom'); setShowCustom(s => !s) }}
+                className={clsx('px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1 whitespace-nowrap',
+                  period === 'custom'
+                    ? 'bg-white dark:bg-surface-dark text-primary shadow-sm'
+                    : 'text-text-muted dark:text-stone-500 hover:text-text-primary'
+                )}
+              >
+                <Calendar size={11} />
+                {period === 'custom'
+                  ? `${customStart.split('-').reverse().slice(0,2).join('/')} → ${customEnd.split('-').reverse().slice(0,2).join('/')}`
+                  : 'Personalizado'
+                }
+              </button>
+
+              {/* Date range popover */}
+              {showCustom && (
+                <div className="absolute top-full right-0 mt-2 z-50 animate-scaleIn"
+                  style={{ minWidth: '280px' }}>
+                  <div className="bg-white dark:bg-[#1C1714] rounded-2xl border border-border dark:border-stone-800 shadow-[0_8px_32px_rgba(0,0,0,0.3)] p-4 space-y-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-bold text-text-primary dark:text-stone-100">Período personalizado</p>
+                      <button onClick={() => setShowCustom(false)}
+                        className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors">
+                        <X size={13} />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider mb-1">De</label>
+                        <input
+                          type="date"
+                          className="input text-sm py-2"
+                          value={customStart}
+                          max={customEnd}
+                          onChange={e => setCustomStart(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider mb-1">Até</label>
+                        <input
+                          type="date"
+                          className="input text-sm py-2"
+                          value={customEnd}
+                          min={customStart}
+                          onChange={e => setCustomEnd(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    {/* Atalhos rápidos */}
+                    <div>
+                      <p className="text-[10px] font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider mb-1.5">Atalhos</p>
+                      <div className="flex flex-wrap gap-1">
+                        {[
+                          { label: 'Esta semana',   start: format(startOfWeek(new Date(), { locale: ptBR }), 'yyyy-MM-dd'), end: format(new Date(), 'yyyy-MM-dd') },
+                          { label: 'Este mês',      start: format(startOfMonth(new Date()), 'yyyy-MM-dd'), end: format(endOfMonth(new Date()), 'yyyy-MM-dd') },
+                          { label: 'Mês passado',   start: format(startOfMonth(subMonths(new Date(), 1)), 'yyyy-MM-dd'), end: format(endOfMonth(subMonths(new Date(), 1)), 'yyyy-MM-dd') },
+                          { label: 'Próx. mês',     start: format(startOfMonth(addMonths(new Date(), 1)), 'yyyy-MM-dd'), end: format(endOfMonth(addMonths(new Date(), 1)), 'yyyy-MM-dd') },
+                          { label: 'Últimos 30d',   start: format(new Date(Date.now() - 30 * 86400000), 'yyyy-MM-dd'), end: format(new Date(), 'yyyy-MM-dd') },
+                          { label: 'Últimos 90d',   start: format(new Date(Date.now() - 90 * 86400000), 'yyyy-MM-dd'), end: format(new Date(), 'yyyy-MM-dd') },
+                        ].map(s => (
+                          <button key={s.label}
+                            onClick={() => { setCustomStart(s.start); setCustomEnd(s.end) }}
+                            className="text-[10px] font-medium px-2 py-1 rounded-lg border border-border dark:border-stone-700 text-text-muted dark:text-stone-400 hover:border-primary hover:text-primary transition-all whitespace-nowrap">
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button onClick={() => { setShowCustom(false); setPeriod('all') }}
+                        className="btn-secondary flex-1 text-xs py-2">Limpar</button>
+                      <button onClick={() => setShowCustom(false)}
+                        className="btn-primary flex-1 text-xs py-2">Aplicar</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Type filter */}
