@@ -15,7 +15,7 @@ import {
   Filter, Edit3, CheckCircle, Clock, AlertTriangle,
   Calendar, Tag, User, ShoppingCart, FileText,
 } from 'lucide-react'
-import { format, startOfMonth, endOfMonth, startOfWeek, isToday, parseISO, subMonths, addMonths } from 'date-fns'
+import { format, startOfMonth, endOfMonth, startOfWeek, isToday, parseISO, subMonths, addMonths, getDaysInMonth, getDay, isBefore, isAfter } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
 /* ─── Types ─── */
@@ -92,6 +92,9 @@ export default function FinanceiroPage() {
   const [customStart, setCustomStart] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'))
   const [customEnd,   setCustomEnd]   = useState(format(endOfMonth(new Date()),   'yyyy-MM-dd'))
   const [showCustom,  setShowCustom]  = useState(false)
+  // Estado interno do calendário personalizado
+  const [calViewDate, setCalViewDate] = useState(new Date())  // mês exibido
+  const [pickStep,    setPickStep]    = useState<'start'|'end'>('start')  // qual data está sendo selecionada
   const [typeFilter,  setTypeFilter] = useState<TypeFilter>('all')
   const [search,      setSearch]     = useState('')
   const [showModal,   setShowModal]  = useState(false)
@@ -426,58 +429,185 @@ export default function FinanceiroPage() {
 
               {/* Date range popover */}
               {showCustom && (
-                <div className="absolute top-full right-0 mt-2 z-50 animate-scaleIn"
-                  style={{ minWidth: '280px' }}>
-                  <div className="bg-white dark:bg-[#1C1714] rounded-2xl border border-border dark:border-stone-800 shadow-[0_8px_32px_rgba(0,0,0,0.3)] p-4 space-y-3">
-                    <div className="flex items-center justify-between mb-1">
+                <div className="fixed sm:absolute inset-x-0 sm:inset-x-auto bottom-0 sm:bottom-auto top-auto sm:top-full sm:right-0 mt-0 sm:mt-2 z-[60] sm:animate-scaleIn px-3 sm:px-0 pb-4 sm:pb-0">
+                  {/* Backdrop mobile */}
+                  <div className="fixed inset-0 bg-black/40 sm:hidden" onClick={() => setShowCustom(false)} />
+
+                  <div className="relative bg-white dark:bg-[#1C1714] rounded-t-2xl sm:rounded-2xl border-t sm:border border-border dark:border-stone-800 shadow-[0_-8px_32px_rgba(0,0,0,0.3)] sm:shadow-[0_8px_32px_rgba(0,0,0,0.4)] p-4 space-y-3 sm:w-[320px]">
+
+                    {/* Header */}
+                    <div className="flex items-center justify-between">
                       <p className="text-xs font-bold text-text-primary dark:text-stone-100">Período personalizado</p>
                       <button onClick={() => setShowCustom(false)}
-                        className="p-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors">
+                        className="p-1 rounded-lg text-text-muted hover:text-text-primary dark:hover:text-stone-300 hover:bg-primary-50 dark:hover:bg-white/5 transition-colors">
                         <X size={13} />
                       </button>
                     </div>
+
+                    {/* Campos De/Até em texto */}
                     <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider mb-1">De</label>
-                        <input
-                          type="date"
-                          className="input text-sm py-2"
-                          value={customStart}
-                          max={customEnd}
-                          onChange={e => setCustomStart(e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider mb-1">Até</label>
-                        <input
-                          type="date"
-                          className="input text-sm py-2"
-                          value={customEnd}
-                          min={customStart}
-                          onChange={e => setCustomEnd(e.target.value)}
-                        />
-                      </div>
+                      {[
+                        { label: 'De', value: customStart, active: pickStep === 'start' },
+                        { label: 'Até', value: customEnd, active: pickStep === 'end' },
+                      ].map(f => (
+                        <button key={f.label} type="button"
+                          onClick={() => setPickStep(f.label === 'De' ? 'start' : 'end')}
+                          className={clsx(
+                            'flex flex-col items-start px-3 py-2 rounded-xl border text-left transition-all',
+                            f.active
+                              ? 'border-primary bg-primary-50 dark:bg-primary/10'
+                              : 'border-border dark:border-stone-700 hover:border-primary/50'
+                          )}
+                        >
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted dark:text-stone-500">{f.label}</span>
+                          <span className="text-sm font-semibold text-text-primary dark:text-stone-100 mt-0.5">
+                            {f.value ? f.value.split('-').reverse().join('/') : '—'}
+                          </span>
+                        </button>
+                      ))}
                     </div>
+
+                    {/* Calendário */}
+                    {(() => {
+                      const year  = calViewDate.getFullYear()
+                      const month = calViewDate.getMonth()
+                      const firstDay   = new Date(year, month, 1)
+                      const daysInMonth = getDaysInMonth(firstDay)
+                      const startWday  = getDay(firstDay)  // 0=Dom
+                      const today = format(new Date(), 'yyyy-MM-dd')
+
+                      const cells: (number|null)[] = [
+                        ...Array(startWday).fill(null),
+                        ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+                      ]
+                      // Preencher até múltiplo de 7
+                      while (cells.length % 7 !== 0) cells.push(null)
+
+                      return (
+                        <div>
+                          {/* Navegação mês/ano */}
+                          <div className="flex items-center justify-between mb-2">
+                            <button
+                              onClick={() => setCalViewDate(d => subMonths(d, 1))}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-primary/10 transition-colors text-sm font-bold">
+                              ‹
+                            </button>
+
+                            <div className="flex items-center gap-1.5">
+                              {/* Seletor de mês */}
+                              <select
+                                value={month}
+                                onChange={e => setCalViewDate(d => new Date(d.getFullYear(), Number(e.target.value), 1))}
+                                className="text-xs font-bold text-text-primary dark:text-stone-100 bg-transparent border-none outline-none cursor-pointer hover:text-primary transition-colors capitalize"
+                              >
+                                {Array.from({ length: 12 }, (_, i) => (
+                                  <option key={i} value={i} className="bg-white dark:bg-stone-900">
+                                    {format(new Date(2000, i, 1), 'MMMM', { locale: ptBR })}
+                                  </option>
+                                ))}
+                              </select>
+
+                              {/* Seletor de ano */}
+                              <select
+                                value={year}
+                                onChange={e => setCalViewDate(d => new Date(Number(e.target.value), d.getMonth(), 1))}
+                                className="text-xs font-bold text-text-primary dark:text-stone-100 bg-transparent border-none outline-none cursor-pointer hover:text-primary transition-colors"
+                              >
+                                {Array.from({ length: 12 }, (_, i) => {
+                                  const y = new Date().getFullYear() - 2 + i
+                                  return <option key={y} value={y} className="bg-white dark:bg-stone-900">{y}</option>
+                                })}
+                              </select>
+                            </div>
+
+                            <button
+                              onClick={() => setCalViewDate(d => addMonths(d, 1))}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-primary/10 transition-colors text-sm font-bold">
+                              ›
+                            </button>
+                          </div>
+
+                          {/* Dias da semana */}
+                          <div className="grid grid-cols-7 mb-1">
+                            {['D','S','T','Q','Q','S','S'].map((d,i) => (
+                              <div key={i} className="text-center text-[9px] font-bold text-text-muted dark:text-stone-600 uppercase py-0.5">{d}</div>
+                            ))}
+                          </div>
+
+                          {/* Células dos dias */}
+                          <div className="grid grid-cols-7 gap-px">
+                            {cells.map((day, idx) => {
+                              if (!day) return <div key={idx} />
+                              const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`
+                              const isStart = dateStr === customStart
+                              const isEnd   = dateStr === customEnd
+                              const inRange = customStart && customEnd && dateStr > customStart && dateStr < customEnd
+                              const isNow   = dateStr === today
+
+                              return (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  onClick={() => {
+                                    if (pickStep === 'start') {
+                                      setCustomStart(dateStr)
+                                      if (dateStr > customEnd) setCustomEnd(dateStr)
+                                      setPickStep('end')
+                                    } else {
+                                      if (dateStr < customStart) {
+                                        setCustomEnd(customStart)
+                                        setCustomStart(dateStr)
+                                      } else {
+                                        setCustomEnd(dateStr)
+                                      }
+                                      setPickStep('start')
+                                    }
+                                  }}
+                                  className={clsx(
+                                    'h-7 w-full rounded-lg text-[11px] font-medium transition-all',
+                                    isStart || isEnd
+                                      ? 'bg-primary text-white font-bold shadow-sm'
+                                      : inRange
+                                        ? 'bg-primary-50 dark:bg-primary/15 text-primary'
+                                        : isNow
+                                          ? 'ring-1 ring-primary text-primary'
+                                          : 'text-text-primary dark:text-stone-200 hover:bg-primary-50 dark:hover:bg-primary/10 hover:text-primary'
+                                  )}
+                                >
+                                  {day}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })()}
+
                     {/* Atalhos rápidos */}
                     <div>
                       <p className="text-[10px] font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider mb-1.5">Atalhos</p>
                       <div className="flex flex-wrap gap-1">
                         {[
-                          { label: 'Esta semana',   start: format(startOfWeek(new Date(), { locale: ptBR }), 'yyyy-MM-dd'), end: format(new Date(), 'yyyy-MM-dd') },
-                          { label: 'Este mês',      start: format(startOfMonth(new Date()), 'yyyy-MM-dd'), end: format(endOfMonth(new Date()), 'yyyy-MM-dd') },
-                          { label: 'Mês passado',   start: format(startOfMonth(subMonths(new Date(), 1)), 'yyyy-MM-dd'), end: format(endOfMonth(subMonths(new Date(), 1)), 'yyyy-MM-dd') },
-                          { label: 'Próx. mês',     start: format(startOfMonth(addMonths(new Date(), 1)), 'yyyy-MM-dd'), end: format(endOfMonth(addMonths(new Date(), 1)), 'yyyy-MM-dd') },
-                          { label: 'Últimos 30d',   start: format(new Date(Date.now() - 30 * 86400000), 'yyyy-MM-dd'), end: format(new Date(), 'yyyy-MM-dd') },
-                          { label: 'Últimos 90d',   start: format(new Date(Date.now() - 90 * 86400000), 'yyyy-MM-dd'), end: format(new Date(), 'yyyy-MM-dd') },
+                          { label: 'Este mês',    start: format(startOfMonth(new Date()), 'yyyy-MM-dd'), end: format(endOfMonth(new Date()), 'yyyy-MM-dd') },
+                          { label: 'Próx. mês',   start: format(startOfMonth(addMonths(new Date(),1)), 'yyyy-MM-dd'), end: format(endOfMonth(addMonths(new Date(),1)), 'yyyy-MM-dd') },
+                          { label: 'Mês passado', start: format(startOfMonth(subMonths(new Date(),1)), 'yyyy-MM-dd'), end: format(endOfMonth(subMonths(new Date(),1)), 'yyyy-MM-dd') },
+                          { label: 'Últimos 30d', start: format(subMonths(new Date(),1), 'yyyy-MM-dd'), end: format(new Date(), 'yyyy-MM-dd') },
+                          { label: 'Próx. 3m',    start: format(new Date(), 'yyyy-MM-dd'), end: format(endOfMonth(addMonths(new Date(),2)), 'yyyy-MM-dd') },
+                          { label: 'Este ano',    start: `${new Date().getFullYear()}-01-01`, end: `${new Date().getFullYear()}-12-31` },
                         ].map(s => (
-                          <button key={s.label}
-                            onClick={() => { setCustomStart(s.start); setCustomEnd(s.end) }}
+                          <button key={s.label} type="button"
+                            onClick={() => {
+                              setCustomStart(s.start); setCustomEnd(s.end)
+                              setCalViewDate(parseISO(s.start))
+                            }}
                             className="text-[10px] font-medium px-2 py-1 rounded-lg border border-border dark:border-stone-700 text-text-muted dark:text-stone-400 hover:border-primary hover:text-primary transition-all whitespace-nowrap">
                             {s.label}
                           </button>
                         ))}
                       </div>
                     </div>
+
+                    {/* Ações */}
                     <div className="flex gap-2 pt-1">
                       <button onClick={() => { setShowCustom(false); setPeriod('all') }}
                         className="btn-secondary flex-1 text-xs py-2">Limpar</button>
