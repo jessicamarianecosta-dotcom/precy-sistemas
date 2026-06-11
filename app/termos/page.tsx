@@ -45,7 +45,7 @@ export default function TermosPage() {
       </ul>
 
       <h2>6. Responsabilidades e limitações</h2>
-      <p>O Precy+ oferece a plataforma "como está" (as-is). Não nos responsabilizamos por:</p>
+      <p>O Precy+ oferece a plataforma &ldquo;como está&rdquo; (as-is). Não nos responsabilizamos por:</p>
       <ul>
         <li>Decisões de negócio tomadas com base nos cálculos do sistema</li>
         <li>Erros de entrada de dados pelo usuário</li>
