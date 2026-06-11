@@ -15,7 +15,7 @@ import {
   Filter, Edit3, CheckCircle, Clock, AlertTriangle,
   Calendar, Tag, User, ShoppingCart, FileText,
 } from 'lucide-react'
-import { format, startOfMonth, endOfMonth, startOfWeek, isToday, parseISO, subMonths } from 'date-fns'
+import { format, startOfMonth, endOfMonth, startOfWeek, isToday, parseISO, subMonths, addMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
 /* ─── Types ─── */
@@ -32,7 +32,7 @@ interface Transaction {
   notes?:      string
 }
 
-type Period = 'all' | 'today' | 'week' | 'month' | 'last_month'
+type Period = 'all' | 'today' | 'week' | 'month' | 'last_month' | 'next_month'
 type TypeFilter = 'all' | 'income' | 'expense'
 
 /* ─── Categories ─── */
@@ -134,6 +134,10 @@ export default function FinanceiroPage() {
           const lm = subMonths(now, 1)
           if (d < startOfMonth(lm) || d > endOfMonth(lm)) return false
         }
+        if (period === 'next_month') {
+          const nm = addMonths(now, 1)
+          if (d < startOfMonth(nm) || d > endOfMonth(nm)) return false
+        }
       }
       if (typeFilter !== 'all' && t.type !== typeFilter) return false
       if (search.trim()) {
@@ -149,29 +153,60 @@ export default function FinanceiroPage() {
     })
   }, [transactions, period, typeFilter, search])
 
-  /* ── Computed stats ── */
+  /* ── Computed stats: REALIZADO vs PREVISTO ── */
   const stats = useMemo(() => {
     const all = transactions ?? []
-    const totalInc    = all.filter(t => t.type === 'income') .reduce((s, t) => s + Number(t.amount), 0)
-    const totalExp    = all.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0)
-    const balance     = totalInc - totalExp
-    const incCount    = all.filter(t => t.type === 'income').length
-    const ticketAvg   = incCount > 0 ? totalInc / incCount : 0
-    // Month stats
     const now = new Date()
-    const monthTx = all.filter(t => {
+
+    // REALIZADOS: só status pago/recebido — impactam o caixa
+    const realized = all.filter(t => t.status === 'received' || t.status === 'paid')
+    // PREVISTOS: pendente/a pagar
+    const forecast = all.filter(t => ['pending','to_pay','partial'].includes(t.status ?? ''))
+
+    // Mês atual — realizados
+    const monthR = realized.filter(t => {
       const d = parseISO(t.date)
       return d >= startOfMonth(now) && d <= endOfMonth(now)
     })
-    const monthInc = monthTx.filter(t => t.type === 'income') .reduce((s, t) => s + Number(t.amount), 0)
-    const monthExp = monthTx.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0)
-    // Top expense category
+    const monthInc = monthR.filter(t => t.type === 'income') .reduce((s,t) => s + Number(t.amount), 0)
+    const monthExp = monthR.filter(t => t.type === 'expense').reduce((s,t) => s + Number(t.amount), 0)
+    const monthBal = monthInc - monthExp
+
+    // Previstos mês atual
+    const monthForeInc = forecast.filter(t => {
+      const d = parseISO(t.date)
+      return t.type === 'income' && d >= startOfMonth(now) && d <= endOfMonth(now)
+    }).reduce((s,t) => s + Number(t.amount), 0)
+    const monthForeExp = forecast.filter(t => {
+      const d = parseISO(t.date)
+      return t.type === 'expense' && d >= startOfMonth(now) && d <= endOfMonth(now)
+    }).reduce((s,t) => s + Number(t.amount), 0)
+
+    // Totais gerais realizados
+    const totalRealInc = realized.filter(t => t.type === 'income') .reduce((s,t) => s + Number(t.amount), 0)
+    const totalRealExp = realized.filter(t => t.type === 'expense').reduce((s,t) => s + Number(t.amount), 0)
+    const balance = totalRealInc - totalRealExp
+
+    const incCount = realized.filter(t => t.type === 'income').length
+    const ticketAvg = incCount > 0 ? totalRealInc / incCount : 0
+
+    // Atrasados: pendentes com vencimento no passado
+    const todayStr = now.toISOString().split('T')[0]
+    const overdueCount = all.filter(t =>
+      ['pending','to_pay','overdue','due'].includes(t.status ?? '') && t.date < todayStr
+    ).length
+
     const expByCat = EXPENSE_CATS.map(c => ({
       label: c.label,
-      total: all.filter(t => t.type === 'expense' && t.category === c.value).reduce((s,t) => s + Number(t.amount), 0)
+      total: realized.filter(t => t.type === 'expense' && t.category === c.value)
+               .reduce((s,t) => s + Number(t.amount), 0)
     })).sort((a,b) => b.total - a.total)
 
-    return { totalInc, totalExp, balance, incCount, ticketAvg, monthInc, monthExp, topExpCat: expByCat[0]?.label ?? '—' }
+    return {
+      totalRealInc, totalRealExp, balance, incCount, ticketAvg,
+      monthInc, monthExp, monthBal, monthForeInc, monthForeExp,
+      overdueCount, topExpCat: expByCat[0]?.label ?? '—',
+    }
   }, [transactions])
 
   /* ── Mutations ── */
@@ -257,14 +292,14 @@ export default function FinanceiroPage() {
 
       <div className="p-3 sm:p-5 lg:p-6 space-y-4">
 
-        {/* ── CARDS SUPERIORES ── */}
+        {/* ── CARDS SUPERIORES — REALIZADO VS PREVISTO ── */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {/* Receitas */}
           <div className="card bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/10 dark:to-emerald-900/10 border-green-200/60 dark:border-green-800/30">
             <div className="flex items-start justify-between mb-3">
               <div>
-                <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">Receitas totais</p>
-                <p className="text-2xl font-bold text-success-dark dark:text-green-400 mt-1">{fmt(stats.totalInc)}</p>
+                <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">Receitas <span className="text-green-500">(recebido)</span></p>
+                <p className="text-2xl font-bold text-success-dark dark:text-green-400 mt-1">{fmt(stats.monthInc)}</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
                 <TrendingUp size={18} className="text-success-dark dark:text-green-400" />
@@ -282,8 +317,8 @@ export default function FinanceiroPage() {
               </div>
               <div className="w-px h-6 bg-green-200/60 dark:bg-green-800/30" />
               <div className="text-center flex-1">
-                <p className="text-[10px] text-text-muted dark:text-stone-500 uppercase tracking-wider">Mês atual</p>
-                <p className="text-sm font-bold text-success-dark dark:text-green-400">{fmt(stats.monthInc)}</p>
+                <p className="text-[10px] text-text-muted dark:text-stone-500 uppercase tracking-wider">Previsto</p>
+                <p className="text-sm font-bold text-stone-500 dark:text-stone-400">{fmt(stats.monthForeInc)}</p>
               </div>
             </div>
           </div>
@@ -292,8 +327,8 @@ export default function FinanceiroPage() {
           <div className="card bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/10 dark:to-orange-900/10 border-red-200/60 dark:border-red-800/30">
             <div className="flex items-start justify-between mb-3">
               <div>
-                <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">Despesas totais</p>
-                <p className="text-2xl font-bold text-error dark:text-red-400 mt-1">{fmt(stats.totalExp)}</p>
+                <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">Despesas <span className="text-red-500">(pago)</span></p>
+                <p className="text-2xl font-bold text-error dark:text-red-400 mt-1">{fmt(stats.monthExp)}</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
                 <TrendingDown size={18} className="text-error dark:text-red-400" />
@@ -306,8 +341,8 @@ export default function FinanceiroPage() {
               </div>
               <div className="w-px h-6 bg-red-200/60 dark:bg-red-800/30" />
               <div className="text-center flex-1">
-                <p className="text-[10px] text-text-muted dark:text-stone-500 uppercase tracking-wider">Mês atual</p>
-                <p className="text-sm font-bold text-error dark:text-red-400">{fmt(stats.monthExp)}</p>
+                <p className="text-[10px] text-text-muted dark:text-stone-500 uppercase tracking-wider">Previsto</p>
+                <p className="text-sm font-bold text-stone-500 dark:text-stone-400">{fmt(stats.monthForeExp)}</p>
               </div>
             </div>
           </div>
@@ -321,9 +356,9 @@ export default function FinanceiroPage() {
           )}>
             <div className="flex items-start justify-between mb-3">
               <div>
-                <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">Saldo atual</p>
-                <p className={clsx('text-2xl font-bold mt-1', stats.balance >= 0 ? 'text-primary' : 'text-error dark:text-red-400')}>
-                  {fmt(stats.balance)}
+                <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">Saldo realizado</p>
+                <p className={clsx('text-2xl font-bold mt-1', stats.monthBal >= 0 ? 'text-primary' : 'text-error dark:text-red-400')}>
+                  {fmt(stats.monthBal)}
                 </p>
               </div>
               <div className={clsx('w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0',
@@ -360,7 +395,7 @@ export default function FinanceiroPage() {
 
           {/* Period filter */}
           <div className="flex items-center gap-1 p-1 rounded-xl bg-primary-50 dark:bg-white/[0.04] flex-shrink-0">
-            {([['all','Todos'],['today','Hoje'],['week','Semana'],['month','Mês'],['last_month','Mês ant.']] as const).map(([k,l]) => (
+            {([['all','Todos'],['month','Mês atual'],['next_month','Próx. mês'],['last_month','Mês ant.'],['week','Semana'],['today','Hoje']] as const).map(([k,l]) => (
               <button key={k} onClick={() => setPeriod(k)}
                 className={clsx('px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all',
                   period === k ? 'bg-white dark:bg-surface-dark text-primary shadow-sm' : 'text-text-muted dark:text-stone-500 hover:text-text-primary')}>
@@ -582,7 +617,7 @@ export default function FinanceiroPage() {
                     placeholder="0,00" value={fAmount} onChange={e => setFAmount(e.target.value)} autoFocus />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Data *</label>
+                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Vencimento *</label>
                   <input type="date" className="input" value={fDate} onChange={e => setFDate(e.target.value)} />
                 </div>
               </div>
