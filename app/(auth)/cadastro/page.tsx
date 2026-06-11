@@ -206,7 +206,10 @@ export default function CadastroPage() {
 
       <p className="mt-3 text-center text-xs text-text-muted dark:text-stone-500">
         Ao criar sua conta, você concorda com nossos{' '}
-        <Link href="/termos" className="text-primary hover:underline">termos de uso</Link>
+        <Link href="/termos" className="text-primary hover:underline">Termos de Uso</Link>
+        {' '}e{' '}
+        <Link href="/privacidade" className="text-primary hover:underline">Política de Privacidade</Link>
+        {' '}· <Link href="/reembolso" className="text-primary hover:underline">Reembolso</Link>
       </p>
     </div>
   )
