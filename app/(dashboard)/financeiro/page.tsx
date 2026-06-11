@@ -377,7 +377,7 @@ export default function FinanceiroPage() {
               <div className="text-center flex-1">
                 <p className="text-[10px] text-text-muted dark:text-stone-500 uppercase tracking-wider">Margem</p>
                 <p className={clsx('text-sm font-bold', stats.balance >= 0 ? 'text-primary' : 'text-error dark:text-red-400')}>
-                  {stats.totalInc > 0 ? ((stats.balance / stats.totalInc) * 100).toFixed(1) + '%' : '—'}
+                  {stats.totalRealInc > 0 ? ((stats.balance / stats.totalRealInc) * 100).toFixed(1) + '%' : '—'}
                 </p>
               </div>
             </div>
