@@ -221,32 +221,64 @@ export default function DashboardPage() {
     success: 'text-success-dark',
   }
 
-  /* ── Today's events (para o card Hoje) ── */
+  /* ── Today's events (card Agenda de Hoje) ── */
   const todayStr = new Date().toISOString().split('T')[0]
-  const [todayTasks,  setTodayTasks]  = useState<any[]>([])
-  const [todayOrders, setTodayOrders] = useState<any[]>([])
+  const next7Str  = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
+  const [todayTasks,   setTodayTasks]   = useState<any[]>([])
+  const [todayOrders,  setTodayOrders]  = useState<any[]>([])
+  const [pendingFin,   setPendingFin]   = useState<any[]>([])
+  const [next7Orders,  setNext7Orders]  = useState<any[]>([])
+  const [next7Tasks,   setNext7Tasks]   = useState<any[]>([])
 
   useEffect(() => {
     if (!companyId) return
     async function loadToday() {
+      // Tarefas do dia
       const { data: tasks } = await (supabase.from('calendar_tasks') as any)
         .select('id, title, time, category, status, priority')
-        .eq('company_id', companyId)
-        .eq('date', todayStr)
-        .neq('status', 'done')
-        .order('time')
+        .eq('company_id', companyId).eq('date', todayStr).neq('status', 'done').order('time')
       setTodayTasks(tasks ?? [])
 
+      // Pedidos com entrega hoje
       const { data: orders } = await (supabase.from('orders') as any)
-        .select('id, service_name, status, total, due_date, customers(name)')
+        .select('id, order_number, service_name, status, total, due_date, priority, customers(name)')
         .eq('company_id', companyId)
         .gte('due_date', todayStr + 'T00:00:00')
         .lte('due_date', todayStr + 'T23:59:59')
         .not('due_date', 'is', null)
       setTodayOrders(orders ?? [])
+
+      // Transações financeiras pendentes (today and overdue)
+      const { data: fin } = await (supabase.from('financial_transactions') as any)
+        .select('id, type, category, amount, description, date, status, client_name')
+        .eq('company_id', companyId)
+        .in('status', ['pending', 'to_pay', 'overdue', 'due'])
+        .lte('date', todayStr)
+        .order('date', { ascending: true })
+        .limit(5)
+      setPendingFin(fin ?? [])
+
+      // Próximos 7 dias — pedidos
+      const { data: n7o } = await (supabase.from('orders') as any)
+        .select('id, order_number, service_name, status, due_date, priority, customers(name)')
+        .eq('company_id', companyId)
+        .gt('due_date', todayStr + 'T23:59:59')
+        .lte('due_date', next7Str + 'T23:59:59')
+        .not('due_date', 'is', null)
+        .order('due_date', { ascending: true })
+        .limit(5)
+      setNext7Orders(n7o ?? [])
+
+      // Próximos 7 dias — tarefas
+      const { data: n7t } = await (supabase.from('calendar_tasks') as any)
+        .select('id, title, date, time, category, priority')
+        .eq('company_id', companyId)
+        .gt('date', todayStr).lte('date', next7Str).neq('status', 'done')
+        .order('date').order('time').limit(5)
+      setNext7Tasks(n7t ?? [])
     }
     loadToday()
-  }, [companyId, todayStr])
+  }, [companyId, todayStr, next7Str])
 
   /* ── Quick actions ── */
   const quickActions = [
@@ -654,50 +686,189 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* ─── CARD HOJE ─── */}
-            {((todayTasks?.length ?? 0) + (todayOrders?.length ?? 0) > 0) && (
-              <div className="card">
-                <div className="flex items-center justify-between mb-4">
+            {/* ─── AGENDA DE HOJE ─── */}
+            {((todayTasks?.length ?? 0) + (todayOrders?.length ?? 0) + (pendingFin?.length ?? 0) > 0) && (
+              <div className="card space-y-4">
+                {/* Header */}
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <CalendarDays size={15} className="text-primary" />
-                    <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">
-                      Hoje — {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'short' })}
+                    <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100 capitalize">
+                      {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
                     </h2>
                   </div>
                   <Link href="/agenda" className="text-xs text-primary hover:underline">Ver agenda →</Link>
                 </div>
-                <div className="space-y-2">
+
+                {/* Contadores de resumo */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className={clsx(
+                    'flex flex-col items-center justify-center p-2 rounded-xl text-center',
+                    todayOrders.length > 0 ? 'bg-amber-50 dark:bg-amber-900/10 border border-amber-200/60 dark:border-amber-800/20' : 'bg-primary-50/30 dark:bg-white/[0.02] border border-border dark:border-border-dark'
+                  )}>
+                    <span className={clsx('text-lg font-bold', todayOrders.length > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-text-muted')}>
+                      {todayOrders.length}
+                    </span>
+                    <span className="text-[10px] text-text-muted mt-0.5">Entregas</span>
+                  </div>
+                  <div className={clsx(
+                    'flex flex-col items-center justify-center p-2 rounded-xl text-center',
+                    todayTasks.length > 0 ? 'bg-blue-50 dark:bg-blue-900/10 border border-blue-200/60 dark:border-blue-800/20' : 'bg-primary-50/30 dark:bg-white/[0.02] border border-border dark:border-border-dark'
+                  )}>
+                    <span className={clsx('text-lg font-bold', todayTasks.length > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-text-muted')}>
+                      {todayTasks.length}
+                    </span>
+                    <span className="text-[10px] text-text-muted mt-0.5">Tarefas</span>
+                  </div>
+                  <div className={clsx(
+                    'flex flex-col items-center justify-center p-2 rounded-xl text-center',
+                    pendingFin.length > 0 ? 'bg-red-50 dark:bg-red-900/10 border border-red-200/60 dark:border-red-800/20' : 'bg-primary-50/30 dark:bg-white/[0.02] border border-border dark:border-border-dark'
+                  )}>
+                    <span className={clsx('text-lg font-bold', pendingFin.length > 0 ? 'text-red-600 dark:text-red-400' : 'text-text-muted')}>
+                      {pendingFin.length}
+                    </span>
+                    <span className="text-[10px] text-text-muted mt-0.5">Pendentes</span>
+                  </div>
+                </div>
+
+                {/* Lista de eventos do dia */}
+                <div className="space-y-1.5">
+                  {/* Pedidos com entrega hoje */}
                   {(todayOrders ?? []).map((o: any) => (
                     <Link key={o.id} href="/pedidos"
-                      className="flex items-center gap-3 p-2.5 rounded-xl border border-border dark:border-border-dark hover:border-primary/40 hover:bg-primary-50/30 dark:hover:bg-primary/5 transition-all">
-                      <div className={clsx('w-1.5 h-10 rounded-full flex-shrink-0',
+                      className="flex items-center gap-2.5 p-2.5 rounded-xl border border-border dark:border-border-dark hover:border-primary/40 hover:bg-primary-50/30 dark:hover:bg-primary/5 transition-all group">
+                      <div className={clsx('w-1 self-stretch rounded-full flex-shrink-0',
                         o.status === 'production' ? 'bg-blue-400' : o.status === 'ready' ? 'bg-green-400' : 'bg-amber-400'
                       )} />
                       <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                            📦 ENTREGA
+                          </span>
+                          {o.priority === 'urgent' && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">URGENTE</span>
+                          )}
+                        </div>
                         <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">
-                          📦 {o.service_name || 'Pedido'}
+                          {o.service_name || 'Pedido'}
                         </p>
-                        <p className="text-[11px] text-text-muted">{o.customers?.name ?? '—'} · Entrega hoje</p>
+                        <p className="text-[11px] text-text-muted">{o.customers?.name ?? '—'} · {o.order_number || ''}</p>
                       </div>
                       <span className="text-sm font-bold text-primary flex-shrink-0">
                         {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(o.total))}
                       </span>
                     </Link>
                   ))}
+
+                  {/* Tarefas do dia */}
                   {(todayTasks ?? []).slice(0, 4).map((t: any) => (
                     <Link key={t.id} href="/agenda"
-                      className="flex items-center gap-3 p-2.5 rounded-xl border border-border dark:border-border-dark hover:border-primary/40 hover:bg-primary-50/30 dark:hover:bg-primary/5 transition-all">
-                      <div className={clsx('w-1.5 h-10 rounded-full flex-shrink-0',
-                        t.priority === 'urgent' ? 'bg-red-400' : t.priority === 'high' ? 'bg-amber-400' : 'bg-primary/40'
+                      className="flex items-center gap-2.5 p-2.5 rounded-xl border border-border dark:border-border-dark hover:border-primary/40 hover:bg-primary-50/30 dark:hover:bg-primary/5 transition-all">
+                      <div className={clsx('w-1 self-stretch rounded-full flex-shrink-0',
+                        t.priority === 'urgent' ? 'bg-red-400' : t.priority === 'high' ? 'bg-amber-400' : 'bg-blue-400'
                       )} />
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">
-                          📌 {t.title}
-                        </p>
-                        <p className="text-[11px] text-text-muted">{t.time ? t.time.slice(0, 5) : 'Sem horário'}</p>
+                        <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                            📌 TAREFA
+                          </span>
+                          {t.priority === 'urgent' && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">URGENTE</span>
+                          )}
+                        </div>
+                        <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{t.title}</p>
+                        <p className="text-[11px] text-text-muted">{t.time ? t.time.slice(0, 5) + ' h' : 'Sem horário'}</p>
                       </div>
                     </Link>
                   ))}
+
+                  {/* Financeiro pendente */}
+                  {(pendingFin ?? []).map((f: any) => (
+                    <Link key={f.id} href="/financeiro"
+                      className="flex items-center gap-2.5 p-2.5 rounded-xl border border-border dark:border-border-dark hover:border-red-400/40 hover:bg-red-50/30 dark:hover:bg-red-900/5 transition-all">
+                      <div className="w-1 self-stretch rounded-full flex-shrink-0 bg-red-400" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className={clsx(
+                            'text-[9px] font-bold px-1.5 py-0.5 rounded-full',
+                            f.status === 'overdue' || f.status === 'due'
+                              ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                              : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                          )}>
+                            💰 {f.type === 'income' ? 'RECEBER' : 'PAGAR'}
+                          </span>
+                          {(f.status === 'overdue' || f.status === 'due') && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">VENCIDO</span>
+                          )}
+                        </div>
+                        <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">
+                          {f.description || (f.type === 'income' ? 'Receita' : 'Despesa')}
+                        </p>
+                        {f.client_name && (
+                          <p className="text-[11px] text-text-muted">{f.client_name}</p>
+                        )}
+                      </div>
+                      <span className={clsx(
+                        'text-sm font-bold flex-shrink-0',
+                        f.type === 'income' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                      )}>
+                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(f.amount))}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ─── PRÓXIMOS 7 DIAS ─── */}
+            {((next7Orders?.length ?? 0) + (next7Tasks?.length ?? 0) > 0) && (
+              <div className="card space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Clock size={14} className="text-text-muted" />
+                    <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">
+                      Próximos 7 dias
+                    </h2>
+                  </div>
+                  <Link href="/agenda" className="text-xs text-primary hover:underline">Ver tudo →</Link>
+                </div>
+                <div className="space-y-1">
+                  {[...((next7Orders ?? []).map((o: any) => ({
+                    id: o.id, date: o.due_date?.split('T')[0], type: 'order',
+                    title: o.service_name || 'Pedido', sub: o.customers?.name ?? '—', href: '/pedidos',
+                    priority: o.priority, badge: '📦', badgeColor: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                  }))),
+                  ...((next7Tasks ?? []).map((t: any) => ({
+                    id: t.id, date: t.date, type: 'task',
+                    title: t.title, sub: t.time ? t.time.slice(0,5)+' h' : '', href: '/agenda',
+                    priority: t.priority, badge: '📌', badgeColor: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                  })))]
+                    .sort((a, b) => (a.date ?? '') > (b.date ?? '') ? 1 : -1)
+                    .slice(0, 6)
+                    .map(item => (
+                      <Link key={`${item.type}-${item.id}`} href={item.href}
+                        className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-primary-50/30 dark:hover:bg-primary/5 transition-all">
+                        <div className="w-8 text-center flex-shrink-0">
+                          <p className="text-[10px] font-bold text-text-muted uppercase">
+                            {item.date ? new Date(item.date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).replace('.','') : '—'}
+                          </p>
+                        </div>
+                        <div className="w-px h-8 bg-border dark:bg-border-dark flex-shrink-0" />
+                        <div className="min-w-0 flex-1 flex items-center gap-2">
+                          <span className={clsx('text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0', item.badgeColor)}>
+                            {item.badge}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-text-primary dark:text-stone-100 truncate">{item.title}</p>
+                            {item.sub && <p className="text-[10px] text-text-muted truncate">{item.sub}</p>}
+                          </div>
+                        </div>
+                        {item.priority === 'urgent' && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 flex-shrink-0">!</span>
+                        )}
+                      </Link>
+                    ))
+                  }
                 </div>
               </div>
             )}
