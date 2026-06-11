@@ -218,3 +218,14 @@ html, body {
     max-height: calc(100dvh - 1rem);
   }
 }
+
+/* ── Legal pages prose styles ── */
+.legal-content h2 { font-size:1.05rem; font-weight:700; color:#e0d4c8; margin:2rem 0 .75rem; padding-bottom:.5rem; border-bottom:1px solid rgba(139,108,79,.15); }
+.legal-content h3 { font-size:.9rem; font-weight:600; color:#c4b0a0; margin:1.25rem 0 .5rem; }
+.legal-content p  { font-size:.875rem; line-height:1.8; color:#9a8878; margin-bottom:.875rem; }
+.legal-content ul { font-size:.875rem; line-height:1.8; color:#9a8878; margin:.5rem 0 .875rem 1.25rem; list-style:disc; }
+.legal-content li { margin-bottom:.25rem; }
+.legal-content a  { color:#B8956A; text-decoration:underline; }
+.legal-content strong { color:#d4c4b4; font-weight:600; }
+.legal-content .highlight { background:rgba(139,108,79,.08); border-left:3px solid #8B6C4F; border-radius:0 8px 8px 0; padding:12px 16px; margin:1rem 0; }
+.legal-content .highlight p { margin-bottom:0; }
