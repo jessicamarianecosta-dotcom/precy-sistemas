@@ -144,7 +144,7 @@ export default function PrecificacaoPage() {
     enabled:  !!companyId,
     queryFn:  async () => {
       const res: any = await supabase.from('companies')
-        .select('work_hours_per_month, fixed_costs').eq('id', companyId!).single()
+        .select('work_hours_per_month, fixed_costs, prolabore').eq('id', companyId!).single()
       return res?.data
     },
   })
@@ -180,18 +180,26 @@ export default function PrecificacaoPage() {
   const fixedCostsLegacy    = Number((company as any)?.fixed_costs ?? 0)
   const fixedCostsTotal     = fixedCostsFromTable > 0 ? fixedCostsFromTable : fixedCostsLegacy
 
-  // Pró-labore vem do localStorage (chave precy_routine_{companyId})
+  // Pró-labore: lê do Supabase (companies.prolabore) — funciona em TODOS os dispositivos
+  // Fallback para localStorage se a coluna ainda não existir
   const [prolabore, setProlabore] = useState(0)
   useEffect(() => {
     if (!companyId) return
+    // 1. Tentar ler do Supabase (fonte primária — multi-device)
+    const dbProlabore = Number((company as any)?.prolabore)
+    if (dbProlabore > 0) {
+      setProlabore(dbProlabore)
+      return
+    }
+    // 2. Fallback: localStorage (dispositivo local)
     try {
       const raw = localStorage.getItem(`precy_routine_${companyId}`)
       if (raw) {
         const parsed = JSON.parse(raw)
         if (parsed?.prolabore !== undefined) setProlabore(Number(parsed.prolabore) || 0)
       }
-    } catch { /* localStorage indisponível */ }
-  }, [companyId])
+    } catch { /* localStorage indisponível em SSR/mobile */ }
+  }, [companyId, company])
 
   // custo/hora = (custos_fixos + pro_labore) ÷ horas_mes  (MESMA fórmula das Configurações)
   const hourlyRate   = workHours > 0 ? (fixedCostsTotal + prolabore) / workHours : 0
