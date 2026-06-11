@@ -161,61 +161,56 @@ export default function FinanceiroPage() {
     })
   }, [transactions, period, typeFilter, search, customStart, customEnd])
 
-  /* ── Computed stats: REALIZADO vs PREVISTO ── */
+  /* ── Computed stats: dinâmico, baseado em `filtered` ── */
   const stats = useMemo(() => {
-    const all = transactions ?? []
+    // Usar `filtered` como fonte — já respeita período, tipo e busca
+    const f = filtered
+
+    // REALIZADOS no período filtrado
+    const realInc = f.filter(t => t.type === 'income'  && (t.status === 'received' || t.status === 'paid'))
+    const realExp = f.filter(t => t.type === 'expense' && (t.status === 'received' || t.status === 'paid'))
+
+    // PREVISTOS no período filtrado
+    const foreInc = f.filter(t => t.type === 'income'  && ['pending','to_pay','partial'].includes(t.status ?? ''))
+    const foreExp = f.filter(t => t.type === 'expense' && ['pending','to_pay','partial'].includes(t.status ?? ''))
+
+    const monthInc    = realInc.reduce((s,t) => s + Number(t.amount), 0)
+    const monthExp    = realExp.reduce((s,t) => s + Number(t.amount), 0)
+    const monthBal    = monthInc - monthExp
+    const monthForeInc = foreInc.reduce((s,t) => s + Number(t.amount), 0)
+    const monthForeExp = foreExp.reduce((s,t) => s + Number(t.amount), 0)
+
+    // Ticket médio e contagem (receitas realizadas no período)
+    const incCount  = realInc.length
+    const ticketAvg = incCount > 0 ? monthInc / incCount : 0
+
+    // Atrasados: todo o banco (não apenas filtrado) — alerta global
     const now = new Date()
-
-    // REALIZADOS: só status pago/recebido — impactam o caixa
-    const realized = all.filter(t => t.status === 'received' || t.status === 'paid')
-    // PREVISTOS: pendente/a pagar
-    const forecast = all.filter(t => ['pending','to_pay','partial'].includes(t.status ?? ''))
-
-    // Mês atual — realizados
-    const monthR = realized.filter(t => {
-      const d = parseISO(t.date)
-      return d >= startOfMonth(now) && d <= endOfMonth(now)
-    })
-    const monthInc = monthR.filter(t => t.type === 'income') .reduce((s,t) => s + Number(t.amount), 0)
-    const monthExp = monthR.filter(t => t.type === 'expense').reduce((s,t) => s + Number(t.amount), 0)
-    const monthBal = monthInc - monthExp
-
-    // Previstos mês atual
-    const monthForeInc = forecast.filter(t => {
-      const d = parseISO(t.date)
-      return t.type === 'income' && d >= startOfMonth(now) && d <= endOfMonth(now)
-    }).reduce((s,t) => s + Number(t.amount), 0)
-    const monthForeExp = forecast.filter(t => {
-      const d = parseISO(t.date)
-      return t.type === 'expense' && d >= startOfMonth(now) && d <= endOfMonth(now)
-    }).reduce((s,t) => s + Number(t.amount), 0)
-
-    // Totais gerais realizados
-    const totalRealInc = realized.filter(t => t.type === 'income') .reduce((s,t) => s + Number(t.amount), 0)
-    const totalRealExp = realized.filter(t => t.type === 'expense').reduce((s,t) => s + Number(t.amount), 0)
-    const balance = totalRealInc - totalRealExp
-
-    const incCount = realized.filter(t => t.type === 'income').length
-    const ticketAvg = incCount > 0 ? totalRealInc / incCount : 0
-
-    // Atrasados: pendentes com vencimento no passado
     const todayStr = now.toISOString().split('T')[0]
-    const overdueCount = all.filter(t =>
+    const overdueCount = (transactions ?? []).filter(t =>
       ['pending','to_pay','overdue','due'].includes(t.status ?? '') && t.date < todayStr
     ).length
 
+    // Categoria top de despesas realizadas no período
     const expByCat = EXPENSE_CATS.map(c => ({
       label: c.label,
-      total: realized.filter(t => t.type === 'expense' && t.category === c.value)
-               .reduce((s,t) => s + Number(t.amount), 0)
+      total: realExp.filter(t => t.category === c.value).reduce((s,t) => s + Number(t.amount), 0)
     })).sort((a,b) => b.total - a.total)
 
+    // Saldo geral acumulado (all-time realizado, para referência interna)
+    const allReal   = (transactions ?? []).filter(t => t.status === 'received' || t.status === 'paid')
+    const totalRealInc = allReal.filter(t => t.type === 'income') .reduce((s,t) => s + Number(t.amount), 0)
+    const totalRealExp = allReal.filter(t => t.type === 'expense').reduce((s,t) => s + Number(t.amount), 0)
+    const balance   = totalRealInc - totalRealExp
+
     return {
-      totalRealInc, totalRealExp, balance, incCount, ticketAvg,
-      monthInc, monthExp, monthBal, monthForeInc, monthForeExp,
+      totalRealInc, balance,
+      monthInc, monthExp, monthBal,
+      monthForeInc, monthForeExp,
+      incCount, ticketAvg,
       overdueCount, topExpCat: expByCat[0]?.label ?? '—',
     }
-  }, [transactions])
+  }, [filtered, transactions])
 
   /* ── Mutations ── */
   function openNew() {
@@ -306,7 +301,7 @@ export default function FinanceiroPage() {
           <div className="card bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/10 dark:to-emerald-900/10 border-green-200/60 dark:border-green-800/30">
             <div className="flex items-start justify-between mb-3">
               <div>
-                <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">Receitas <span className="text-green-500">(recebido)</span></p>
+                <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">Receitas <span className="text-[10px] text-green-500">(recebido)</span></p>
                 <p className="text-2xl font-bold text-success-dark dark:text-green-400 mt-1">{fmt(stats.monthInc)}</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
@@ -335,7 +330,7 @@ export default function FinanceiroPage() {
           <div className="card bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/10 dark:to-orange-900/10 border-red-200/60 dark:border-red-800/30">
             <div className="flex items-start justify-between mb-3">
               <div>
-                <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">Despesas <span className="text-red-500">(pago)</span></p>
+                <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">Despesas <span className="text-[10px] text-red-500">(pago)</span></p>
                 <p className="text-2xl font-bold text-error dark:text-red-400 mt-1">{fmt(stats.monthExp)}</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
@@ -364,7 +359,9 @@ export default function FinanceiroPage() {
           )}>
             <div className="flex items-start justify-between mb-3">
               <div>
-                <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">Saldo realizado</p>
+                <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">
+                  Saldo {period === 'all' ? 'geral' : period === 'month' ? 'do mês' : period === 'next_month' ? 'próx. mês' : period === 'last_month' ? 'mês ant.' : period === 'week' ? 'da semana' : period === 'today' ? 'de hoje' : 'do período'}
+                </p>
                 <p className={clsx('text-2xl font-bold mt-1', stats.monthBal >= 0 ? 'text-primary' : 'text-error dark:text-red-400')}>
                   {fmt(stats.monthBal)}
                 </p>
@@ -635,21 +632,7 @@ export default function FinanceiroPage() {
           )}
         </div>
 
-        {/* ── Resumo do período ── */}
-        {filtered.length > 0 && (
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { label: 'Receitas', value: filtered.filter(t=>t.type==='income').reduce((s,t)=>s+Number(t.amount),0), color:'text-success-dark dark:text-green-400' },
-              { label: 'Despesas', value: filtered.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.amount),0), color:'text-error dark:text-red-400' },
-              { label: 'Saldo',    value: filtered.filter(t=>t.type==='income').reduce((s,t)=>s+Number(t.amount),0) - filtered.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.amount),0), color:'text-primary' },
-            ].map(s => (
-              <div key={s.label} className="card py-3 text-center">
-                <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1">{s.label}</p>
-                <p className={clsx('text-base font-bold', s.color)}>{fmt(s.value)}</p>
-              </div>
-            ))}
-          </div>
-        )}
+
       </div>
 
       {/* ══════════════════════════════════════════════
