@@ -144,7 +144,7 @@ export default function PrecificacaoPage() {
     enabled:  !!companyId,
     queryFn:  async () => {
       const res: any = await supabase.from('companies')
-        .select('work_hours_per_month').eq('id', companyId!).single()
+        .select('work_hours_per_month, fixed_costs').eq('id', companyId!).single()
       return res?.data
     },
   })
@@ -175,8 +175,10 @@ export default function PrecificacaoPage() {
   /* ── Calculated values ── */
   const workHours    = Number((company as any)?.work_hours_per_month ?? 160)
 
-  // Somar tabela fixed_costs (igual a Configurações)
-  const fixedCostsTotal = (fixedCostsData ?? []).reduce((s, c) => s + Number(c.amount), 0)
+  // Somar tabela fixed_costs — fallback para companies.fixed_costs se tabela vazia
+  const fixedCostsFromTable = (fixedCostsData ?? []).reduce((s, c) => s + Number(c.amount), 0)
+  const fixedCostsLegacy    = Number((company as any)?.fixed_costs ?? 0)
+  const fixedCostsTotal     = fixedCostsFromTable > 0 ? fixedCostsFromTable : fixedCostsLegacy
 
   // Pró-labore vem do localStorage (chave precy_routine_{companyId})
   const [prolabore, setProlabore] = useState(0)
@@ -895,7 +897,7 @@ export default function PrecificacaoPage() {
 
               <div className="mt-4 p-3 rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20">
                 <p className="text-xs text-primary font-medium">
-                  📊 Custo/hora — ({fmt(fixedCostsTotal)} fixos + {fmt(prolabore)} pró-labore) ÷ {workHours}h = {fmt(hourlyRate)}/hora
+                  📊 Custo/hora = ({fmt(fixedCostsTotal)} custos fixos + {fmt(prolabore)} pró-labore) ÷ {workHours}h/mês = {fmt(hourlyRate)}/h
                 </p>
               </div>
             </div>

@@ -43,7 +43,10 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
   const bValid  = D(b.valid_until)
   const bNotes  = X(b.notes ?? '')
   const bStatus = String(b.status ?? 'draft')
-  const bPay    = X(b.payment_method  ?? '')
+  const bPay        = X(b.payment_method   ?? '')
+  const bPayCond    = X(b.pay_condition    ?? '')   // avista | parcelado | entrada | prazo
+  const bInstall    = Number(b.installments) || 0
+  const bSigAmount  = Number(b.signal_amount) || Number(b.signal_amt) || 0
   const bDelTyp = X(b.delivery_type   ?? '')
   const bDelFee = Number(b.delivery_fee)  || 0
   const bDelAdr = X(b.delivery_addr   ?? '')
@@ -55,7 +58,7 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
   const bDisc = Number(b.discount) || 0
   const bFee  = bDelFee
   const bTot  = Number(b.total) || Math.max(0, bSub + bFee - bDisc)
-  const bSig  = Number(b.signal_amount) || 0
+  const bSig  = bSigAmount
   const bRem  = Math.max(0, bTot - bSig)
 
   /* ── Cliente ── */
@@ -358,7 +361,16 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
       ${bPay ? `
       <div class="crow">
         <span class="ck">Pagamento</span>
-        <span class="cv">${bPay}</span>
+        <span class="cv">${bPay}${bInstall > 1 ? ' em ' + bInstall + 'x de ' + R(bTot/bInstall) : bPayCond === 'avista' ? ' à vista' : ''}</span>
+      </div>` : ''}
+      ${bPayCond && bPayCond !== 'avista' && bPayCond !== '' ? `
+      <div class="crow">
+        <span class="ck">Condição</span>
+        <span class="cv">${
+          bPayCond === 'parcelado' ? (bInstall > 0 ? bInstall + 'x de ' + R(bTot/bInstall) : 'Parcelado') :
+          bPayCond === 'entrada'   ? 'Entrada + saldo restante' :
+          bPayCond === 'prazo'     ? 'A prazo' : bPayCond
+        }</span>
       </div>` : ''}
       ${bDelTyp ? `
       <div class="crow">
@@ -418,11 +430,11 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
       </div>
       ${bSig > 0 ? `
       <div class="fsep">
-        <span class="fsl">✓ Sinal recebido</span>
-        <span class="fsv">${R(bSig)}</span>
+        <span class="fsl" style="color:#166534;font-weight:600;">✓ Sinal recebido</span>
+        <span class="fsv" style="color:#166534;">${R(bSig)}</span>
       </div>
       <div class="fsep">
-        <span class="fsl">Saldo pendente</span>
+        <span class="fsl" style="color:#b91c1c;font-weight:600;">Saldo a pagar</span>
         <span class="fsv rem">${R(bRem)}</span>
       </div>` : ''}
       <div class="pay-status">

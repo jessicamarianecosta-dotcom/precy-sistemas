@@ -478,164 +478,115 @@ export default function EstoquePage() {
               }}
             />
           ) : (
-            <div className="overflow-x-auto -mx-0 w-full">
-              <table className="w-full">
+            <>
+              {/* ── MOBILE: Cards responsivos ── */}
+              <div className="md:hidden divide-y divide-border dark:divide-border-dark">
+                {filtered.map((item: Record<string, any>) => {
+                  const st  = item.status as keyof typeof STATUS_CFG
+                  const cfg = STATUS_CFG[st] ?? STATUS_CFG.healthy
+                  const Icon = cfg.icon
+                  return (
+                    <div key={item.id} className="p-4 space-y-3">
+                      {/* Row 1: ícone + nome + badge status */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0', cfg.bg)}>
+                            <Icon size={15} className={cfg.iconCls} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-text-primary dark:text-stone-100 truncate">{item.name}</p>
+                            {item.supplier && (
+                              <p className="text-xs text-text-muted truncate">{item.supplier}</p>
+                            )}
+                          </div>
+                        </div>
+                        <span className={clsx('badge flex-shrink-0', cfg.badge)}>{cfg.label}</span>
+                      </div>
+                      {/* Row 2: grade de métricas */}
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="bg-primary-50/40 dark:bg-white/[0.03] rounded-xl p-2.5 text-center">
+                          <p className="text-[10px] text-text-muted uppercase tracking-wide mb-0.5">Qtd</p>
+                          <p className="text-sm font-bold text-text-primary dark:text-stone-100">
+                            {Number(item.quantity)} <span className="text-[10px] font-normal text-text-muted">{item.unit}</span>
+                          </p>
+                        </div>
+                        <div className="bg-primary-50/40 dark:bg-white/[0.03] rounded-xl p-2.5 text-center">
+                          <p className="text-[10px] text-text-muted uppercase tracking-wide mb-0.5">Mín.</p>
+                          <p className="text-sm font-bold text-text-primary dark:text-stone-100">
+                            {Number(item.minimum_quantity)} <span className="text-[10px] font-normal text-text-muted">{item.unit}</span>
+                          </p>
+                        </div>
+                        <div className="bg-primary-50/40 dark:bg-white/[0.03] rounded-xl p-2.5 text-center">
+                          <p className="text-[10px] text-text-muted uppercase tracking-wide mb-0.5">Custo/un</p>
+                          <p className="text-sm font-bold text-primary">{fmt(Number(item.cost_per_unit))}</p>
+                        </div>
+                      </div>
+                      {/* Row 3: categoria + ações */}
+                      <div className="flex items-center justify-between">
+                        <span className="badge badge-primary text-[10px]">{item.category}</span>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => openEdit(item)}
+                            className="p-2 rounded-xl text-text-muted hover:text-primary hover:bg-primary-50 transition-colors">
+                            <Edit2 size={14} />
+                          </button>
+                          <button onClick={() => setDeleteId(item.id)}
+                            className="p-2 rounded-xl text-text-muted hover:text-error hover:bg-error-light transition-colors">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
 
-                <thead>
-                  <tr className="border-b border-border dark:border-border-dark">
-
-                    {[
-                      'Material',
-                      'Categoria',
-                      'Quantidade',
-                      'Mínimo',
-                      'Custo/Un',
-                      'Status',
-                      'Ações',
-                    ].map(h => (
-                      <th
-                        key={h}
-                        className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider p-4"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-
-                <tbody>
-
-                  {filtered.map(
-                    (
-                      item: Record<
-                        string,
-                        any
-                      >
-                    ) => {
-                      const st =
-                        item.status as keyof typeof STATUS_CFG
-
-                      const cfg =
-                        STATUS_CFG[st] ??
-                        STATUS_CFG.healthy
-
+              {/* ── DESKTOP: Tabela ── */}
+              <div className="hidden md:block overflow-x-auto w-full">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border dark:border-border-dark">
+                      {['Material','Categoria','Quantidade','Mínimo','Custo/Un','Status','Ações'].map(h => (
+                        <th key={h} className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider p-4">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((item: Record<string, any>) => {
+                      const st  = item.status as keyof typeof STATUS_CFG
+                      const cfg = STATUS_CFG[st] ?? STATUS_CFG.healthy
                       const Icon = cfg.icon
-
                       return (
-                        <tr
-                          key={item.id}
-                          className="border-b border-border dark:border-border-dark last:border-0 hover:bg-primary-50/30 dark:hover:bg-white/[0.02] transition-colors"
-                        >
-
+                        <tr key={item.id}
+                          className="border-b border-border dark:border-border-dark last:border-0 hover:bg-primary-50/30 dark:hover:bg-white/[0.02] transition-colors">
                           <td className="p-4">
                             <div className="flex items-center gap-3">
-
-                              <div
-                                className={clsx(
-                                  'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
-                                  cfg.bg
-                                )}
-                              >
-                                <Icon
-                                  size={14}
-                                  className={
-                                    cfg.iconCls
-                                  }
-                                />
+                              <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0', cfg.bg)}>
+                                <Icon size={14} className={cfg.iconCls} />
                               </div>
-
                               <div>
-                                <p className="text-sm font-medium text-text-primary dark:text-stone-100">
-                                  {item.name}
-                                </p>
-
-                                {item.supplier && (
-                                  <p className="text-xs text-text-muted">
-                                    {
-                                      item.supplier
-                                    }
-                                  </p>
-                                )}
+                                <p className="text-sm font-medium text-text-primary dark:text-stone-100">{item.name}</p>
+                                {item.supplier && <p className="text-xs text-text-muted">{item.supplier}</p>}
                               </div>
                             </div>
                           </td>
-
-                          <td className="p-4">
-                            <span className="badge badge-primary">
-                              {item.category}
-                            </span>
-                          </td>
-
-                          <td className="p-4 text-sm text-text-secondary dark:text-stone-300">
-                            {Number(
-                              item.quantity
-                            )}{' '}
-                            {item.unit}
-                          </td>
-
-                          <td className="p-4 text-sm text-text-secondary dark:text-stone-300">
-                            {Number(
-                              item.minimum_quantity
-                            )}{' '}
-                            {item.unit}
-                          </td>
-
-                          <td className="p-4 text-sm text-text-secondary dark:text-stone-300">
-                            {fmt(
-                              Number(
-                                item.cost_per_unit
-                              )
-                            )}
-                          </td>
-
-                          <td className="p-4">
-                            <span
-                              className={clsx(
-                                'badge',
-                                cfg.badge
-                              )}
-                            >
-                              {cfg.label}
-                            </span>
-                          </td>
-
+                          <td className="p-4"><span className="badge badge-primary">{item.category}</span></td>
+                          <td className="p-4 text-sm text-text-secondary dark:text-stone-300">{Number(item.quantity)} {item.unit}</td>
+                          <td className="p-4 text-sm text-text-secondary dark:text-stone-300">{Number(item.minimum_quantity)} {item.unit}</td>
+                          <td className="p-4 text-sm text-text-secondary dark:text-stone-300">{fmt(Number(item.cost_per_unit))}</td>
+                          <td className="p-4"><span className={clsx('badge', cfg.badge)}>{cfg.label}</span></td>
                           <td className="p-4">
                             <div className="flex items-center gap-1.5">
-
-                              <button
-                                onClick={() =>
-                                  openEdit(
-                                    item
-                                  )
-                                }
-                                className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"
-                              >
-                                <Edit2
-                                  size={14}
-                                />
-                              </button>
-
-                              <button
-                                onClick={() =>
-                                  setDeleteId(
-                                    item.id
-                                  )
-                                }
-                                className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"
-                              >
-                                <Trash2
-                                  size={14}
-                                />
-                              </button>
+                              <button onClick={() => openEdit(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit2 size={14}/></button>
+                              <button onClick={() => setDeleteId(item.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={14}/></button>
                             </div>
                           </td>
                         </tr>
                       )
-                    }
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       </div>

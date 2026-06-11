@@ -209,6 +209,9 @@ export default function OrcamentosPage() {
       const extraPayload={
         updated_at:      new Date().toISOString(),
         payment_method:  payMethod||null,
+        pay_condition:   payCondition||null,
+        installments:    installments>1?installments:null,
+        signal_amount:   signalAmt>0?signalAmt:null,
         delivery_type:   deliveryType||null,
         delivery_fee:    deliveryFee||0,
         delivery_addr:   deliveryAddr||null,
