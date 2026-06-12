@@ -14,7 +14,7 @@ import {
   TrendingUp, TrendingDown, DollarSign, ShoppingCart,
   Users, Package, FileText, BarChart3, ChevronDown,
   Download, AlertTriangle, CheckCircle, Clock, ArrowUpRight,
-  ArrowDownRight, Star,
+  ArrowDownRight, Star, Loader2,
 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, subMonths, parseISO, addMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -95,6 +95,36 @@ export default function RelatoriosPage() {
   const { companyId } = useCompanyId()
   const [period, setPeriod] = useState<Period>('month')
   const [activeTab, setActiveTab] = useState<'financeiro'|'pedidos'|'clientes'|'produtos'|'estoque'|'orcamentos'>('financeiro')
+  const [exporting, setExporting] = useState(false)
+
+  /* ── Buscar dados da empresa para o PDF ── */
+  const { data: companyData } = useQuery({
+    queryKey: ['company-report', companyId],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const { data } = await (supabase.from('companies') as any)
+        .select('name, email, cnpj, phone, primary_color, logo_url').eq('id', companyId!).single()
+      return data
+    },
+  })
+
+  async function handleExportPDF() {
+    setExporting(true)
+    try {
+      const { generateReportPDF } = await import('@/lib/pdf/generateReportPDF')
+      generateReportPDF({
+        tab: activeTab, period, start, end,
+        company:   companyData,
+        finTx:     activeTab === 'financeiro' ? finTx : [],
+        orders:    ['pedidos','clientes'].includes(activeTab) ? orders : [],
+        customers: activeTab === 'clientes'   ? customers : [],
+        products:  activeTab === 'produtos'   ? products  : [],
+        inventory: activeTab === 'estoque'    ? inventory : [],
+        budgets:   activeTab === 'orcamentos' ? budgets   : [],
+      })
+    } catch (err) { console.error('[export]', err) }
+    finally { setExporting(false) }
+  }
 
   /* ── Period range ── */
   const { start, end } = useMemo(() => {
