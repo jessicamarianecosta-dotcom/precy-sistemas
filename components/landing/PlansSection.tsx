@@ -10,16 +10,14 @@ interface Feature { label: string; basic: Visibility; pro: Visibility; highlight
 /* ── Data ─────────────────────────────── */
 const BASIC_FEATURES = [
   'Dashboard com visão geral do negócio',
-  'Cadastro de produtos',
-  'Controle de estoque',
   'Precificação inteligente',
+  'Cadastro de produtos',
+  'Controle básico de estoque',
   'Gestão de pedidos estilo Kanban',
-  'Até 30 pedidos por mês',
   'Até 20 produtos cadastrados',
+  'Até 30 pedidos por mês',
   'Atualização em tempo real',
-  'Layout premium responsivo',
   'Uso no celular e computador',
-  'Sistema rápido e leve',
   'Suporte por e-mail',
 ]
 
@@ -29,32 +27,66 @@ const PRO_FEATURES = [
   'Pedidos ilimitados',
   'Cadastro completo de clientes',
   'Histórico de clientes e pedidos',
-  'Agenda integrada com pedidos e entregas',
-  'Controle financeiro básico',
-  'Registro de entradas e saídas',
-  'Status de pedidos e orçamentos',
+  'Agenda integrada com pedidos',
+  '📊 Relatórios avançados completos',
+  '📊 Relatório financeiro com fluxo de caixa',
+  '📊 Relatório de pedidos e clientes',
+  '📊 Exportação de relatórios em PDF',
+  'Financeiro avançado',
+  'Contas a pagar e receber',
+  'Parcelamentos e recorrências',
   'Orçamentos profissionais em PDF',
-  'Biblioteca de conteúdos de gestão e precificação',
-  'Suporte por e-mail e WhatsApp',
+  'Biblioteca de conteúdos e ebooks',
+  'Suporte prioritário WhatsApp',
 ]
 
-const COMPARE: Feature[] = [
-  { label: 'Dashboard com dados reais',    basic: true,     pro: true     },
-  { label: 'Precificação inteligente',     basic: true,     pro: true     },
-  { label: 'Controle de estoque',          basic: true,     pro: true     },
-  { label: 'Kanban de pedidos',            basic: true,     pro: true     },
-  { label: 'Orçamentos em PDF',            basic: false,    pro: true,    highlight: true },
-  { label: 'Financeiro completo',          basic: false,    pro: true,    highlight: true },
-  { label: 'Cadastro de clientes',         basic: false,    pro: true,    highlight: true },
-  { label: 'Relatórios avançados',         basic: false,    pro: true,    highlight: true },
-  { label: 'Sem marca d\'água no PDF',     basic: false,    pro: true     },
-  { label: 'Suporte prioritário',          basic: false,    pro: true     },
-  { label: 'Número de produtos',           basic: 'Até 20', pro: '∞ Ilimitado' },
-  { label: 'Pedidos por mês',              basic: 'Até 30', pro: '∞ Ilimitado' },
-  { label: 'IA de precificação',           basic: false,    pro: 'coming' },
-  { label: 'WhatsApp integrado',           basic: false,    pro: 'coming' },
-  { label: 'Agenda de entregas',           basic: false,    pro: 'coming' },
+const COMPARE_GROUPS: { group: string; items: Feature[] }[] = [
+  {
+    group: 'Essencial',
+    items: [
+      { label: 'Dashboard com dados reais',      basic: true,      pro: true      },
+      { label: 'Precificação inteligente',        basic: true,      pro: true      },
+      { label: 'Controle de estoque',             basic: true,      pro: true      },
+      { label: 'Kanban de pedidos',               basic: true,      pro: true      },
+      { label: 'Número de produtos',              basic: 'Até 20',  pro: '∞ Ilimitado' },
+      { label: 'Pedidos por mês',                 basic: 'Até 30',  pro: '∞ Ilimitado' },
+    ],
+  },
+  {
+    group: 'Relatórios 📊',
+    items: [
+      { label: 'Relatórios avançados',            basic: false,     pro: true, highlight: true },
+      { label: 'Relatório financeiro',            basic: false,     pro: true, highlight: true },
+      { label: 'Relatório de pedidos',            basic: false,     pro: true, highlight: true },
+      { label: 'Relatório de clientes',           basic: false,     pro: true, highlight: true },
+      { label: 'Relatório de produtos/estoque',   basic: false,     pro: true, highlight: true },
+      { label: 'Exportação em PDF',               basic: false,     pro: true, highlight: true },
+    ],
+  },
+  {
+    group: 'Financeiro',
+    items: [
+      { label: 'Financeiro completo',             basic: false,     pro: true, highlight: true },
+      { label: 'Contas a pagar e receber',        basic: false,     pro: true  },
+      { label: 'Parcelamentos e recorrências',    basic: false,     pro: true  },
+      { label: 'Fluxo de caixa futuro',           basic: false,     pro: true  },
+    ],
+  },
+  {
+    group: 'Premium',
+    items: [
+      { label: 'Cadastro completo de clientes',   basic: false,     pro: true  },
+      { label: 'Histórico de pedidos',            basic: false,     pro: true  },
+      { label: 'Agenda integrada',                basic: false,     pro: true  },
+      { label: 'Orçamentos profissionais PDF',    basic: false,     pro: true  },
+      { label: 'Biblioteca de conteúdos',         basic: false,     pro: true  },
+      { label: 'Ebooks exclusivos',               basic: false,     pro: true  },
+      { label: 'Suporte prioritário WhatsApp',    basic: false,     pro: true  },
+    ],
+  },
 ]
+
+const COMPARE: Feature[] = COMPARE_GROUPS.flatMap(g => g.items)
 
 const ROADMAP = [
   { emoji: '🧠', label: 'IA de precificação', desc: 'Sugestão automática de preço por categoria' },
@@ -279,7 +311,7 @@ export function PlansSection() {
             <PlanCard plan="pro"   delay={0.2} visible={plansVisible} />
           </div>
 
-          {/* Tabela comparativa */}
+          {/* Tabela comparativa por grupos */}
           <div
             className="rounded-2xl overflow-hidden border"
             style={{
@@ -289,40 +321,52 @@ export function PlansSection() {
               transition: 'all 0.6s ease 0.35s',
             }}
           >
-            {/* Header */}
+            {/* Header fixo */}
             <div className="grid grid-cols-3 p-4 border-b" style={{ background: '#F5F0EB', borderColor: '#EDE8E2' }}>
               <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#B8A898' }}>Funcionalidade</p>
               <p className="text-xs font-semibold text-center" style={{ color: '#7A6855' }}>Basic</p>
               <p className="text-xs font-semibold text-center" style={{ color: '#8B6C4F' }}>Pro</p>
             </div>
-            {COMPARE.map((f, i) => (
-              <div key={f.label}
-                className="grid grid-cols-3 px-4 py-3 items-center border-b last:border-0"
-                style={{
-                  borderColor: '#EDE8E2',
-                  background: i % 2 === 0 ? 'white' : 'rgba(139,108,79,0.015)',
-                }}>
-                <span className="text-xs" style={{ color: '#2C2018' }}>{f.label}</span>
-                {/* Basic */}
-                <div className="text-center">
-                  {f.basic === true  && <span style={{ color: '#5C8B4F', fontSize: 16 }}>✓</span>}
-                  {f.basic === false && <span style={{ color: '#EDE8E2' }}>—</span>}
-                  {typeof f.basic === 'string' && <span className="text-[10px] font-medium" style={{ color: '#7A6855' }}>{f.basic}</span>}
+
+            {COMPARE_GROUPS.map(group => (
+              <div key={group.group}>
+                {/* Group header */}
+                <div className="px-4 py-2 border-b" style={{ background: 'rgba(139,108,79,0.04)', borderColor: '#EDE8E2' }}>
+                  <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#8B6C4F' }}>{group.group}</p>
                 </div>
-                {/* Pro */}
-                <div className="text-center">
-                  {f.pro === true  && <span className="font-bold" style={{ color: '#8B6C4F', fontSize: 16 }}>✓</span>}
-                  {f.pro === false && <span style={{ color: '#EDE8E2' }}>—</span>}
-                  {f.pro === 'coming' && (
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-                      style={{ background: 'rgba(139,108,79,0.1)', color: '#8B6C4F' }}>
-                      Em breve
+                {/* Group rows */}
+                {group.items.map((f, i) => (
+                  <div key={f.label}
+                    className="grid grid-cols-3 px-4 py-2.5 items-center border-b last:border-0"
+                    style={{
+                      borderColor: '#EDE8E2',
+                      background: f.highlight ? 'rgba(139,108,79,0.03)' : i % 2 === 0 ? 'white' : 'rgba(139,108,79,0.01)',
+                    }}>
+                    <span className="text-xs flex items-center gap-1.5" style={{ color: f.highlight ? '#2C2018' : '#5A4A3B' }}>
+                      {f.label}
+                      {f.highlight && (
+                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full text-white"
+                          style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}>
+                          PRO
+                        </span>
+                      )}
                     </span>
-                  )}
-                  {typeof f.pro === 'string' && f.pro !== 'coming' && (
-                    <span className="text-[10px] font-bold" style={{ color: '#8B6C4F' }}>{f.pro}</span>
-                  )}
-                </div>
+                    {/* Basic */}
+                    <div className="text-center">
+                      {f.basic === true  && <span style={{ color: '#5C8B4F', fontSize: 15 }}>✓</span>}
+                      {f.basic === false && <span style={{ color: '#D8D0C8', fontSize: 12 }}>—</span>}
+                      {typeof f.basic === 'string' && <span className="text-[10px] font-semibold" style={{ color: '#7A6855' }}>{f.basic}</span>}
+                    </div>
+                    {/* Pro */}
+                    <div className="text-center">
+                      {f.pro === true  && <span className="font-black" style={{ color: '#8B6C4F', fontSize: 15 }}>✓</span>}
+                      {f.pro === false && <span style={{ color: '#D8D0C8', fontSize: 12 }}>—</span>}
+                      {typeof f.pro === 'string' && (
+                        <span className="text-[10px] font-bold" style={{ color: '#8B6C4F' }}>{f.pro}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             ))}
           </div>
