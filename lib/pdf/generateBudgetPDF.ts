@@ -356,21 +356,32 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
 
   <!-- Esquerda: condições + assinatura -->
   <div class="bot-l">
-    ${(bPay || bDelTyp || bDelDay || bPrdDay || bValid) ? `
+    ${(bPay || bPayCond || bDelTyp || bDelDay || bPrdDay || bValid) ? `
     <div class="cblock">
-      ${bPay ? `
+      ${(bPay || bPayCond) ? `
       <div class="crow">
         <span class="ck">Pagamento</span>
-        <span class="cv">${bPay}${bInstall > 1 ? ' em ' + bInstall + 'x de ' + R(bTot/bInstall) : bPayCond === 'avista' ? ' à vista' : ''}</span>
+        <span class="cv">${(() => {
+          const base = bPay || ''
+          if (bPayCond === 'avista')
+            return (base ? base + ' — ' : '') + 'À vista'
+          if (bPayCond === 'parcelado' && bInstall > 1)
+            return (base ? base + ' — ' : '') + bInstall + 'x de ' + R(bTot / bInstall)
+          if (bPayCond === 'entrada' && bSig > 0)
+            return (base ? base + ' — ' : '') + 'Entrada de ' + R(bSig)
+          if (bPayCond === 'prazo')
+            return (base ? base + ' — ' : '') + 'A prazo'
+          return base || bPayCond
+        })()}</span>
       </div>` : ''}
-      ${bPayCond && bPayCond !== 'avista' && bPayCond !== '' ? `
+      ${bSig > 0 ? `
       <div class="crow">
-        <span class="ck">Condição</span>
-        <span class="cv">${
-          bPayCond === 'parcelado' ? (bInstall > 0 ? bInstall + 'x de ' + R(bTot/bInstall) : 'Parcelado') :
-          bPayCond === 'entrada'   ? 'Entrada + saldo restante' :
-          bPayCond === 'prazo'     ? 'A prazo' : bPayCond
-        }</span>
+        <span class="ck" style="color:#166534;font-weight:600;">✓ Sinal/entrada recebido</span>
+        <span class="cv" style="color:#166534;font-weight:600;">${R(bSig)}</span>
+      </div>
+      <div class="crow">
+        <span class="ck" style="color:#b91c1c;">Saldo pendente</span>
+        <span class="cv" style="color:#b91c1c;font-weight:600;">${R(Math.max(0, bTot - bSig))}</span>
       </div>` : ''}
       ${bDelTyp ? `
       <div class="crow">

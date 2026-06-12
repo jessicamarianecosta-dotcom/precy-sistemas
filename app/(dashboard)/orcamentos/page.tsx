@@ -15,7 +15,7 @@ import {
   FileText, Plus, X, Loader2, Trash2, Download,
   CheckCircle, XCircle, Clock, Send, ChevronRight,
   ChevronLeft, User, Package, CreditCard, Truck,
-  Eye, Search, Edit3, Edit2, Minus,
+  Eye, Search, Edit3, Edit2, Minus, Info,
 } from 'lucide-react'
 
 interface BudgetItem {
@@ -309,6 +309,16 @@ export default function OrcamentosPage() {
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm text-text-secondary dark:text-stone-400">{budgets?.length??0} orçamento{budgets?.length!==1?'s':''}</p>
           <button onClick={openWizard} className="btn-primary flex items-center gap-2"><Plus size={16}/>Novo Orçamento</button>
+        </div>
+
+        {/* ── Card informativo fiscal ── */}
+        <div className="flex items-start gap-3 px-4 py-3 rounded-xl border border-amber-200/40 dark:border-amber-700/25 bg-amber-50/50 dark:bg-amber-900/10">
+          <Info size={15} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+            <span className="font-semibold">Documento comercial: </span>
+            Este orçamento não possui validade fiscal como Nota Fiscal.
+            A emissão de NF deve ser realizada separadamente conforme a legislação vigente.
+          </p>
         </div>
         <div className="card p-0 overflow-hidden">
           {isLoading?(<div className="p-6"><SkeletonTable rows={4}/></div>):!budgets?.length?(
