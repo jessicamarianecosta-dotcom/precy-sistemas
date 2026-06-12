@@ -405,7 +405,7 @@ export default function ConteudoPage() {
                   className="w-full py-3 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 transition-all hover:opacity-90"
                   style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)', boxShadow: '0 4px 20px rgba(139,108,79,0.4)' }}
                 >
-                  <Crown size={15} /> Desbloquear PRO — R$37/mês
+                  <Crown size={15} /> Desbloquear PRO — R$47/mês
                 </button>
                 <button
                   onClick={() => setProModal(false)}

@@ -29,7 +29,7 @@ export default function TermosPage() {
       <h2>4. Planos e pagamentos</h2>
       <ul>
         <li><strong>Plano Basic (R$17/mês):</strong> acesso às funcionalidades básicas com limites</li>
-        <li><strong>Plano Pro (R$37/mês):</strong> acesso completo a todas as funcionalidades</li>
+        <li><strong>Plano Pro (R$47/mês):</strong> acesso completo a todas as funcionalidades</li>
         <li>Os preços podem ser alterados com aviso prévio de 30 dias</li>
         <li>Pagamentos processados com segurança pelo Stripe</li>
       </ul>

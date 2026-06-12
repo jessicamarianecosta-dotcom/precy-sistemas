@@ -122,7 +122,7 @@ export function PlanTab() {
               <p className="text-sm font-bold text-text-primary dark:text-stone-100 flex items-center gap-1.5">
                 <Crown size={13} style={{ color: '#C4A47B' }} />Pro
               </p>
-              <p className="text-xl font-bold text-primary mt-0.5">R$37<span className="text-xs font-normal text-text-muted">/mês</span></p>
+              <p className="text-xl font-bold text-primary mt-0.5">R$47<span className="text-xs font-normal text-text-muted">/mês</span></p>
             </div>
             {plan === 'pro' && <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-primary/10 text-primary">Atual</span>}
           </div>

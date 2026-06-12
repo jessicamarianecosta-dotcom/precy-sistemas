@@ -21,8 +21,8 @@ export const PLANS = {
   pro: {
     id:          'pro',
     name:        'Pro',
-    price:       3700,
-    priceLabel:  'R$ 37/mês',
+    price:       4700,
+    priceLabel:  'R$ 47/mês',
     price_id:    process.env.STRIPE_PRICE_ID_PRO ?? '',
     trialDays:   0,
   },

@@ -196,13 +196,13 @@ function PlanCard({
         <div className="mb-1.5">
           <div className="flex items-end gap-1.5">
             <span className={`text-5xl font-black tracking-tight ${isPro ? 'text-stone-100' : 'text-[#2C2018]'}`}>
-              R$ {isPro ? '37' : '17'}
+              R$ {isPro ? '47' : '17'}
             </span>
             <span className={`mb-2 text-sm ${isPro ? 'text-stone-500' : 'text-[#B8A898]'}`}>/mês</span>
           </div>
           {isPro && (
             <p className="text-xs font-semibold" style={{ color: '#8B6C4F' }}>
-              = R$ 1,23/dia — menos que um café ☕
+              ≈ R$ 1,56/dia — menos que um café ☕
             </p>
           )}
         </div>

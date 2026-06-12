@@ -1104,7 +1104,7 @@ export default function ConfiguracoesPage() {
                     ))}
                   </div>
                   <div className="flex items-end gap-1 mb-3">
-                    <span className="text-2xl font-bold text-primary">R$ 37</span>
+                    <span className="text-2xl font-bold text-primary">R$ 47</span>
                     <span className="text-text-muted mb-1">/mês</span>
                     <span className="text-xs text-text-muted mb-1 ml-1">— menos que R$1,25/dia</span>
                   </div>

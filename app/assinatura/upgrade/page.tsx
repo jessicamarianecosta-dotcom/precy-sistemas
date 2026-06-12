@@ -71,9 +71,9 @@ function UpgradeContent() {
             </div>
 
             <div className="flex items-baseline justify-center gap-1 mb-5">
-              <span className="text-3xl font-bold text-white">R$37</span>
+              <span className="text-3xl font-bold text-white">R$47</span>
               <span className="text-sm text-stone-500">/mês</span>
-              <span className="text-[10px] text-stone-600 ml-1">= R$ 1,23/dia</span>
+              <span className="text-[10px] text-stone-600 ml-1">≈ R$ 1,56/dia</span>
             </div>
 
             <button onClick={handleUpgrade} disabled={loading}
