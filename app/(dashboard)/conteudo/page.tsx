@@ -1,7 +1,8 @@
 'use client'
 import { useState } from 'react'
 import { Header } from '@/components/layout/Header'
-import { clsx } from 'clsx'
+import { clsx }            from 'clsx'
+import { useSubscription } from '@/hooks/useSubscription'
 import {
   Play, BookOpen, Lock, Crown, X, ExternalLink,
   Clock, Tag, ChevronRight,
@@ -125,9 +126,9 @@ export default function ConteudoPage() {
   const [proModal,     setProModal]     = useState(false)
   const [selectedItem, setSelectedItem] = useState<Content | null>(null)
 
-  /* Simular plano do usuário — trocar por dado real quando Stripe estiver ativo */
-  const userPlan: string = 'basic'
-  const isPro = userPlan === 'pro'
+  /* Plano real via Stripe/Supabase */
+  const { data: sub } = useSubscription()
+  const isPro = sub?.isPro ?? false
 
   const filtered = CONTENTS.filter(c => {
     if (activeFilter === 'all')   return true

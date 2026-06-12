@@ -6,7 +6,13 @@ import { PLANS }        from '@/lib/stripe'
  * Verifica se o Stripe está configurado corretamente.
  * Retorna um relatório de status sem expor chaves sensíveis.
  */
-export async function GET() {
+export async function GET(req: Request) {
+  // Proteger com um token simples para evitar leakage de config
+  const token = req.headers.get('x-verify-token')
+  const expected = process.env.VERIFY_TOKEN ?? ''
+  if (expected && token !== expected) {
+    return new Response('Unauthorized', { status: 401 })
+  }
   const checks = {
     secret_key:          !!process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.includes('xxx'),
     webhook_secret:      !!process.env.STRIPE_WEBHOOK_SECRET && !process.env.STRIPE_WEBHOOK_SECRET.includes('xxx'),

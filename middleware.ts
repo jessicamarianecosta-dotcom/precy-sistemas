@@ -110,9 +110,8 @@ export async function middleware(req: NextRequest) {
   }
 
   /* ── Proteção de rotas PRO ── */
-  const effectivePlan = (trialExpired || status === 'trialing') && !trialExpired
-    ? 'pro'   // trial ainda válido → acesso pro
-    : plan
+  // trial válido → acesso PRO completo; trial expirado → reverte para plan do banco
+  const effectivePlan: string = (!trialExpired && status === 'trialing') ? 'pro' : plan
 
   const isProRoute = PRO_ROUTES.some(r => pathname.startsWith(r))
   if (isProRoute && effectivePlan !== 'pro') {

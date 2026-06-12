@@ -46,7 +46,9 @@ export function useSubscription() {
       const status    = data.subscription_status ?? 'trialing'
       const isActive  = ['active','trialing'].includes(status)
       const isTrial   = status === 'trialing'
-      const isPro     = plan === 'pro' && isActive
+      // Trial ativo = acesso PRO; trial expirado = basic
+      const trialActive = status === 'trialing' && !!data.trial_end && new Date() < new Date(data.trial_end)
+      const isPro     = (plan === 'pro' && isActive) || trialActive
       const isExpired = ['canceled','past_due','expired'].includes(status)
 
       return {
