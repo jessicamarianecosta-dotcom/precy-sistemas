@@ -14,7 +14,7 @@ import {
   TrendingUp, TrendingDown, DollarSign, ShoppingCart,
   Users, Package, FileText, BarChart3, ChevronDown,
   Download, AlertTriangle, CheckCircle, Clock, ArrowUpRight,
-  ArrowDownRight, Star, Loader2,
+  ArrowDownRight, Star, Loader2, Printer,
 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, subMonths, parseISO, addMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -108,19 +108,20 @@ export default function RelatoriosPage() {
     },
   })
 
-  async function handleExportPDF() {
+  async function handleExportPDF(mode: 'pdf' | 'print' = 'pdf') {
     setExporting(true)
     try {
       const { generateReportPDF } = await import('@/lib/pdf/generateReportPDF')
       generateReportPDF({
         tab: activeTab, period, start, end,
         company:   companyData,
-        finTx:     activeTab === 'financeiro' ? finTx : [],
-        orders:    ['pedidos','clientes'].includes(activeTab) ? orders : [],
-        customers: activeTab === 'clientes'   ? customers : [],
-        products:  activeTab === 'produtos'   ? products  : [],
-        inventory: activeTab === 'estoque'    ? inventory : [],
-        budgets:   activeTab === 'orcamentos' ? budgets   : [],
+        finTx,
+        orders,
+        customers,
+        products,
+        inventory,
+        budgets,
+        mode,
       })
     } catch (err) { console.error('[export]', err) }
     finally { setExporting(false) }
@@ -316,9 +317,22 @@ export default function RelatoriosPage() {
               </button>
             ))}
           </div>
-          <p className="text-xs text-text-muted dark:text-stone-500">
-            {start.split('-').reverse().join('/')} → {end.split('-').reverse().join('/')}
-          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-xs text-text-muted dark:text-stone-500">
+              {start.split('-').reverse().join('/')} → {end.split('-').reverse().join('/')}
+            </p>
+            <button onClick={() => handleExportPDF('pdf')} disabled={exporting}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 hover:opacity-90 transition-opacity shadow-sm"
+              style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}>
+              {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+              {exporting ? 'Gerando...' : 'Baixar PDF'}
+            </button>
+            <button onClick={() => handleExportPDF('print')} disabled={exporting}
+              title="Imprimir relatório"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border border-border dark:border-border-dark text-text-muted dark:text-stone-400 hover:border-primary hover:text-primary transition-all disabled:opacity-50">
+              <Printer size={13} />
+            </button>
+          </div>
         </div>
 
         {/* ── Tabs de módulo ── */}
