@@ -2,7 +2,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/hooks/useCompanyId'
-import { PLAN_LIMITS } from '@/lib/stripe'
+import { PLAN_LIMITS } from '@/lib/stripe/plans'
 
 export interface SubscriptionData {
   plan:                'basic' | 'pro'
