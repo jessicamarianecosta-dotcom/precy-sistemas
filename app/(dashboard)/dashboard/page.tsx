@@ -13,7 +13,8 @@ import {
   PieChart, Pie, Cell, Legend,
 } from 'recharts'
 import { createClient } from '@/lib/supabase/client'
-import { useDashboard } from '@/hooks/useDashboard'
+import { useDashboard }    from '@/hooks/useDashboard'
+import { useSubscription } from '@/hooks/useSubscription'
 import { Header } from '@/components/layout/Header'
 import { SkeletonDashboard } from '@/components/ui/Skeleton'
 import { clsx } from 'clsx'
@@ -119,6 +120,7 @@ export default function DashboardPage() {
   }, [])
 
   const { data, isLoading, isError } = useDashboard(companyId)
+  const { data: sub }                = useSubscription()
 
   const hour     = new Date().getHours()
   const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite'
@@ -297,6 +299,20 @@ export default function DashboardPage() {
       />
 
       <div className="p-3 sm:p-5 lg:p-6 space-y-4">
+
+        {/* ── Banner past_due ── */}
+        {sub?.status === 'past_due' && (
+          <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-red-200/50 dark:border-red-700/30 bg-red-50/50 dark:bg-red-900/10 flex-wrap">
+            <p className="text-sm text-red-700 dark:text-red-400">
+              ⚠️ <strong>Pagamento pendente.</strong> Renove para manter o acesso.
+            </p>
+            <a href="/assinatura/upgrade"
+              className="text-xs font-bold text-white px-4 py-2 rounded-lg flex-shrink-0 hover:opacity-90"
+              style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}>
+              Renovar agora
+            </a>
+          </div>
+        )}
         {isLoading ? (
           <SkeletonDashboard />
         ) : isError ? (
