@@ -159,18 +159,49 @@ export default function ProdutosPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      // Verificar dependências antes de deletar
+      const [{ count: orderCount }, { count: budgetCount }] = await Promise.all([
+        (supabase.from('order_items') as any)
+          .select('id', { count: 'exact', head: true })
+          .eq('product_id', id),
+        (supabase.from('budget_items') as any)
+          .select('id', { count: 'exact', head: true })
+          .eq('product_id', id),
+      ])
+
+      if ((orderCount ?? 0) > 0 || (budgetCount ?? 0) > 0) {
+        const parts: string[] = []
+        if ((orderCount ?? 0) > 0) parts.push(`${orderCount} pedido${orderCount === 1 ? '' : 's'}`)
+        if ((budgetCount ?? 0) > 0) parts.push(`${budgetCount} orçamento${budgetCount === 1 ? '' : 's'}`)
+        throw new Error(`LINKED:${parts.join(' e ')}`)
+      }
+
+      // Deletar materiais do produto antes (caso FK não tenha CASCADE)
+      await (supabase.from('product_materials') as any)
+        .delete()
+        .eq('product_id', id)
+
       const { error } = await (supabase.from('products') as any).delete().eq('id', id)
       if (error) throw error
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['products', companyId] })
-      toast('success', 'Produto removido.')
+      qc.invalidateQueries({ queryKey: ['dashboard', companyId] })
+      toast('success', 'Produto removido com sucesso.')
       setDeleteId(null)
       if (viewProduct?.id === deleteId) setViewProduct(null)
     },
     onError: (err: Error) => {
       console.error('[produtos] delete error:', err)
-      toast('error', `Erro ao excluir: ${err.message}`)
+      if (err.message.startsWith('LINKED:')) {
+        const detail = err.message.replace('LINKED:', '')
+        toast('error', `Não é possível excluir: este produto está vinculado a ${detail}. Remova os vínculos primeiro.`)
+      } else if (err.message.includes('foreign key') || err.message.includes('violates')) {
+        toast('error', 'Não é possível excluir: produto vinculado a pedidos ou orçamentos existentes.')
+      } else {
+        toast('error', `Erro ao excluir: ${err.message}`)
+      }
+      setDeleteId(null)
     },
   })
 
@@ -673,19 +704,27 @@ export default function ProdutosPage() {
       ════════════════════════════════════════ */}
       {deleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setDeleteId(null)} />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => !deleteMutation.isPending && setDeleteId(null)} />
           <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm animate-scaleIn p-6 text-center">
             <div className="w-12 h-12 rounded-2xl bg-error-light flex items-center justify-center mx-auto mb-4">
               <Trash2 size={20} className="text-error" />
             </div>
             <h3 className="text-base font-semibold text-text-primary dark:text-stone-100 mb-2">Excluir produto?</h3>
-            <p className="text-sm text-text-secondary dark:text-stone-400 mb-6">Esta ação não pode ser desfeita.</p>
+            <p className="text-sm text-text-secondary dark:text-stone-400 mb-1">Esta ação não pode ser desfeita.</p>
+            <p className="text-xs text-text-muted dark:text-stone-500 mb-6">
+              Os materiais vinculados serão removidos. Pedidos e orçamentos que já usaram este produto serão preservados.
+            </p>
             <div className="flex gap-3">
-              <button onClick={() => setDeleteId(null)} className="btn-secondary flex-1">Cancelar</button>
-              <button onClick={() => deleteMutation.mutate(deleteId!)} disabled={deleteMutation.isPending}
+              <button
+                onClick={() => setDeleteId(null)}
+                disabled={deleteMutation.isPending}
+                className="btn-secondary flex-1">Cancelar</button>
+              <button
+                onClick={() => deleteMutation.mutate(deleteId!)}
+                disabled={deleteMutation.isPending}
                 className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-error hover:opacity-90 disabled:opacity-50">
                 {deleteMutation.isPending && <Loader2 size={14} className="animate-spin" />}
-                Excluir
+                {deleteMutation.isPending ? 'Verificando...' : 'Excluir'}
               </button>
             </div>
           </div>
