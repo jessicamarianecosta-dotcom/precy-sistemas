@@ -208,6 +208,16 @@ export default function EstoquePage() {
       qc.invalidateQueries({ queryKey: ['inventory', companyId] })
       qc.invalidateQueries({ queryKey: ['dashboard', companyId] })
 
+      // Quando atualiza um item existente, o trigger no banco recalcula
+      // product_materials e products automaticamente — invalida o cache
+      if (editingId) {
+        qc.invalidateQueries({ queryKey: ['products', companyId] })
+        qc.invalidateQueries({ queryKey: ['product-materials'] })
+        toast('success', 'Material atualizado! Produtos vinculados recalculados automaticamente.')
+      } else {
+        toast('success', 'Item adicionado ao estoque!')
+      }
+
       // Persistir nova categoria se for customizada
       const savedCat = variables.category
       if (
@@ -218,7 +228,6 @@ export default function EstoquePage() {
         setCustomCategories(prev => [...prev, savedCat])
       }
 
-      toast('success', editingId ? 'Item atualizado!' : 'Item adicionado ao estoque!')
       closeModal()
     },
 

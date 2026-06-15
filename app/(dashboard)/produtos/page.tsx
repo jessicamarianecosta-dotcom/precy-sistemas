@@ -10,7 +10,7 @@ import { useCompanyId } from '@/hooks/useCompanyId'
 import {
   Package, Plus, Search, Edit2, Trash2, X, Loader2,
   Copy, ExternalLink, DollarSign, Clock, Layers,
-  TrendingUp, ChevronRight, Tag,
+  TrendingUp, ChevronRight, Tag, Zap,
 } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -43,6 +43,7 @@ interface Product {
 
 interface ProductMaterial {
   id:            string
+  inventory_id?: string | null
   material_name: string
   quantity:      number
   unit:          string
@@ -255,7 +256,10 @@ export default function ProdutosPage() {
   )
 
   /* ── Dados derivados do produto em view ── */
-  const vp = viewProduct
+  // Sincronizar viewProduct com dados frescos do banco (ex: após recalculo por trigger)
+  const vp = viewProduct?.id
+    ? (products?.find(p => p.id === viewProduct.id) ?? viewProduct)
+    : viewProduct
   const vpMaterials  = productMaterials ?? []
   const vpTotalMats  = vpMaterials.reduce((s, m) => s + safeNum(m.subtotal), 0)
   const vpLaborCost  = safeNum(vp?.labor_cost)
@@ -474,6 +478,15 @@ export default function ProdutosPage() {
                 color="text-info" bg="bg-info-light dark:bg-info/10">
                 {vpMaterials.length > 0 ? (
                   <div className="space-y-1">
+                    {/* Badge de sincronização quando há vínculos com estoque */}
+                    {vpMaterials.some(m => m.inventory_id) && (
+                      <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-success-light dark:bg-success/10 border border-success/20 mb-2">
+                        <Zap size={11} className="text-success flex-shrink-0" />
+                        <p className="text-[10px] text-success-dark dark:text-success font-medium">
+                          Custos sincronizados com o estoque — atualizam automaticamente
+                        </p>
+                      </div>
+                    )}
                     <div className="grid grid-cols-4 gap-2 px-1 pb-1 border-b border-border dark:border-border-dark">
                       {['Material', 'Qtd', 'Unit.', 'Subtotal'].map(h => (
                         <span key={h} className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">{h}</span>
@@ -481,7 +494,12 @@ export default function ProdutosPage() {
                     </div>
                     {vpMaterials.map(m => (
                       <div key={m.id} className="grid grid-cols-4 gap-2 px-1 py-1.5 rounded-lg hover:bg-primary-50/30 dark:hover:bg-white/[0.02]">
-                        <span className="text-xs text-text-primary dark:text-stone-200 truncate">{m.material_name}</span>
+                        <div className="flex items-center gap-1 min-w-0">
+                          <span className="text-xs text-text-primary dark:text-stone-200 truncate">{m.material_name}</span>
+                          {m.inventory_id && (
+                            <Zap size={9} className="text-success flex-shrink-0" />
+                          )}
+                        </div>
                         <span className="text-xs text-text-secondary dark:text-stone-400">{safeNum(m.quantity)} {m.unit}</span>
                         <span className="text-xs text-text-secondary dark:text-stone-400">{fmt(m.unit_cost)}</span>
                         <span className="text-xs font-semibold text-info-dark dark:text-info">{fmt(m.subtotal)}</span>
