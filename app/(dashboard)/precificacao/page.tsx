@@ -11,6 +11,7 @@ import {
   ArrowRight, Info,
 } from 'lucide-react'
 import { clsx } from 'clsx'
+import { CategorySelect } from '@/components/ui/CategorySelect'
 
 /* ─────────────────────────── Types ─── */
 type ProductType = 'produced' | 'resale' | 'meter_product'
@@ -525,11 +526,11 @@ export default function PrecificacaoPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Categoria</label>
-                  <select className="input" value={category} onChange={e => setCategory(e.target.value)}>
-                    {['geral','caneca','copo','papelaria','quadro','vela','cosmético','roupa','acessório','embalagem','kit','outro'].map(c => (
-                      <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
-                    ))}
-                  </select>
+                  <CategorySelect
+                    value={category}
+                    onChange={setCategory}
+                    placeholder="Selecione ou crie..."
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Unidade</label>

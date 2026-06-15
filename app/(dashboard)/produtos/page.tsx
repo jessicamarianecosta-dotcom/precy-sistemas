@@ -18,6 +18,7 @@ import { z } from 'zod'
 import React, { useState } from 'react'
 import { clsx } from 'clsx'
 import Link from 'next/link'
+import { CategorySelect } from '@/components/ui/CategorySelect'
 
 /* ─── Types ─── */
 interface Product {
@@ -127,10 +128,11 @@ export default function ProdutosPage() {
   })
 
   /* ── Form ── */
-  const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { unit: 'un', markup_percentage: 100, production_time_hours: 1, material_cost: 0, final_price: 0 },
   })
+  const categoryValue = watch('category') ?? ''
 
   /* ── Mutations ── */
   const saveMutation = useMutation({
@@ -658,7 +660,12 @@ export default function ProdutosPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Categoria *</label>
-                  <input className="input" placeholder="Ex: Canecas" {...register('category')} />
+                  <CategorySelect
+                    value={categoryValue}
+                    onChange={v => setValue('category', v, { shouldValidate: true })}
+                    placeholder="Selecione ou crie..."
+                  />
+                  {errors.category && <p className="mt-1 text-xs text-error">{errors.category.message}</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Unidade</label>
