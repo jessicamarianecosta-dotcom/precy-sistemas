@@ -1,12 +1,13 @@
 'use client'
 import { useState } from 'react'
-import { ShieldAlert, Loader2, LogOut, CreditCard, RefreshCw } from 'lucide-react'
+import { ShieldAlert, Loader2, LogOut, CreditCard, RefreshCw, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter }    from 'next/navigation'
 
 export default function BloqueadaPage() {
   const [loadingCheckout, setLoadingCheckout] = useState(false)
   const [loadingPortal,   setLoadingPortal]   = useState(false)
+  const [errMsg,          setErrMsg]          = useState('')
   const supabase = createClient()
   const router   = useRouter()
 
@@ -19,7 +20,7 @@ export default function BloqueadaPage() {
       })
       const data = await res.json()
       if (data.url) window.location.href = data.url
-    } catch { alert('Erro ao iniciar pagamento.') }
+    } catch { setErrMsg('Erro ao iniciar pagamento. Tente novamente.') }
     finally { setLoadingCheckout(false) }
   }
 
@@ -29,7 +30,7 @@ export default function BloqueadaPage() {
       const res  = await fetch('/api/stripe/portal', { method: 'POST' })
       const data = await res.json()
       if (data.url) window.location.href = data.url
-    } catch { alert('Erro ao abrir portal.') }
+    } catch { setErrMsg('Erro ao abrir portal. Tente novamente.') }
     finally { setLoadingPortal(false) }
   }
 
@@ -83,6 +84,13 @@ export default function BloqueadaPage() {
             {loadingPortal ? <Loader2 size={15} className="animate-spin" /> : <CreditCard size={15} />}
             Atualizar forma de pagamento
           </button>
+
+          {errMsg && (
+            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-red-900/20 border border-red-700/30">
+              <AlertCircle size={13} className="text-red-400 flex-shrink-0" />
+              <p className="text-xs text-red-400">{errMsg}</p>
+            </div>
+          )}
 
           <button onClick={handleLogout}
             className="w-full py-2.5 text-xs text-stone-600 flex items-center justify-center gap-1.5 hover:text-stone-400 transition-colors">

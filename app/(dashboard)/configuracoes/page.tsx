@@ -14,6 +14,7 @@ import { clsx } from 'clsx'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { useToast } from '@/components/ui/Toaster'
 import { useRouter } from 'next/navigation'
 
 /* ─────────────────────────── Types & Schemas ─── */
@@ -93,6 +94,7 @@ export default function ConfiguracoesPage() {
   const supabase      = createClient()
   const queryClient   = useQueryClient()
   const router        = useRouter()
+  const { toast }     = useToast()
   const logoInputRef  = useRef<HTMLInputElement>(null)
 
   const [tab,            setTab]           = useState<Tab>('empresa')
@@ -241,7 +243,7 @@ export default function ConfiguracoesPage() {
   }
   function showError(msg: string) {
     console.error('[config]', msg)
-    alert(msg)
+    toast('error', msg)
   }
 
   /* ─── Computed ─── */

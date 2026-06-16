@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { Crown, CheckCircle, Loader2, ArrowLeft } from 'lucide-react'
+import { Crown, CheckCircle, Loader2, ArrowLeft, AlertCircle } from 'lucide-react'
 import { useSearchParams, useRouter }              from 'next/navigation'
 import { Suspense } from 'react'
 
@@ -17,6 +17,7 @@ const PRO_FEATURES = [
 
 function UpgradeContent() {
   const [loading, setLoading] = useState(false)
+  const [errMsg,  setErrMsg]  = useState('')
   const searchParams = useSearchParams()
   const router       = useRouter()
   const from         = searchParams.get('from') ?? '/dashboard'
@@ -30,7 +31,7 @@ function UpgradeContent() {
       })
       const data = await res.json()
       if (data.url) window.location.href = data.url
-    } catch { alert('Erro ao iniciar upgrade.') }
+    } catch { setErrMsg('Erro ao iniciar upgrade. Tente novamente.') }
     finally { setLoading(false) }
   }
 
@@ -82,6 +83,12 @@ function UpgradeContent() {
               {loading ? <Loader2 size={15} className="animate-spin" /> : <Crown size={15} />}
               {loading ? 'Redirecionando...' : 'Assinar Pro agora'}
             </button>
+            {errMsg && (
+              <div className="flex items-center gap-2 mt-3 p-2.5 rounded-lg bg-red-900/20 border border-red-700/30">
+                <AlertCircle size={13} className="text-red-400 flex-shrink-0" />
+                <p className="text-xs text-red-400">{errMsg}</p>
+              </div>
+            )}
             <p className="text-center text-xs text-stone-600 mt-3">
               Cancele quando quiser · Sem fidelidade
             </p>
