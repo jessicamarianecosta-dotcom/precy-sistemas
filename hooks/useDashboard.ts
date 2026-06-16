@@ -153,5 +153,6 @@ export function useDashboard(companyId: string | null) {
       }
     },
     refetchInterval: 30_000,
+    staleTime:       60_000,
   })
 }

@@ -5,7 +5,7 @@ import { clsx }            from 'clsx'
 import { useSubscription } from '@/hooks/useSubscription'
 import {
   Play, BookOpen, Lock, Crown, X, ExternalLink,
-  Clock, Tag, ChevronRight,
+  Clock, Tag, ChevronRight, FileText,
 } from 'lucide-react'
 
 /* ─── Types ─── */
@@ -124,6 +124,7 @@ const EBOOK_EMOJI: Record<string, string> = {
 export default function ConteudoPage() {
   const [activeFilter, setActiveFilter] = useState<Category>('all')
   const [proModal,     setProModal]     = useState(false)
+  const [contentModal, setContentModal] = useState(false)
   const [selectedItem, setSelectedItem] = useState<Content | null>(null)
 
   /* Plano real via Stripe/Supabase */
@@ -146,9 +147,9 @@ export default function ConteudoPage() {
       setProModal(true)
       return
     }
-    // Aqui viria a lógica de abrir vídeo/ebook (URL do conteúdo)
-    // Por ora: placeholder
-    alert(`Abrindo: ${item.title}`)
+    // Conteúdo disponível: abrir modal de visualização
+    setSelectedItem(item)
+    setContentModal(true)
   }
 
   return (
@@ -414,6 +415,59 @@ export default function ConteudoPage() {
                 >
                   Continuar no Basic
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── Modal de conteúdo (vídeo/ebook) ── */}
+      {contentModal && selectedItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setContentModal(false)} />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-md animate-scaleIn overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between p-5 border-b border-border dark:border-border-dark">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  {selectedItem.type === 'video'
+                    ? <Play size={16} className="text-primary" />
+                    : <BookOpen size={16} className="text-primary" />
+                  }
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">{selectedItem.category}</p>
+                  <h3 className="text-sm font-bold text-text-primary dark:text-stone-100 leading-snug">{selectedItem.title}</h3>
+                </div>
+              </div>
+              <button onClick={() => setContentModal(false)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+            {/* Body */}
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-text-secondary dark:text-stone-400 leading-relaxed">{selectedItem.description}</p>
+
+              {/* Placeholder de conteúdo premium */}
+              <div className="rounded-xl border-2 border-dashed border-primary/20 bg-primary-50/30 dark:bg-primary/5 p-6 text-center">
+                <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                  {selectedItem.type === 'video'
+                    ? <Play size={20} className="text-primary" />
+                    : <FileText size={20} className="text-primary" />
+                  }
+                </div>
+                <p className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-1">
+                  {selectedItem.type === 'video' ? 'Vídeo em produção' : 'Material em produção'}
+                </p>
+                <p className="text-xs text-text-muted dark:text-stone-400 leading-relaxed">
+                  Este conteúdo está sendo preparado com carinho e será disponibilizado em breve diretamente aqui.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-success-light dark:bg-success/10 border border-success/20">
+                <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse flex-shrink-0" />
+                <p className="text-xs text-success-dark dark:text-success font-medium">
+                  Você será notificada assim que este conteúdo estiver disponível.
+                </p>
               </div>
             </div>
           </div>

@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Package, Boxes, ShoppingCart,
   Users, FileText, DollarSign, Settings, Calculator,
-  ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays, BookOpen, BarChart2,
+  ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays, BookOpen, BarChart2, Crown,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { createClient } from '@/lib/supabase/client'
@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation'
 import { clsx } from 'clsx'
 import { useSidebar } from '@/providers/SidebarProvider'
 import { useQueryClient } from '@tanstack/react-query'
+import { useSubscription } from '@/hooks/useSubscription'
 
 /* ─── Menu ─── */
 const menuItems = [
@@ -30,7 +31,7 @@ const menuItems = [
       { href: '/produtos',    icon: Package,     label: 'Produtos'  },
       { href: '/estoque',     icon: Boxes,       label: 'Estoque'   },
       { href: '/pedidos',     icon: ShoppingCart,label: 'Pedidos'   },
-      { href: '/agenda',      icon: CalendarDays,label: 'Agenda'    },
+      { href: '/agenda',      icon: CalendarDays,label: 'Agenda',   pro: true },
       { href: '/clientes',    icon: Users,       label: 'Clientes'  },
     ],
   },
@@ -38,15 +39,15 @@ const menuItems = [
     title: 'Financeiro',
     items: [
       { href: '/orcamentos',  icon: FileText,   label: 'Orçamentos' },
-      { href: '/financeiro',  icon: DollarSign, label: 'Financeiro' },
-      { href: '/relatorios',  icon: BarChart2,   label: 'Relatórios' },
+      { href: '/financeiro',  icon: DollarSign, label: 'Financeiro', pro: true },
+      { href: '/relatorios',  icon: BarChart2,  label: 'Relatórios', pro: true },
     ],
   },
   {
     title: 'Sistema',
     items: [
-      { href: '/conteudo',     icon: BookOpen, label: 'Conteúdo'      },
-      { href: '/configuracoes', icon: Settings, label: 'Configurações' },
+      { href: '/conteudo',      icon: BookOpen, label: 'Conteúdo',      pro: true },
+      { href: '/configuracoes', icon: Settings, label: 'Configurações'  },
     ],
   },
 ]
@@ -60,6 +61,8 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
   const router      = useRouter()
   const queryClient = useQueryClient()
   const supabase  = createClient()
+  const sub = useSubscription()
+  const isPro = sub?.data?.isPro ?? false
 
   async function handleLogout() {
     queryClient.clear()   // Limpar dados sensíveis do cache antes do logout
@@ -68,8 +71,9 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
     router.push('/login')
   }
 
-  function NavLink({ href, icon: Icon, label }: { href: string; icon: React.ElementType; label: string }) {
+  function NavLink({ href, icon: Icon, label, pro }: { href: string; icon: React.ElementType; label: string; pro?: boolean }) {
     const active = pathname === href || pathname.startsWith(href + '/')
+    const locked = pro && !isPro
     return (
       <Link
         href={href}
@@ -84,7 +88,12 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
         title={collapsed ? label : undefined}
       >
         <Icon size={18} className="flex-shrink-0" />
-        {!collapsed && <span className="truncate">{label}</span>}
+        {!collapsed && <span className="truncate flex-1">{label}</span>}
+        {!collapsed && locked && (
+          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-primary/10 dark:bg-primary/20 text-primary flex-shrink-0">
+            <Crown size={8} />PRO
+          </span>
+        )}
       </Link>
     )
   }
@@ -131,7 +140,7 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
             <ul className="space-y-0.5">
               {group.items.map(item => (
                 <li key={item.href}>
-                  <NavLink href={item.href} icon={item.icon} label={item.label} />
+                  <NavLink href={item.href} icon={item.icon} label={item.label} pro={(item as any).pro} />
                 </li>
               ))}
             </ul>

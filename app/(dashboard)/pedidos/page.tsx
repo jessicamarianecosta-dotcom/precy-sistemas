@@ -342,6 +342,19 @@ export default function PedidosPage() {
       description: `Pedido ${orderNumber} — ${data.service_name || 'Serviço'}`,
       date:        new Date().toISOString().split('T')[0],
     }])
+
+    // Atualizar total_purchases do cliente quando pedido é pago
+    if (data.payment_status === 'paid' && data.customer_id) {
+      const { data: clientOrders } = await (supabase.from('orders') as any)
+        .select('total')
+        .eq('customer_id', data.customer_id)
+        .eq('company_id', companyId!)
+        .eq('payment_status', 'paid')
+      const totalPurchases = (clientOrders ?? []).reduce((s: number, o: any) => s + Number(o.total), 0)
+      await (supabase.from('customers') as any)
+        .update({ total_purchases: totalPurchases, updated_at: new Date().toISOString() })
+        .eq('id', data.customer_id)
+    }
   }
 
   const saveMutation = useMutation({
@@ -418,7 +431,7 @@ export default function PedidosPage() {
       id: string
       status: string
     }) => {
-      await (
+      const { error } = await (
         supabase.from('orders') as any
       )
         .update({
@@ -427,17 +440,25 @@ export default function PedidosPage() {
             new Date().toISOString(),
         })
         .eq('id', id)
+      if (error) throw error
     },
 
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ['orders', companyId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ['dashboard', companyId],
+      })
+      toast('success', 'Status atualizado!')
+    },
 
-      toast(
-        'success',
-        'Status atualizado!'
-      )
+    onError: (err: Error) => {
+      // Rollback: recarregar dados reais do banco
+      queryClient.invalidateQueries({
+        queryKey: ['orders', companyId],
+      })
+      toast('error', `Erro ao mover pedido: ${err.message}`)
     },
   })
 

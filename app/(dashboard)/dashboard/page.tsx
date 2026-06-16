@@ -322,6 +322,50 @@ export default function DashboardPage() {
           </div>
         ) : (
           <>
+            {/* ─── ONBOARDING — aparece apenas quando sistema está zerado ─── */}
+            {(data?.revenue ?? 0) === 0 &&
+             (data?.activeOrdersCount ?? 0) === 0 && (
+              <div className="rounded-2xl border border-primary/25 overflow-hidden"
+                style={{ background: 'linear-gradient(135deg, rgba(139,108,79,0.07), rgba(184,149,106,0.04))' }}>
+                <div className="p-5">
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 text-xl">🚀</div>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary dark:text-stone-100">Bem-vinda ao Precy+!</p>
+                      <p className="text-xs text-text-secondary dark:text-stone-400 mt-0.5 leading-relaxed">
+                        Configure os 4 passos abaixo para começar a usar todos os recursos do sistema.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {[
+                      { step: '1', title: 'Configure sua empresa',   desc: 'Nome, logo e dados do negócio', href: '/configuracoes', done: !!companyName },
+                      { step: '2', title: 'Adicione seus materiais', desc: 'Cadastre materiais no estoque',  href: '/estoque',       done: false },
+                      { step: '3', title: 'Crie seu primeiro produto', desc: 'Precifique com inteligência', href: '/precificacao',   done: false },
+                      { step: '4', title: 'Registre seu primeiro pedido', desc: 'Gerencie sua produção',    href: '/pedidos',        done: false },
+                    ].map(s => (
+                      <a key={s.step} href={s.href}
+                        className="flex items-center gap-3 p-3 rounded-xl bg-white dark:bg-surface-dark border border-border dark:border-border-dark hover:border-primary/40 hover:shadow-sm transition-all group">
+                        <div className={clsx(
+                          'w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0',
+                          s.done
+                            ? 'bg-success text-white'
+                            : 'bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white transition-all'
+                        )}>
+                          {s.done ? '✓' : s.step}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-text-primary dark:text-stone-100 truncate">{s.title}</p>
+                          <p className="text-[10px] text-text-muted dark:text-stone-400 truncate">{s.desc}</p>
+                        </div>
+                        <ArrowRight size={12} className="text-text-muted group-hover:text-primary transition-colors flex-shrink-0 ml-auto" />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* ─── METRIC CARDS ─── */}
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
               {metricCards.map(card => {
