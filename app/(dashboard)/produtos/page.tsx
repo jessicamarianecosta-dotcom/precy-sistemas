@@ -215,7 +215,7 @@ export default function ProdutosPage() {
     try {
       const { id: _id, created_at: _c, ...rest } = p as any
       const { data: newProd, error } = await (supabase.from('products') as any)
-        .insert({ ...rest, company_id: companyId, name: `${p.name} (cópia)` })
+        .insert({ ...rest, company_id: companyId, name: `Cópia de ${p.name}` })
         .select('id').single()
       if (error) throw error
 
@@ -341,6 +341,11 @@ export default function ProdutosPage() {
                             className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium rounded-lg border border-border dark:border-border-dark hover:border-primary hover:text-primary transition-colors">
                             <Edit2 size={12} /> Ficha técnica
                           </button>
+                          <button onClick={() => handleDuplicate(p)}
+                            disabled={duplicating}
+                            className="p-1.5 rounded-lg text-text-muted hover:text-info hover:bg-info-light transition-colors" title="Duplicar">
+                            <Copy size={14} />
+                          </button>
                           <button onClick={() => setDeleteId(p.id)}
                             className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors">
                             <Trash2 size={14} />
@@ -399,6 +404,11 @@ export default function ProdutosPage() {
                             <button onClick={() => setViewProduct(p)}
                               className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors" title="Ver ficha técnica">
                               <Edit2 size={14} />
+                            </button>
+                            <button onClick={() => handleDuplicate(p)}
+                              disabled={duplicating}
+                              className="p-1.5 rounded-lg text-text-muted hover:text-info hover:bg-info-light transition-colors" title="Duplicar">
+                              <Copy size={14} />
                             </button>
                             <button onClick={() => setDeleteId(p.id)}
                               className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors" title="Excluir">

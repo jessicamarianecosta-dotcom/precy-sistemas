@@ -15,7 +15,7 @@ import {
   FileText, Plus, X, Loader2, Trash2, Download,
   CheckCircle, XCircle, Clock, Send, ChevronRight,
   ChevronLeft, User, Package, CreditCard, Truck,
-  Eye, Search, Edit3, Edit2, Minus, Info, ShoppingBag, ExternalLink,
+  Eye, Search, Edit3, Edit2, Minus, Info, ShoppingBag, ExternalLink, Copy,
 } from 'lucide-react'
 
 interface BudgetItem {
@@ -86,6 +86,7 @@ export default function OrcamentosPage() {
   const [status,setStatus]=useState('draft')
   const [companyData,setCompanyData]=useState<Record<string,unknown>|null>(null)
   const [converting,setConverting]=useState<string|null>(null) // budget id sendo convertido
+  const [duplicatingBudget,setDuplicatingBudget]=useState<string|null>(null)
 
   useEffect(()=>{
     async function load(){
@@ -418,6 +419,54 @@ export default function OrcamentosPage() {
     }
   }
 
+  /* ─── Duplicar Orçamento ─── */
+  async function handleDuplicateBudget(b: any) {
+    if (!companyId) return
+    setDuplicatingBudget(b.id)
+    try {
+      // 1. Buscar itens do orçamento original
+      const { data: bi } = await (supabase.from('budget_items') as any)
+        .select('*').eq('budget_id', b.id)
+
+      // 2. Criar novo orçamento com os mesmos dados — status 'draft', novo budget_number
+      const { id: _id, created_at: _c, updated_at: _u, budget_number: _bn,
+              converted_to_order_id: _co, ...rest } = b
+      const newPayload = {
+        ...rest,
+        company_id:  companyId,
+        budget_number: '',   // trigger gera ORC-XXXX automaticamente
+        status:      'draft',
+        notes:       b.notes ? `Cópia de ${b.budget_number || 'ORC'} — ${b.notes}` : null,
+      }
+
+      const { data: newBudget, error } = await (supabase.from('budgets') as any)
+        .insert([newPayload]).select('id').single()
+      if (error) throw error
+
+      // 3. Duplicar itens
+      if ((bi ?? []).length > 0 && newBudget?.id) {
+        const rows = (bi as any[]).map(({ id: _iid, budget_id: _bid, ...item }) => ({
+          ...item,
+          budget_id: newBudget.id,
+        }))
+        await (supabase.from('budget_items') as any).insert(rows)
+      }
+
+      qc.invalidateQueries({ queryKey: ['budgets', companyId] })
+      toast('success', 'Orçamento duplicado com sucesso!')
+
+      // 4. Abrir o novo orçamento em modo edição
+      const { data: fullNew } = await (supabase.from('budgets') as any)
+        .select('*,customers(name,email,phone,city,state,cpf_cnpj)')
+        .eq('id', newBudget.id).single()
+      if (fullNew) openEdit(fullNew)
+    } catch (err: unknown) {
+      toast('error', `Erro ao duplicar: ${(err as Error).message}`)
+    } finally {
+      setDuplicatingBudget(null)
+    }
+  }
+
   return(
     <div className="page-enter">
       <Header title="Orçamentos" subtitle="Crie e envie orçamentos profissionais"/>
@@ -469,6 +518,12 @@ export default function OrcamentosPage() {
                         <button onClick={()=>handleGeneratePDF(b)} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-xl border border-border dark:border-border-dark hover:border-primary hover:text-primary transition-all">
                           {generating?<Loader2 size={12} className="animate-spin"/>:<Download size={12}/>}PDF
                         </button>
+                        <button
+                          onClick={()=>handleDuplicateBudget(b)}
+                          disabled={duplicatingBudget===b.id}
+                          className="p-2 rounded-xl text-text-muted hover:text-info hover:bg-info-light transition-colors" title="Duplicar">
+                          {duplicatingBudget===b.id?<Loader2 size={14} className="animate-spin"/>:<Copy size={14}/>}
+                        </button>
                         {/* Botão Aprovar → Pedido */}
                         {!b.converted_to_order_id && b.status !== 'rejected' && (
                           <button
@@ -517,6 +572,10 @@ export default function OrcamentosPage() {
                               </button>
                               <button onClick={()=>handleGeneratePDF(b)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors" title="PDF">
                                 {generating?<Loader2 size={14} className="animate-spin"/>:<Download size={14}/>}
+                              </button>
+                              <button onClick={()=>handleDuplicateBudget(b)} disabled={duplicatingBudget===b.id}
+                                className="p-1.5 rounded-lg text-text-muted hover:text-info hover:bg-info-light transition-colors" title="Duplicar">
+                                {duplicatingBudget===b.id?<Loader2 size={14} className="animate-spin"/>:<Copy size={14}/>}
                               </button>
                               {/* Botão Aprovar → Pedido */}
                               {!b.converted_to_order_id && b.status !== 'rejected' ? (
