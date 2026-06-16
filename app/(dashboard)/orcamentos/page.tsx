@@ -74,6 +74,8 @@ export default function OrcamentosPage() {
   const [payCondition,setPayCond]=useState<'avista'|'parcelado'|'entrada'|'prazo'>('avista')
   const [installments,setInstall]=useState(2)
   const [signalAmt,setSignalAmt]=useState(0)
+  const [signalMode,setSignalMode]=useState<'value'|'percent'>('value')
+  const [signalPct,setSignalPct]=useState(50)
   const [deliveryType,setDelivType]=useState('pickup')
   const [deliveryFee,setDelivFee]=useState(0)
   const [deliveryAddr,setDelivAddr]=useState('')
@@ -133,6 +135,7 @@ export default function OrcamentosPage() {
     setEditingBudgetId(null)
     setStep(1);setItems([]);setClientId('');setClientSearch('');setNewClient({name:'',phone:'',email:''})
     setClientMode('existing');setGlobalDisc(0);setPayMethod('');setPayCond('avista')
+    setInstall(2);setSignalAmt(0);setSignalMode('value');setSignalPct(50)
     setDelivType('pickup');setDelivFee(0);setDelivAddr('');setValidUntil('')
     setProdDays('');setDelivDays('');setNotes('');setStatus('draft');setShowWizard(true)
   }
@@ -158,6 +161,8 @@ export default function OrcamentosPage() {
     // Pagamento
     setPayMethod((b as any).payment_method||'')
     setPayCond('avista')
+    setSignalAmt(Number((b as any).signal_amount)||0)
+    setSignalMode('value');setSignalPct(50)
     // Entrega
     setDelivType('pickup');setDelivFee(0);setDelivAddr('')
     // Prazos
@@ -211,7 +216,13 @@ export default function OrcamentosPage() {
         payment_method:  payMethod||null,
         pay_condition:   payCondition||null,
         installments:    installments>1?installments:null,
-        signal_amount:   signalAmt>0?signalAmt:null,
+        signal_amount:   (()=>{
+          if(payCondition!=='entrada') return null
+          const v = signalMode==='percent'
+            ? Math.round(total*(signalPct/100)*100)/100
+            : signalAmt
+          return v>0 ? v : null
+        })(),
         delivery_type:   deliveryType||null,
         delivery_fee:    deliveryFee||0,
         delivery_addr:   deliveryAddr||null,
@@ -604,12 +615,93 @@ export default function OrcamentosPage() {
                       <span className="text-sm font-bold text-primary">{fmt(total/installments)}/mês</span>
                     </div>
                   )}
-                  {payCondition==='entrada'&&(
-                    <div className="p-3 rounded-xl bg-primary-50/50 dark:bg-primary/5 border border-border dark:border-stone-700 space-y-2">
-                      <div className="flex items-center gap-3"><span className="text-sm text-text-secondary dark:text-stone-400 flex-1">Entrada (R$)</span><input type="number" step="0.01" min="0" className="input w-32 text-sm text-right py-1.5" value={signalAmt} onChange={e=>setSignalAmt(Number(e.target.value))}/></div>
-                      <div className="flex items-center justify-between text-sm pt-1 border-t border-border dark:border-stone-700"><span className="text-text-muted">Saldo restante</span><span className="font-bold text-primary">{fmt(Math.max(0,total-signalAmt))}</span></div>
-                    </div>
-                  )}
+                  {payCondition==='entrada'&&(()=>{
+                    // Calcular valores derivados em tempo real
+                    const entradaVal = signalMode==='percent'
+                      ? Math.round(total * (signalPct/100) * 100) / 100
+                      : signalAmt
+                    const entradaPct = total > 0
+                      ? Math.round((entradaVal/total)*100*10)/10
+                      : 0
+                    const restante = Math.max(0, total - entradaVal)
+                    return (
+                      <div className="p-4 rounded-xl bg-primary-50/50 dark:bg-primary/5 border border-primary/20 space-y-3">
+                        {/* Toggle R$ / % */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-text-muted uppercase tracking-wider flex-1">Tipo de entrada</span>
+                          <div className="flex rounded-xl border border-border dark:border-stone-600 overflow-hidden">
+                            <button type="button"
+                              onClick={()=>{ setSignalMode('value'); setSignalAmt(Math.round(total*(signalPct/100)*100)/100) }}
+                              className={clsx('px-3 py-1.5 text-xs font-semibold transition-all', signalMode==='value'?'bg-primary text-white':'text-text-secondary dark:text-stone-400 hover:bg-primary-50 dark:hover:bg-white/5')}>
+                              R$
+                            </button>
+                            <button type="button"
+                              onClick={()=>{ setSignalMode('percent'); setSignalPct(total>0?Math.round((signalAmt/total)*100):50) }}
+                              className={clsx('px-3 py-1.5 text-xs font-semibold transition-all', signalMode==='percent'?'bg-primary text-white':'text-text-secondary dark:text-stone-400 hover:bg-primary-50 dark:hover:bg-white/5')}>
+                              %
+                            </button>
+                          </div>
+                        </div>
+                        {/* Input */}
+                        {signalMode==='value' ? (
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm text-text-secondary dark:text-stone-400 flex-1">Valor da entrada</span>
+                            <div className="relative w-36">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-text-muted font-medium">R$</span>
+                              <input type="number" step="0.01" min="0" max={total}
+                                className="input pl-8 text-sm text-right py-1.5"
+                                value={signalAmt||''}
+                                onChange={e=>{
+                                  const v=Math.max(0,Math.min(total,Number(e.target.value)||0))
+                                  setSignalAmt(v)
+                                  if(total>0) setSignalPct(Math.round((v/total)*100*10)/10)
+                                }}/>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm text-text-secondary dark:text-stone-400 flex-1">Percentual da entrada</span>
+                            <div className="flex items-center gap-2">
+                              {/* Atalhos rápidos */}
+                              {[25,30,50,70].map(p=>(
+                                <button key={p} type="button"
+                                  onClick={()=>{ setSignalPct(p); setSignalAmt(Math.round(total*(p/100)*100)/100) }}
+                                  className={clsx('text-[10px] font-bold px-2 py-1 rounded-lg border transition-all',
+                                    signalPct===p?'border-primary bg-primary text-white':'border-border dark:border-stone-600 text-text-muted hover:border-primary hover:text-primary')}>
+                                  {p}%
+                                </button>
+                              ))}
+                              <div className="relative w-24">
+                                <input type="number" step="1" min="1" max="99"
+                                  className="input text-sm text-right py-1.5 pr-6"
+                                  value={signalPct||''}
+                                  onChange={e=>{
+                                    const v=Math.max(1,Math.min(99,Number(e.target.value)||0))
+                                    setSignalPct(v)
+                                    setSignalAmt(Math.round(total*(v/100)*100)/100)
+                                  }}/>
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-text-muted">%</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        {/* Resumo visual */}
+                        <div className="rounded-xl overflow-hidden border border-primary/15">
+                          <div className="flex items-center justify-between px-3 py-2 bg-success-light dark:bg-success/10">
+                            <span className="text-xs font-semibold text-success-dark dark:text-success">✓ Entrada ({entradaPct}%)</span>
+                            <span className="text-sm font-bold text-success-dark dark:text-success">{fmt(entradaVal)}</span>
+                          </div>
+                          <div className="flex items-center justify-between px-3 py-2 bg-white dark:bg-surface-dark border-t border-primary/10">
+                            <span className="text-xs text-text-muted dark:text-stone-400">Saldo restante ({Math.round((100-entradaPct)*10)/10}%)</span>
+                            <span className="text-sm font-bold text-primary">{fmt(restante)}</span>
+                          </div>
+                          <div className="h-1.5 w-full bg-primary/10">
+                            <div className="h-full bg-success-dark dark:bg-success transition-all duration-300" style={{width:`${Math.min(100,entradaPct)}%`}}/>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
 

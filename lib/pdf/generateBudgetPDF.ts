@@ -367,22 +367,29 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
             return (base ? base + ' — ' : '') + 'À vista'
           if (bPayCond === 'parcelado' && bInstall > 1)
             return (base ? base + ' — ' : '') + bInstall + 'x de ' + R(bTot / bInstall)
-          if (bPayCond === 'entrada' && bSig > 0)
-            return (base ? base + ' — ' : '') + 'Entrada de ' + R(bSig)
+          if (bPayCond === 'entrada' && bSig > 0) {
+            const pct = bTot > 0 ? Math.round((bSig/bTot)*100*10)/10 : 0
+            return (base ? base + ' — ' : '') + 'Entrada de ' + R(bSig) + ' (' + pct + '%)'
+          }
           if (bPayCond === 'prazo')
             return (base ? base + ' — ' : '') + 'A prazo'
           return base || bPayCond
         })()}</span>
       </div>` : ''}
-      ${bSig > 0 ? `
+      ${bSig > 0 ? (() => {
+        const pct = bTot > 0 ? Math.round((bSig/bTot)*100*10)/10 : 0
+        const rem = Math.max(0, bTot - bSig)
+        const remPct = Math.round((100-pct)*10)/10
+        return `
       <div class="crow">
-        <span class="ck" style="color:#166534;font-weight:600;">✓ Sinal/entrada recebido</span>
+        <span class="ck" style="color:#166534;font-weight:600;">✓ Sinal/entrada recebido (${pct}%)</span>
         <span class="cv" style="color:#166534;font-weight:600;">${R(bSig)}</span>
       </div>
       <div class="crow">
-        <span class="ck" style="color:#b91c1c;">Saldo pendente</span>
-        <span class="cv" style="color:#b91c1c;font-weight:600;">${R(Math.max(0, bTot - bSig))}</span>
-      </div>` : ''}
+        <span class="ck" style="color:#b91c1c;">Saldo pendente (${remPct}%)</span>
+        <span class="cv" style="color:#b91c1c;font-weight:600;">${R(rem)}</span>
+      </div>`
+      })() : ''}
       ${bDelTyp ? `
       <div class="crow">
         <span class="ck">Entrega</span>
@@ -439,15 +446,19 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
         <span class="ftl">Total</span>
         <span class="ftv">${R(bTot)}</span>
       </div>
-      ${bSig > 0 ? `
+      ${bSig > 0 ? (() => {
+        const pct = bTot > 0 ? Math.round((bSig/bTot)*100*10)/10 : 0
+        const remPct = Math.round((100-pct)*10)/10
+        return `
       <div class="fsep">
-        <span class="fsl" style="color:#166534;font-weight:600;">✓ Sinal recebido</span>
+        <span class="fsl" style="color:#166534;font-weight:600;">✓ Sinal recebido (${pct}%)</span>
         <span class="fsv" style="color:#166534;">${R(bSig)}</span>
       </div>
       <div class="fsep">
-        <span class="fsl" style="color:#b91c1c;font-weight:600;">Saldo a pagar</span>
+        <span class="fsl" style="color:#b91c1c;font-weight:600;">Saldo a pagar (${remPct}%)</span>
         <span class="fsv rem">${R(bRem)}</span>
-      </div>` : ''}
+      </div>`
+      })() : ''}
       <div class="pay-status">
         <span class="badge" style="background:${payBadge.bg};color:${payBadge.fg};font-size:9.5px;padding:4px 12px;">
           ${payBadge.label}
