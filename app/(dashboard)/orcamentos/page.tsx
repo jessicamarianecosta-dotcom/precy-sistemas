@@ -378,7 +378,7 @@ export default function OrcamentosPage() {
 
       // 5. Integração financeira: se tinha entrada/sinal, registrar lançamento
       if (sigAmt > 0 && order?.id) {
-        await (supabase.from('transactions') as any).insert([{
+        await (supabase.from('financial_transactions') as any).insert([{
           company_id:  companyId,
           order_id:    order.id,
           type:        'income',

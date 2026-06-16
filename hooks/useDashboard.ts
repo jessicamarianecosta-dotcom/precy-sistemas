@@ -26,20 +26,20 @@ export function useDashboard(companyId: string | null) {
 
       /* ── This month income/expense ── */
       const [{ data: incomes }, { data: expenses }] = await Promise.all([
-        supabase.from('transactions').select('amount')
+        supabase.from('financial_transactions').select('amount')
           .eq('company_id', companyId).eq('type', 'income')
           .gte('date', monthStart).lte('date', monthEnd) as any,
-        supabase.from('transactions').select('amount')
+        supabase.from('financial_transactions').select('amount')
           .eq('company_id', companyId).eq('type', 'expense')
           .gte('date', monthStart).lte('date', monthEnd) as any,
       ])
 
       /* ── Previous month for delta ── */
       const [{ data: prevIncomesData }, { data: prevExpensesData }] = await Promise.all([
-        supabase.from('transactions').select('amount')
+        supabase.from('financial_transactions').select('amount')
           .eq('company_id', companyId).eq('type', 'income')
           .gte('date', prevStart).lte('date', prevEnd) as any,
-        supabase.from('transactions').select('amount')
+        supabase.from('financial_transactions').select('amount')
           .eq('company_id', companyId).eq('type', 'expense')
           .gte('date', prevStart).lte('date', prevEnd) as any,
       ])
@@ -85,7 +85,7 @@ export function useDashboard(companyId: string | null) {
         .select('id').eq('company_id', companyId).eq('status', 'sent') as any
 
       /* ── 6-month chart ── */
-      const { data: sixMonthData } = await supabase.from('transactions')
+      const { data: sixMonthData } = await supabase.from('financial_transactions')
         .select('amount, type, date')
         .eq('company_id', companyId)
         .gte('date', sixMonthsAgo)

@@ -270,6 +270,7 @@ export default function FinanceiroPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
+      qc.invalidateQueries({ queryKey: ['dashboard', companyId] })
       toast('success', editTx ? 'Atualizado!' : 'Lançamento salvo!')
       setShowModal(false); setSaving(false)
     },
@@ -283,6 +284,7 @@ export default function FinanceiroPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
+      qc.invalidateQueries({ queryKey: ['dashboard', companyId] })
       toast('success', 'Removido.'); setDeleteId(null)
     },
     onError: (err: Error) => toast('error', err.message),

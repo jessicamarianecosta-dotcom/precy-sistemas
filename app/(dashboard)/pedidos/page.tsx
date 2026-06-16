@@ -316,7 +316,7 @@ export default function PedidosPage() {
     if (prevPaymentStatus === data.payment_status) return // sem mudança
 
     // Verificar se já existe lançamento para este pedido
-    const { data: existing } = await (supabase.from('transactions') as any)
+    const { data: existing } = await (supabase.from('financial_transactions') as any)
       .select('id, amount')
       .eq('order_id', orderId)
       .eq('company_id', companyId!)
@@ -325,7 +325,7 @@ export default function PedidosPage() {
     if (existing?.id) {
       // Atualizar valor se mudou
       if (Number(existing.amount) !== amount) {
-        await (supabase.from('transactions') as any)
+        await (supabase.from('financial_transactions') as any)
           .update({ amount, description: `Pedido ${orderNumber} — ${data.service_name}`, updated_at: new Date().toISOString() })
           .eq('id', existing.id)
       }
@@ -333,7 +333,7 @@ export default function PedidosPage() {
     }
 
     // Criar novo lançamento
-    await (supabase.from('transactions') as any).insert([{
+    await (supabase.from('financial_transactions') as any).insert([{
       company_id:  companyId!,
       order_id:    orderId,
       type:        'income',
