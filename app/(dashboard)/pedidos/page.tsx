@@ -626,6 +626,11 @@ export default function PedidosPage() {
                           <p className="text-xs text-text-muted mt-0.5">
                             {order.customers?.name || 'Sem cliente'} · {order.order_number || ''}
                           </p>
+                          {(order as any).quote_id && (
+                            <a href="/orcamentos" className="inline-flex items-center gap-1 mt-0.5 text-[10px] text-primary hover:opacity-80">
+                              <FileText size={9}/> Do orçamento
+                            </a>
+                          )}
                         </div>
                         <div className="text-right flex-shrink-0">
                           <p className="text-sm font-bold text-primary">{formatCurrency(Number(order.total))}</p>
@@ -715,6 +720,11 @@ export default function PedidosPage() {
                             <div className="flex items-center gap-1.5">
                               <GripVertical size={12} className="text-text-muted/50 flex-shrink-0"/>
                               <span className="text-[10px] font-mono text-text-muted">{order.order_number||'—'}</span>
+                              {(order as any).quote_id && (
+                                <a href="/orcamentos" className="inline-flex items-center gap-0.5 text-[9px] font-medium text-primary hover:opacity-80" title="Originado de orçamento">
+                                  <FileText size={9}/> ORC
+                                </a>
+                              )}
                               {(order as any).priority === 'urgent' && (
                                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400">URGENTE</span>
                               )}

@@ -15,7 +15,7 @@ import {
   FileText, Plus, X, Loader2, Trash2, Download,
   CheckCircle, XCircle, Clock, Send, ChevronRight,
   ChevronLeft, User, Package, CreditCard, Truck,
-  Eye, Search, Edit3, Edit2, Minus, Info,
+  Eye, Search, Edit3, Edit2, Minus, Info, ShoppingBag, ExternalLink,
 } from 'lucide-react'
 
 interface BudgetItem {
@@ -85,6 +85,7 @@ export default function OrcamentosPage() {
   const [notes,setNotes]=useState('')
   const [status,setStatus]=useState('draft')
   const [companyData,setCompanyData]=useState<Record<string,unknown>|null>(null)
+  const [converting,setConverting]=useState<string|null>(null) // budget id sendo convertido
 
   useEffect(()=>{
     async function load(){
@@ -313,6 +314,110 @@ export default function OrcamentosPage() {
     finally{setGenerating(false)}
   }
 
+  /* ─── Converter Orçamento → Pedido ─── */
+  async function handleConvertToOrder(b: any) {
+    if (!companyId) return
+
+    // Anti-duplicação: se já tem pedido vinculado, apenas navegar
+    if (b.converted_to_order_id) {
+      toast('error', 'Pedido já criado para este orçamento.')
+      return
+    }
+
+    setConverting(b.id)
+    try {
+      // 1. Buscar itens do orçamento
+      const { data: bi } = await (supabase.from('budget_items') as any)
+        .select('*').eq('budget_id', b.id)
+
+      const customer = b.customers as any
+      const customerId = b.customer_id
+
+      // 2. Calcular signal_amount correto (entrada)
+      const sigAmt = Number(b.signal_amount) || 0
+      const remaining = Math.max(0, Number(b.total) - sigAmt)
+
+      // 3. Criar pedido na tabela orders
+      const orderPayload: Record<string, unknown> = {
+        company_id:     companyId,
+        customer_id:    customerId,
+        order_number:   '',            // trigger gera PED-XXXX automaticamente
+        service_name:   (bi ?? []).length > 0
+          ? (bi![0].name || 'Pedido')
+          : (customer?.name ? `Pedido — ${customer.name}` : 'Pedido'),
+        description:    b.notes || null,
+        status:         'pending',
+        payment_status: sigAmt > 0 ? 'partial' : 'pending',
+        payment_method: b.payment_method  || null,
+        subtotal:       Number(b.subtotal) || 0,
+        discount:       Number(b.discount) || 0,
+        total:          Number(b.total)    || 0,
+        signal_amount:  sigAmt,
+        remaining_amount: remaining,
+        notes:          b.notes || null,
+        due_date:       b.delivery_days
+          ? new Date(Date.now() + Number(b.delivery_days) * 86400000).toISOString()
+          : null,
+        priority:       'normal',
+        quote_id:       b.id,          // vínculo com orçamento original
+      }
+
+      const { data: order, error: orderErr } = await (supabase.from('orders') as any)
+        .insert([orderPayload])
+        .select('id, order_number')
+        .single()
+
+      if (orderErr) throw new Error(orderErr.message)
+
+      // 4. Marcar orçamento como convertido + salvar referência do pedido
+      await (supabase.from('budgets') as any).update({
+        status:               'converted',
+        converted_to_order_id: order.id,
+        updated_at:           new Date().toISOString(),
+      }).eq('id', b.id)
+
+      // 5. Integração financeira: se tinha entrada/sinal, registrar lançamento
+      if (sigAmt > 0 && order?.id) {
+        await (supabase.from('transactions') as any).insert([{
+          company_id:  companyId,
+          order_id:    order.id,
+          type:        'income',
+          category:    'vendas',
+          amount:      sigAmt,
+          description: `Entrada — ${order.order_number} (do orç. ${b.budget_number || b.id.slice(0,8)})`,
+          date:        new Date().toISOString().split('T')[0],
+        }])
+      }
+
+      // 6. Agenda: se tem data de entrega, criar tarefa
+      if (b.delivery_days && order?.id) {
+        const dueDate = new Date(Date.now() + Number(b.delivery_days) * 86400000)
+        await (supabase.from('calendar_tasks') as any).insert([{
+          company_id:  companyId,
+          title:       `Entrega — ${order.order_number}`,
+          description: `Pedido originado do orçamento ${b.budget_number || ''}`,
+          due_date:    dueDate.toISOString().split('T')[0],
+          status:      'pending',
+          priority:    'normal',
+          order_id:    order.id,
+        }]).select()
+      }
+
+      // 7. Invalidar caches
+      qc.invalidateQueries({ queryKey: ['budgets', companyId] })
+      qc.invalidateQueries({ queryKey: ['orders', companyId] })
+      qc.invalidateQueries({ queryKey: ['dashboard', companyId] })
+      qc.invalidateQueries({ queryKey: ['transactions', companyId] })
+
+      toast('success', `✔ Pedido ${order.order_number} criado com sucesso!`)
+    } catch (err: unknown) {
+      console.error('[convert]', err)
+      toast('error', `Erro ao criar pedido: ${(err as Error).message}`)
+    } finally {
+      setConverting(null)
+    }
+  }
+
   return(
     <div className="page-enter">
       <Header title="Orçamentos" subtitle="Crie e envie orçamentos profissionais"/>
@@ -345,19 +450,35 @@ export default function OrcamentosPage() {
                         <div>
                           <p className="text-xs font-mono text-primary">{b.budget_number||'—'}</p>
                           <p className="text-sm font-semibold text-text-primary dark:text-stone-100 mt-0.5">{(b.customers as any)?.name??'Sem cliente'}</p>
+                          {/* Badge de pedido vinculado */}
+                          {b.converted_to_order_id && (
+                            <a href="/pedidos" className="inline-flex items-center gap-1 mt-1 text-[10px] font-medium text-success-dark dark:text-success bg-success-light dark:bg-success/10 px-2 py-0.5 rounded-full hover:opacity-80 transition-opacity">
+                              <CheckCircle size={9}/> Pedido criado
+                            </a>
+                          )}
                         </div>
                         <div className="text-right">
                           <p className="text-base font-bold text-primary">{fmt(Number(b.total))}</p>
                           <span className={clsx('text-[10px] font-medium px-2 py-0.5 rounded-full',cfg.badge)}>{cfg.label}</span>
                         </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
                         <button onClick={()=>openEdit(b)} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-xl border border-border dark:border-border-dark hover:border-primary hover:text-primary transition-all">
                           <Edit2 size={12}/>Editar
                         </button>
                         <button onClick={()=>handleGeneratePDF(b)} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-xl border border-border dark:border-border-dark hover:border-primary hover:text-primary transition-all">
                           {generating?<Loader2 size={12} className="animate-spin"/>:<Download size={12}/>}PDF
                         </button>
+                        {/* Botão Aprovar → Pedido */}
+                        {!b.converted_to_order_id && b.status !== 'rejected' && (
+                          <button
+                            onClick={()=>handleConvertToOrder(b)}
+                            disabled={converting===b.id}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-xl border border-success/40 text-success-dark dark:text-success bg-success-light dark:bg-success/10 hover:bg-success/20 transition-all disabled:opacity-60">
+                            {converting===b.id?<Loader2 size={12} className="animate-spin"/>:<ShoppingBag size={12}/>}
+                            {converting===b.id?'Criando...':'→ Pedido'}
+                          </button>
+                        )}
                         <button onClick={()=>setDeleteId(b.id)} className="p-2 rounded-xl text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={14}/></button>
                       </div>
                     </div>
@@ -378,7 +499,14 @@ export default function OrcamentosPage() {
                       return(
                         <tr key={b.id} className="border-b border-border dark:border-border-dark last:border-0 hover:bg-primary-50/20 dark:hover:bg-white/[0.02] transition-colors">
                           <td className="p-4 text-sm font-mono text-primary">{b.budget_number||'—'}</td>
-                          <td className="p-4 text-sm text-text-primary dark:text-stone-100">{(b.customers as any)?.name??'—'}</td>
+                          <td className="p-4">
+                            <p className="text-sm text-text-primary dark:text-stone-100">{(b.customers as any)?.name??'—'}</p>
+                            {b.converted_to_order_id && (
+                              <a href="/pedidos" className="inline-flex items-center gap-1 mt-0.5 text-[10px] font-medium text-success-dark dark:text-success hover:opacity-80">
+                                <CheckCircle size={9}/> Pedido vinculado
+                              </a>
+                            )}
+                          </td>
                           <td className="p-4"><span className={clsx('inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full',cfg.badge)}><Ic size={11}/>{cfg.label}</span></td>
                           <td className="p-4 text-sm font-bold text-primary">{fmt(Number(b.total))}</td>
                           <td className="p-4 text-sm text-text-secondary dark:text-stone-300">{b.valid_until?format(new Date(b.valid_until),'dd/MM/yyyy',{locale:ptBR}):'—'}</td>
@@ -390,6 +518,21 @@ export default function OrcamentosPage() {
                               <button onClick={()=>handleGeneratePDF(b)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors" title="PDF">
                                 {generating?<Loader2 size={14} className="animate-spin"/>:<Download size={14}/>}
                               </button>
+                              {/* Botão Aprovar → Pedido */}
+                              {!b.converted_to_order_id && b.status !== 'rejected' ? (
+                                <button
+                                  onClick={()=>handleConvertToOrder(b)}
+                                  disabled={converting===b.id}
+                                  title="Aprovar e criar pedido"
+                                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-success-dark dark:text-success bg-success-light dark:bg-success/10 hover:bg-success/20 transition-all disabled:opacity-60">
+                                  {converting===b.id?<Loader2 size={12} className="animate-spin"/>:<ShoppingBag size={12}/>}
+                                  {converting===b.id?'…':'Aprovar'}
+                                </button>
+                              ) : b.converted_to_order_id ? (
+                                <a href="/pedidos" title="Ver pedido" className="p-1.5 rounded-lg text-success hover:bg-success-light transition-colors">
+                                  <ExternalLink size={14}/>
+                                </a>
+                              ) : null}
                               <button onClick={()=>setDeleteId(b.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors" title="Excluir"><Trash2 size={14}/></button>
                             </div>
                           </td>
