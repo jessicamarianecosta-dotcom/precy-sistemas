@@ -13,6 +13,7 @@ import {
   Search,
   Edit2,
   Trash2,
+  Copy,
   X,
   Loader2,
   AlertTriangle,
@@ -306,6 +307,34 @@ export default function EstoquePage() {
     setIsCustomCategory(false)
   }
 
+  async function handleDuplicate(item: Record<string, any>) {
+    if (!companyId) return
+    try {
+      const { data: newItem, error } = await (supabase.from('inventory') as any)
+        .insert([{
+          company_id:       companyId,
+          name:             `Cópia de ${item.name}`,
+          category:         item.category         ?? 'geral',
+          unit:             item.unit              ?? 'un',
+          quantity:         Number(item.quantity)  ?? 0,
+          minimum_quantity: Number(item.minimum_quantity) ?? 0,
+          cost_per_unit:    Number(item.cost_per_unit)    ?? 0,
+          total_paid:       Number(item.cost_per_unit) * Number(item.quantity),
+          supplier:         item.supplier          ?? null,
+          notes:            item.notes             ?? null,
+        }])
+        .select()
+        .single()
+      if (error) throw error
+      qc.invalidateQueries({ queryKey: ['inventory', companyId] })
+      toast('success', 'Item duplicado com sucesso!')
+      // Abrir novo item em modo edição
+      if (newItem) openEdit(newItem)
+    } catch (err: unknown) {
+      toast('error', `Erro ao duplicar: ${(err as Error).message}`)
+    }
+  }
+
   /* ─────────────────────────────────────────────
      Filters
   ───────────────────────────────────────────── */
@@ -538,6 +567,10 @@ export default function EstoquePage() {
                             className="p-2 rounded-xl text-text-muted hover:text-primary hover:bg-primary-50 transition-colors">
                             <Edit2 size={14} />
                           </button>
+                          <button onClick={() => handleDuplicate(item)}
+                            className="p-2 rounded-xl text-text-muted hover:text-info hover:bg-info-light transition-colors">
+                            <Copy size={14} />
+                          </button>
                           <button onClick={() => setDeleteId(item.id)}
                             className="p-2 rounded-xl text-text-muted hover:text-error hover:bg-error-light transition-colors">
                             <Trash2 size={14} />
@@ -586,6 +619,7 @@ export default function EstoquePage() {
                           <td className="p-4">
                             <div className="flex items-center gap-1.5">
                               <button onClick={() => openEdit(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit2 size={14}/></button>
+                              <button onClick={() => handleDuplicate(item)} className="p-1.5 rounded-lg text-text-muted hover:text-info hover:bg-info-light transition-colors"><Copy size={14}/></button>
                               <button onClick={() => setDeleteId(item.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={14}/></button>
                             </div>
                           </td>
