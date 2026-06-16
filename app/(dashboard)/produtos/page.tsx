@@ -66,7 +66,7 @@ type FormData = z.infer<typeof schema>
 
 /* ─── Helpers ─── */
 function fmt(v: number | null | undefined) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 3 })
     .format(Number(v ?? 0))
 }
 function safeNum(v: unknown) { return Number(v ?? 0) }
