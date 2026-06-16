@@ -1079,7 +1079,7 @@ export default function PrecificacaoPage() {
       {showPicker && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowPicker(false)} />
-          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-md animate-scaleIn max-h-[80vh] flex flex-col">
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-lg animate-scaleIn max-h-[85vh] flex flex-col">
             <div className="p-5 pb-3 border-b border-border dark:border-border-dark flex items-center justify-between flex-shrink-0">
               <div>
                 <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Selecionar material</h3>
@@ -1129,14 +1129,14 @@ export default function PrecificacaoPage() {
                       disabled={alreadyAdded}
                       onClick={() => addMaterial(item)}
                       className={clsx(
-                        'w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all duration-200',
+                        'w-full flex items-start gap-3 p-3 rounded-xl text-left transition-all duration-200',
                         alreadyAdded
                           ? 'opacity-50 cursor-not-allowed bg-success-light/30 dark:bg-success/5'
                           : 'hover:bg-primary-50 dark:hover:bg-primary/10 hover:border-primary/30 border border-transparent'
                       )}
                     >
                       <div className={clsx(
-                        'w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0',
+                        'w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5',
                         item.status === 'critical' ? 'bg-error-light dark:bg-error/10' :
                         item.status === 'attention' ? 'bg-warning-light dark:bg-warning/10' :
                         'bg-primary-50 dark:bg-primary/10'
@@ -1147,15 +1147,40 @@ export default function PrecificacaoPage() {
                         } />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{item.name}</p>
-                        <p className="text-xs text-text-muted dark:text-stone-400">
-                          Estoque: {item.quantity} {item.unit} · {fmt(Number(item.cost_per_unit))}/{item.unit}
+                        {/* Nome completo — sem truncate, quebra linha se necessário */}
+                        <p className="text-sm font-medium text-text-primary dark:text-stone-100 leading-snug break-words">
+                          {item.name}
                         </p>
+                        {/* Linha de detalhes */}
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          {item.category && item.category !== 'geral' && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-primary-50 dark:bg-primary/10 text-primary">
+                              {item.category}
+                            </span>
+                          )}
+                          <span className="text-xs text-text-muted dark:text-stone-400">
+                            Estoque: {item.quantity} {item.unit}
+                          </span>
+                          <span className="text-[10px] text-text-muted dark:text-stone-500">·</span>
+                          <span className="text-xs font-medium text-primary">
+                            {fmt(Number(item.cost_per_unit))}/{item.unit}
+                          </span>
+                          {item.status === 'critical' && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-error-light dark:bg-error/10 text-error">
+                              Crítico
+                            </span>
+                          )}
+                          {item.status === 'attention' && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-warning-light dark:bg-warning/10 text-warning-dark dark:text-warning">
+                              Atenção
+                            </span>
+                          )}
+                        </div>
                       </div>
                       {alreadyAdded ? (
-                        <span className="text-[10px] text-success font-medium flex-shrink-0">✓ Adicionado</span>
+                        <span className="text-[10px] text-success font-medium flex-shrink-0 mt-1">✓ Adicionado</span>
                       ) : (
-                        <ChevronRight size={14} className="text-text-muted flex-shrink-0" />
+                        <ChevronRight size={14} className="text-text-muted flex-shrink-0 mt-1" />
                       )}
                     </button>
                   )
