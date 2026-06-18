@@ -37,6 +37,8 @@ import {
   ChevronDown,
   CreditCard,
   Clock,
+  LayoutList,
+  LayoutGrid,
 } from 'lucide-react'
 
 import { useForm } from 'react-hook-form'
@@ -82,6 +84,17 @@ const STATUS_COLUMNS = [
     label: 'Entregue',
     color:
       'bg-primary-50 dark:bg-primary/10 border-primary/20',
+  },
+]
+
+/* Colunas do Kanban MOBILE — inclui Cancelado (já existe no banco/CHECK constraint).
+   Usado SOMENTE na visão Kanban mobile; não afeta o Kanban desktop. */
+const STATUS_COLUMNS_MOBILE = [
+  ...STATUS_COLUMNS,
+  {
+    id: 'cancelled',
+    label: 'Cancelado',
+    color: 'bg-error-light dark:bg-error/10 border-error/20',
   },
 ]
 
@@ -164,6 +177,22 @@ export default function PedidosPage() {
 
   const [dragging, setDragging] =
     useState<string | null>(null)
+
+  /* ── Preferência de visualização mobile (Lista/Kanban) — persistida ── */
+  const [mobileView, setMobileView] = useState<'list' | 'kanban'>('list')
+  const [mobileDragging, setMobileDragging] = useState<string | null>(null)
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('precy_pedidos_mobile_view')
+      if (saved === 'list' || saved === 'kanban') setMobileView(saved)
+    } catch { /* ignore */ }
+  }, [])
+
+  function handleSetMobileView(v: 'list' | 'kanban') {
+    setMobileView(v)
+    try { localStorage.setItem('precy_pedidos_mobile_view', v) } catch { /* ignore */ }
+  }
 
   /* product picker */
   const [productSearch,     setProductSearch]     = useState('')
@@ -623,8 +652,34 @@ export default function PedidosPage() {
           />
         ) : (
           <>
+            {/* ── MOBILE: seletor de visualização (Lista / Kanban) — não existe no desktop ── */}
+            <div className="sm:hidden flex items-center gap-1 bg-white dark:bg-surface-dark border border-border dark:border-border-dark rounded-2xl p-1 mb-3 shadow-card">
+              <button
+                onClick={() => handleSetMobileView('list')}
+                className={clsx(
+                  'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium transition-all duration-200',
+                  mobileView === 'list'
+                    ? 'bg-primary text-white shadow-btn'
+                    : 'text-text-secondary dark:text-stone-400 hover:bg-primary-50 dark:hover:bg-white/5'
+                )}
+              >
+                <LayoutList size={14} /> Lista
+              </button>
+              <button
+                onClick={() => handleSetMobileView('kanban')}
+                className={clsx(
+                  'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium transition-all duration-200',
+                  mobileView === 'kanban'
+                    ? 'bg-primary text-white shadow-btn'
+                    : 'text-text-secondary dark:text-stone-400 hover:bg-primary-50 dark:hover:bg-white/5'
+                )}
+              >
+                <LayoutGrid size={14} /> Kanban
+              </button>
+            </div>
+
             {/* ── MOBILE: Lista de pedidos ── */}
-            <div className="sm:hidden space-y-2">
+            <div className={clsx('sm:hidden space-y-2', mobileView !== 'list' && 'hidden')}>
               {filtered.map((order: any) => (
                 <div key={order.id}
                   className="card p-0 overflow-hidden"
@@ -681,6 +736,95 @@ export default function PedidosPage() {
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* ── MOBILE: Kanban (scroll horizontal, touch drag) — não existe no desktop ── */}
+            <div className={clsx('sm:hidden -mx-3 px-3', mobileView !== 'kanban' && 'hidden')}>
+              <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory">
+                {STATUS_COLUMNS_MOBILE.map(col => {
+                  const colOrders = filtered.filter((o: any) => o.status === col.id)
+                  return (
+                    <div
+                      key={col.id}
+                      data-status-col={col.id}
+                      className={clsx(
+                        'relative flex-shrink-0 w-[78vw] max-w-[300px] snap-start rounded-2xl border-2 p-2.5',
+                        col.color
+                      )}
+                    >
+                      <div className="flex items-center justify-between mb-2 px-1">
+                        <p className="text-xs font-bold text-text-primary dark:text-stone-100">{col.label}</p>
+                        <span className="text-[10px] font-semibold text-text-muted bg-white/60 dark:bg-black/20 px-1.5 py-0.5 rounded-full">
+                          {colOrders.length}
+                        </span>
+                      </div>
+                      <div className="space-y-2 max-h-[65vh] overflow-y-auto">
+                        {colOrders.length === 0 ? (
+                          <p className="text-[10px] text-text-muted text-center py-4">Nenhum pedido</p>
+                        ) : (
+                          colOrders.map((order: any) => (
+                            <div
+                              key={order.id}
+                              data-order-id={order.id}
+                              onClick={() => openOrder(order)}
+                              onTouchStart={() => setMobileDragging(order.id)}
+                              onTouchMove={(e) => {
+                                e.preventDefault() // evita scroll da página durante o drag
+                              }}
+                              onTouchEnd={(e) => {
+                                if (!mobileDragging) return
+                                const touch = e.changedTouches[0]
+                                const el = document.elementFromPoint(touch.clientX, touch.clientY)
+                                const targetCol = el?.closest('[data-status-col]') as HTMLElement | null
+                                const newStatus = targetCol?.dataset.statusCol
+                                if (newStatus && newStatus !== order.status) {
+                                  updateStatus.mutate({ id: mobileDragging, status: newStatus })
+                                }
+                                setMobileDragging(null)
+                              }}
+                              className={clsx(
+                                'bg-white dark:bg-surface-dark rounded-xl p-3 shadow-sm border border-border dark:border-border-dark cursor-pointer active:scale-[0.98] transition-transform',
+                                mobileDragging === order.id && 'opacity-50 scale-95'
+                              )}
+                            >
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <span className="text-[10px] font-mono text-text-muted">{order.order_number || '—'}</span>
+                                <GripVertical size={11} className="text-text-muted/50 flex-shrink-0" />
+                              </div>
+                              <p className="text-xs font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">
+                                {order.service_name || '—'}
+                              </p>
+                              <p className="text-[11px] text-text-muted mt-0.5 truncate">
+                                {order.customers?.name || 'Sem cliente'}
+                              </p>
+                              <div className="flex items-center justify-between mt-2">
+                                <span className="text-xs font-bold text-primary">{formatCurrency(Number(order.total))}</span>
+                                <span className={clsx(
+                                  'text-[9px] font-medium px-1.5 py-0.5 rounded-full',
+                                  order.payment_status === 'paid'
+                                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                    : 'bg-stone-100 text-stone-500 dark:bg-stone-800 dark:text-stone-400'
+                                )}>
+                                  {order.payment_status === 'paid' ? 'Pago' : 'Pendente'}
+                                </span>
+                              </div>
+                              {order.due_date && (
+                                <div className="flex items-center gap-1 mt-1.5 text-[10px] text-text-muted">
+                                  <CalendarDays size={10}/>
+                                  {format(new Date(order.due_date), 'dd/MM/yyyy', {locale: ptBR})}
+                                </div>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="text-[10px] text-text-muted text-center mt-2 flex items-center justify-center gap-1">
+                <GripVertical size={10}/> Toque e arraste o card para mudar o status
+              </p>
             </div>
 
             {/* ── DESKTOP: Kanban ── */}
