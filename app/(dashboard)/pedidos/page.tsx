@@ -694,7 +694,7 @@ export default function PedidosPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold text-text-primary dark:text-stone-100 truncate">
+                          <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">
                             {order.service_name || '—'}
                           </p>
                           <p className="text-xs text-text-muted mt-0.5">
@@ -914,14 +914,14 @@ export default function PedidosPage() {
                           </div>
 
                           {/* Row 2: service name */}
-                          <p className="font-semibold text-sm text-text-primary dark:text-stone-100 leading-tight truncate">
+                          <p className="font-semibold text-sm text-text-primary dark:text-stone-100 leading-snug break-words">
                             {(order as any).service_name || '—'}
                           </p>
 
                           {/* Row 3: client */}
                           <div className="flex items-center gap-1 mt-1">
                             <User size={10} className="text-text-muted flex-shrink-0"/>
-                            <p className="text-[11px] text-text-muted truncate">
+                            <p className="text-[11px] text-text-muted break-words">
                               {(order.customers as any)?.name || 'Sem cliente'}
                             </p>
                           </div>
@@ -1081,7 +1081,7 @@ export default function PedidosPage() {
                                 }}
                               >
                                 <div className="min-w-0">
-                                  <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{p.name as string}</p>
+                                  <p className="text-sm font-medium text-text-primary dark:text-stone-100 leading-snug break-words">{p.name as string}</p>
                                   <p className="text-[10px] text-text-muted dark:text-stone-500">{p.category as string}</p>
                                 </div>
                                 <span className="text-sm font-bold text-primary flex-shrink-0">

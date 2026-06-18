@@ -442,7 +442,7 @@ export default function ProdutosPage() {
                   <Package size={18} className="text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-base font-bold text-text-primary dark:text-stone-100 truncate">{vp?.name}</h2>
+                  <h2 className="text-base font-bold text-text-primary dark:text-stone-100 leading-snug break-words">{vp?.name}</h2>
                   <div className="flex flex-wrap gap-1.5 mt-1">
                     <span className="badge badge-primary">{vp?.category}</span>
                     {vp?.product_type && (
@@ -505,7 +505,7 @@ export default function ProdutosPage() {
                     {vpMaterials.map(m => (
                       <div key={m.id} className="grid grid-cols-4 gap-2 px-1 py-1.5 rounded-lg hover:bg-primary-50/30 dark:hover:bg-white/[0.02]">
                         <div className="flex items-center gap-1 min-w-0">
-                          <span className="text-xs text-text-primary dark:text-stone-200 truncate">{m.material_name}</span>
+                          <span className="text-xs text-text-primary dark:text-stone-200 leading-snug break-words">{m.material_name}</span>
                           {m.inventory_id && (
                             <Zap size={9} className="text-success flex-shrink-0" />
                           )}
@@ -632,7 +632,7 @@ export default function ProdutosPage() {
                 className="btn-secondary flex items-center justify-center gap-1.5 text-xs py-2.5"
                 onClick={() => setViewProduct(null)}
               >
-                <ExternalLink size={13} /> Precificação
+                <ExternalLink size={13} /> Editar Precificação
               </Link>
 
               <button

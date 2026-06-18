@@ -660,7 +660,7 @@ export default function OrcamentosPage() {
                             className={clsx('w-full text-left px-4 py-3 flex items-center gap-3 transition-all hover:bg-primary-50/50 dark:hover:bg-primary/5',clientId===c.id?'bg-primary-50 dark:bg-primary/10':'')}>
                             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary flex-shrink-0">{c.name.charAt(0).toUpperCase()}</div>
                             <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{c.name}</p>
+                              <p className="text-sm font-medium text-text-primary dark:text-stone-100 leading-snug break-words">{c.name}</p>
                               {c.phone&&<p className="text-[10px] text-text-muted">{c.phone}</p>}
                             </div>
                             {clientId===c.id&&<CheckCircle size={15} className="text-primary flex-shrink-0"/>}
@@ -726,7 +726,7 @@ export default function OrcamentosPage() {
                           <button key={p.id} type="button" onClick={()=>addItemFromProduct(p)}
                             className="w-full text-left px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-primary-50/50 dark:hover:bg-primary/10 transition-colors">
                             <div className="min-w-0">
-                              <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{p.name}</p>
+                              <p className="text-sm font-medium text-text-primary dark:text-stone-100 leading-snug break-words">{p.name}</p>
                               <p className="text-[10px] text-text-muted">{p.category}</p>
                             </div>
                             <span className="text-sm font-bold text-primary flex-shrink-0">{fmt(Number(p.final_price))}</span>
@@ -745,7 +745,7 @@ export default function OrcamentosPage() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0">
-                                <p className="text-sm font-semibold text-text-primary dark:text-stone-100 truncate">{item.name||'Item sem nome'}</p>
+                                <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">{item.name||'Item sem nome'}</p>
                                 <p className="text-xs text-text-muted mt-0.5">{item.quantity}× {fmt(item.unit_price)}{item.discount>0&&<span className="ml-1 text-green-600 dark:text-green-400">−{item.discount}%</span>}</p>
                               </div>
                               <p className="text-sm font-bold text-primary flex-shrink-0">{fmt(item.subtotal)}</p>
@@ -955,7 +955,7 @@ export default function OrcamentosPage() {
                       <div className="space-y-1">
                         {items.slice(0,3).map(item=>(
                           <div key={item.id} className="flex justify-between text-sm">
-                            <span className="text-text-secondary dark:text-stone-400 truncate">{item.quantity}× {item.name}</span>
+                            <span className="text-text-secondary dark:text-stone-400 break-words">{item.quantity}× {item.name}</span>
                             <span className="font-medium text-text-primary dark:text-stone-100 ml-2 flex-shrink-0">{fmt(item.subtotal)}</span>
                           </div>
                         ))}

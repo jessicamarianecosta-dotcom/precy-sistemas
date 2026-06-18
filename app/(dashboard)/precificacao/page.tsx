@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { useSearchParams } from 'next/navigation'
 import { Header } from '@/components/layout/Header'
 import {
   Calculator, TrendingUp, Plus, X, Package, Ruler,
@@ -87,11 +88,13 @@ function MarginSlider({ value, onChange }: { value: number; onChange: (v: number
 }
 
 /* ═══════════════════════════════════════ PAGE ═══ */
-export default function PrecificacaoPage() {
+function PrecificacaoPage() {
   const supabase    = createClient()
   const queryClient = useQueryClient()
 
   const [companyId, setCompanyId] = useState<string | null>(null)
+  const searchParams = useSearchParams()
+  const editingProductId = searchParams.get('productId') ?? null
 
   /* ── form state ── */
   const [productType,      setProductType]      = useState<ProductType>('produced')
@@ -149,6 +152,63 @@ export default function PrecificacaoPage() {
     },
   })
 
+  /* ── Carregar produto existente para edição ── */
+  const { data: existingProduct } = useQuery({
+    queryKey: ['product-for-edit', editingProductId],
+    enabled:  !!editingProductId,
+    queryFn:  async () => {
+      const { data: prod } = await (supabase.from('products') as any)
+        .select('*').eq('id', editingProductId!).maybeSingle()
+      const { data: mats } = await (supabase.from('product_materials') as any)
+        .select('*').eq('product_id', editingProductId!).order('created_at')
+      return { product: prod, materials: mats ?? [] }
+    },
+  })
+
+  /* ── Quando abre em modo edição: preencher estados com dados do banco ── */
+  const [loadedProductId, setLoadedProductId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!existingProduct?.product || loadedProductId === editingProductId) return
+    const p = existingProduct.product as any
+    setLoadedProductId(editingProductId)
+    setProductName(p.name ?? '')
+    setCategory(p.category ?? 'geral')
+    setUnit(p.unit ?? 'un')
+    setMarkup(Number(p.markup_percentage) || 100)
+    setProductionHours(Number(p.production_time_hours) || 1)
+    setPurchaseCost(Number(p.purchase_cost) || 0)
+    if (p.product_type) setProductType(p.product_type as ProductType)
+    // Custos extras: salvo em extra_costs JSONB ou reconstituído de extra_cost
+    if (p.extra_costs && Array.isArray(p.extra_costs)) {
+      setExtraCosts(p.extra_costs)
+    } else if (Number(p.extra_cost) > 0) {
+      setExtraCosts([{ id: crypto.randomUUID(), name: 'Custo extra', value: Number(p.extra_cost) }])
+    }
+    // Materiais: reconstituir MaterialLine dos product_materials salvos
+    // Buscar custo atualizado do estoque (inventory) para cada material
+    const mats = existingProduct.materials as any[]
+    if (mats.length > 0) {
+      setMaterials(mats.map(m => ({
+        tmpId:        crypto.randomUUID(),
+        inventory_id: m.inventory_id ?? '',
+        name:         m.material_name,
+        unit:         m.unit,
+        stock:        0,
+        cost_per_unit: Number(m.unit_cost),
+        quantity:      Number(m.quantity),
+        subtotal:      Number(m.quantity) * Number(m.unit_cost),
+      })))
+    }
+    // Campos de produto por metro
+    if (p.product_type === 'meter_product') {
+      if (p.width)           setMWidth(Number(p.width))
+      if (p.height)          setMHeight(Number(p.height))
+      if (p.measurement_unit) setMUnit(p.measurement_unit as 'cm' | 'm')
+      if (p.price_per_m2)    setPricePerM2(Number(p.price_per_m2))
+      if (p.finishing_cost)  setFinishingCost(Number(p.finishing_cost))
+    }
+  }, [existingProduct, editingProductId, loadedProductId])
+
   // Buscar tabela fixed_costs (mesma fonte que Configurações)
   const { data: fixedCostsData } = useQuery({
     queryKey: ['fixed_costs-pricing', companyId],
@@ -171,6 +231,18 @@ export default function PrecificacaoPage() {
       return (data as InventoryItem[]) ?? []
     },
   })
+
+  /* ── Quando inventoryItems carrega em modo edição, atualizar custo atual dos materiais ── */
+  useEffect(() => {
+    if (!inventoryItems || !editingProductId || materials.length === 0) return
+    setMaterials(prev => prev.map(m => {
+      if (!m.inventory_id) return m
+      const inv = inventoryItems.find(i => i.id === m.inventory_id)
+      if (!inv) return m
+      return { ...m, cost_per_unit: inv.cost_per_unit, subtotal: m.quantity * inv.cost_per_unit }
+    }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inventoryItems])
 
   /* ── Calculated values ── */
   const workHours    = Number((company as any)?.work_hours_per_month ?? 160)
@@ -301,41 +373,59 @@ export default function PrecificacaoPage() {
         throw new Error('Dados incompletos')
       }
 
-      /* ─────────────────────────────
-         1. SALVAR PRODUTO
-      ───────────────────────────── */
+      const productPayload = {
+        name: productName.trim(),
+        category,
+        unit,
+        production_time_hours: productType === 'produced' ? productionHours : 0,
+        material_cost:         productType === 'produced' ? materialCost : purchaseCost,
+        extra_cost:            extraCost,
+        extra_costs:           extraCosts,
+        markup_percentage:     markup,
+        final_price:           idealPrice,
+        product_type:          productType,
+        labor_cost:            laborCost,
+        total_cost:            baseCost,
+        purchase_cost:         productType === 'resale' ? purchaseCost : 0,
+        ...(productType === 'meter_product' ? {
+          width: mWidth, height: mHeight, measurement_unit: mUnit,
+          price_per_m2: pricePerM2, finishing_cost: finishingCost,
+        } : {}),
+        updated_at: new Date().toISOString(),
+      }
+
+      /* ── MODO EDIÇÃO: UPDATE do produto existente ── */
+      if (editingProductId) {
+        const { error: updateError } = await (supabase.from('products') as any)
+          .update(productPayload)
+          .eq('id', editingProductId)
+        if (updateError) throw updateError
+
+        // Remover materiais antigos e reinserir com valores atualizados
+        await (supabase.from('product_materials') as any)
+          .delete().eq('product_id', editingProductId)
+
+        if (productType === 'produced' && materials.length > 0) {
+          const rows = materials.map(m => ({
+            company_id:    companyId,
+            product_id:    editingProductId,
+            inventory_id:  m.inventory_id,
+            material_name: m.name,
+            quantity:      m.quantity,
+            unit:          m.unit,
+            unit_cost:     m.cost_per_unit,
+            subtotal:      m.subtotal,
+          }))
+          const { error: mErr } = await (supabase.from('product_materials') as any).insert(rows)
+          if (mErr) throw mErr
+        }
+        return { id: editingProductId }
+      }
+
+      /* ── MODO CRIAÇÃO: INSERT novo produto ── */
       const { data: product, error: productError } = await (supabase
         .from('products') as any)
-        .insert({
-          company_id: companyId,
-
-          name: productName.trim(),
-
-          category,
-
-          unit,
-
-          production_time_hours:
-            productType === 'produced'
-              ? productionHours
-              : 0,
-
-          material_cost:
-            productType === 'produced'
-              ? materialCost
-              : purchaseCost,
-
-          extra_cost: extraCost,
-          extra_costs: extraCosts,
-
-          markup_percentage: markup,
-
-          final_price: idealPrice,
-
-          product_type: productType,
-
-          is_active: true,
-        })
+        .insert({ company_id: companyId, is_active: true, ...productPayload })
         .select()
         .single()
 
@@ -344,35 +434,21 @@ export default function PrecificacaoPage() {
         throw productError
       }
 
-      /* ─────────────────────────────
-         2. SALVAR MATERIAIS UTILIZADOS
-      ───────────────────────────── */
-      if (
-        productType === 'produced' &&
-        materials.length > 0
-      ) {
+      /* ─── Salvar materiais utilizados ─── */
+      if (productType === 'produced' && materials.length > 0) {
         const materialRows = materials.map(m => ({
-          company_id: companyId,
-
-          product_id: product.id,
-
-          inventory_id: m.inventory_id,
-
+          company_id:    companyId,
+          product_id:    product.id,
+          inventory_id:  m.inventory_id,
           material_name: m.name,
-
-          quantity: m.quantity,
-
-          unit: m.unit,
-
-          unit_cost: m.cost_per_unit,
-
-          subtotal: m.subtotal,
+          quantity:      m.quantity,
+          unit:          m.unit,
+          unit_cost:     m.cost_per_unit,
+          subtotal:      m.subtotal,
         }))
-
         const { error: materialsError } = await (supabase
           .from('product_materials') as any)
           .insert(materialRows)
-
         if (materialsError) {
           console.error(materialsError)
           throw materialsError
@@ -383,34 +459,25 @@ export default function PrecificacaoPage() {
     },
 
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['products', companyId],
-      })
-
-      queryClient.invalidateQueries({
-        queryKey: ['inventory-picker', companyId],
-      })
+      queryClient.invalidateQueries({ queryKey: ['products', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['inventory-picker', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['product-for-edit', editingProductId] })
+      queryClient.invalidateQueries({ queryKey: ['product-materials', editingProductId] })
 
       setSavedOk(true)
+      setTimeout(() => { setSavedOk(false) }, 3000)
 
-      setTimeout(() => {
-        setSavedOk(false)
-      }, 3000)
-
-      setProductName('')
-      setCategory('geral')
-      setUnit('un')
-      setMarkup(100)
-      setProductionHours(1)
-      setPurchaseCost(0)
-      setExtraCosts([
-        {
-          id: crypto.randomUUID(),
-          name: '',
-          value: 0,
-        },
-      ])
-      setMaterials([])
+      // Em modo edição, NÃO limpar os campos — usuário pode continuar editando
+      if (!editingProductId) {
+        setProductName('')
+        setCategory('geral')
+        setUnit('un')
+        setMarkup(100)
+        setProductionHours(1)
+        setPurchaseCost(0)
+        setExtraCosts([{ id: crypto.randomUUID(), name: '', value: 0 }])
+        setMaterials([])
+      }
     },
 
     onError: error => {
@@ -421,7 +488,28 @@ export default function PrecificacaoPage() {
 /* ═══════════════════════════════ RENDER ═══ */
   return (
     <div className="page-enter">
-      <Header title="Precificação" subtitle="Calcule o preço ideal e cadastre seu produto" />
+      <Header
+        title={editingProductId ? 'Editar Precificação' : 'Precificação'}
+        subtitle={editingProductId
+          ? 'Edite os dados, materiais e margem do produto existente'
+          : 'Calcule o preço ideal e cadastre seu produto'
+        }
+      />
+
+      {/* Banner modo edição */}
+      {editingProductId && (
+        <div className="mx-3 sm:mx-5 lg:mx-6 mb-2 flex items-center justify-between gap-3 p-3 rounded-xl border border-primary/25 bg-primary/5">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-sm">✏️</span>
+            <p className="text-xs font-medium text-primary truncate">
+              Modo edição — alterações serão salvas no produto existente
+            </p>
+          </div>
+          <a href="/produtos" className="text-xs font-medium text-text-muted hover:text-primary transition-colors flex-shrink-0">
+            ← Voltar
+          </a>
+        </div>
+      )}
 
       <div className="p-4 sm:p-6 space-y-5">
 
@@ -588,7 +676,7 @@ export default function PrecificacaoPage() {
                     {materials.map(m => (
                       <div key={m.tmpId} className="grid grid-cols-12 gap-2 items-center bg-primary-50/40 dark:bg-primary/5 p-2.5 rounded-xl">
                         <div className="col-span-5 min-w-0">
-                          <p className="text-xs font-medium text-text-primary dark:text-stone-100 truncate">{m.name}</p>
+                          <p className="text-xs font-medium text-text-primary dark:text-stone-100 leading-snug break-words">{m.name}</p>
                           <p className="text-[10px] text-text-muted dark:text-stone-500">{fmt(m.cost_per_unit)}/{m.unit}</p>
                         </div>
                         <div className="col-span-3 flex items-center gap-1">
@@ -1090,7 +1178,12 @@ export default function PrecificacaoPage() {
                 ) : (
                   <Save size={15} />
                 )}
-                {saveMutation.isPending ? 'Salvando...' : savedOk ? 'Produto salvo!' : 'Salvar produto'}
+                {saveMutation.isPending
+                  ? 'Salvando...'
+                  : savedOk
+                    ? (editingProductId ? 'Produto atualizado! ✅' : 'Produto salvo!')
+                    : (editingProductId ? 'Atualizar produto' : 'Salvar produto')
+                }
               </button>
             </div>
           </div>
@@ -1223,5 +1316,18 @@ function Row({ label, value, color }: { label: string; value: number; color: str
       <span className="text-sm text-text-secondary dark:text-stone-400 truncate pr-2">{label}</span>
       <span className={clsx('badge font-bold flex-shrink-0', color)}>{fmt(value)}</span>
     </div>
+  )
+}
+
+/* Suspense wrapper necessário para useSearchParams no Next.js App Router */
+export default function PrecificacaoPageWrapper() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <PrecificacaoPage />
+    </Suspense>
   )
 }
