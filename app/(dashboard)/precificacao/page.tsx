@@ -909,10 +909,33 @@ export default function PrecificacaoPage() {
                 </p>
               </div>
             </div>
+
+            {/* ── MOBILE ONLY: banner resultado calculado ── */}
+            {idealPrice > 0 && (
+              <div
+                className="lg:hidden rounded-2xl p-4 text-center cursor-pointer active:scale-[0.98] transition-transform"
+                style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}
+                onClick={() => {
+                  // Scroll suave para o resultado
+                  document.getElementById('resultado-precificacao')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }}
+              >
+                <p className="text-white/80 text-xs mb-1">✅ Cálculo pronto! Preço ideal:</p>
+                <p className="text-white text-2xl font-bold">{fmt(idealPrice)}</p>
+                <p className="text-white/70 text-xs mt-1">Toque para ver resultado completo ↓</p>
+              </div>
+            )}
           </div>
 
           {/* ════════════════ COLUNA DIREITA — Resultados ════════════════ */}
-          <div className="space-y-4 lg:sticky lg:top-4 order-first lg:order-last">
+          {/* Mobile: só aparece após cálculo (idealPrice > 0). Desktop: sempre visível à direita. */}
+          <div
+            id="resultado-precificacao"
+            className={clsx(
+              'space-y-4 lg:sticky lg:top-4 order-last lg:order-last',
+              // No mobile: oculta enquanto não houver resultado calculado
+              idealPrice <= 0 && 'hidden lg:block'
+            )}>
 
             {/* Preço ideal */}
             <div className="card relative overflow-hidden" style={{
