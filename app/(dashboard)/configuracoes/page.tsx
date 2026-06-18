@@ -11,6 +11,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { clsx } from 'clsx'
+import { formatCurrency } from '@/lib/utils/format'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -43,7 +44,7 @@ type FixedCostForm = z.infer<typeof fixedCostSchema>
 
 /* ─────────────────────────── Helpers ─── */
 function fmt(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
+  return formatCurrency(v)
 }
 
 /* ─────────────────────────── Sub-components ─── */

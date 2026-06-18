@@ -7,6 +7,7 @@ import { useCompanyId } from '@/hooks/useCompanyId'
 import { useToast } from '@/components/ui/Toaster'
 import { Header } from '@/components/layout/Header'
 import { clsx } from 'clsx'
+import { formatCurrency } from '@/lib/utils/format'
 import {
   ChevronLeft, ChevronRight, Plus, X, Loader2,
   Package, CalendarDays, Clock, Flag, Tag,
@@ -73,7 +74,7 @@ const PRIORITY_CONFIG = {
 }
 
 function fmt(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
+  return formatCurrency(v)
 }
 
 /* ══════════════════════════════════════════

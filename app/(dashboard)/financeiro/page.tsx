@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, startOfWeek, isToday, parseISO, subMonths, addMonths, getDaysInMonth, getDay, isBefore, isAfter } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { formatCurrency } from '@/lib/utils/format'
 
 /* ─── Types ─── */
 interface Transaction {
@@ -75,7 +76,7 @@ function getStatusInfo(type: string, status?: string) {
 }
 
 function fmt(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
+  return formatCurrency(v)
 }
 
 /* ══════════════════════════════════════════════

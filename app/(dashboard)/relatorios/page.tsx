@@ -18,10 +18,10 @@ import {
 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, subMonths, parseISO, addMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { formatCurrency } from '@/lib/utils/format'
 
 /* ─── Helpers ─── */
-const fmt = (v: unknown) =>
-  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0)
+const fmt = (v: unknown) => formatCurrency(Number(v) || 0)
 
 const fmtN = (v: unknown) => Number(v || 0).toLocaleString('pt-BR')
 

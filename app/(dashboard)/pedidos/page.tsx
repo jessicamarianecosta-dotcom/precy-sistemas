@@ -52,6 +52,7 @@ import { clsx } from 'clsx'
 import { format } from 'date-fns'
 
 import { ptBR } from 'date-fns/locale'
+import { formatCurrency as fmtGlobal } from '@/lib/utils/format'
 
 /* ─────────────────────────────────────────────
    STATUS
@@ -147,10 +148,7 @@ type FormData = z.infer<typeof schema>
 ───────────────────────────────────────────── */
 
 function formatCurrency(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(v)
+  return fmtGlobal(v)
 }
 
 /* ─────────────────────────────────────────────
@@ -1087,7 +1085,7 @@ export default function PedidosPage() {
                                   <p className="text-[10px] text-text-muted dark:text-stone-500">{p.category as string}</p>
                                 </div>
                                 <span className="text-sm font-bold text-primary flex-shrink-0">
-                                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(p.final_price))}
+                                  {fmtGlobal(Number(p.final_price))}
                                 </span>
                               </button>
                             ))}
@@ -1130,7 +1128,7 @@ export default function PedidosPage() {
                   <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20">
                     <span className="text-sm font-medium text-text-secondary dark:text-stone-400">Total final</span>
                     <span className="text-xl font-bold text-primary">
-                      {new Intl.NumberFormat('pt-BR', {style:'currency',currency:'BRL'}).format(
+                      {fmtGlobal(
                         Math.max(0, Number(watch('subtotal') || 0) - Number(watch('discount') || 0))
                       )}
                     </span>
@@ -1213,7 +1211,7 @@ export default function PedidosPage() {
                         const rest  = Math.max(0, total - sig)
                         return sig > 0 ? (
                           <p className="mt-1 text-[10px] text-text-muted dark:text-stone-500">
-                            Restante: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(rest)}
+                            Restante: {fmtGlobal(rest)}
                           </p>
                         ) : null
                       })()}

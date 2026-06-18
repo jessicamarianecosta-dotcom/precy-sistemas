@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { CategorySelect } from '@/components/ui/CategorySelect'
+import { formatCurrency as fmt } from '@/lib/utils/format'
 
 /* ─────────────────────────── Types ─── */
 type ProductType = 'produced' | 'resale' | 'meter_product'
@@ -38,9 +39,7 @@ interface MaterialLine {
 }
 
 /* ─────────────────────────── Helpers ─── */
-function fmt(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
-}
+/* fmt importado de @/lib/utils/format (função global de moeda) */
 
 /* ─────────────────────────── Slider ─── */
 function MarginSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
@@ -1199,9 +1198,7 @@ function Row({ label, value, color }: { label: string; value: number; color: str
   return (
     <div className="flex items-center justify-between">
       <span className="text-sm text-text-secondary dark:text-stone-400 truncate pr-2">{label}</span>
-      <span className={clsx('badge font-bold flex-shrink-0', color)}>{
-        new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
-      }</span>
+      <span className={clsx('badge font-bold flex-shrink-0', color)}>{fmt(value)}</span>
     </div>
   )
 }

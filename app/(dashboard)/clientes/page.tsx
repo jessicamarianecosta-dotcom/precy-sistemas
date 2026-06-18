@@ -16,6 +16,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { clsx } from 'clsx'
+import { formatCurrency } from '@/lib/utils/format'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
@@ -50,7 +51,7 @@ type CustomerForm = z.infer<typeof customerSchema>
 
 /* ─── Helpers ─── */
 function fmt(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
+  return formatCurrency(v)
 }
 function initials(name: string) {
   return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
@@ -307,7 +308,7 @@ export default function ClientesPage() {
                           </div>
                           {c.total_purchases > 0 && (
                             <span className="text-sm font-bold text-primary flex-shrink-0">
-                              {new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(c.total_purchases)}
+                              {fmt(c.total_purchases)}
                             </span>
                           )}
                         </div>

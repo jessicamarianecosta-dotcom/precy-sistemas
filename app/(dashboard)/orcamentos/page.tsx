@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { clsx } from 'clsx'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { formatCurrency } from '@/lib/utils/format'
 import {
   FileText, Plus, X, Loader2, Trash2, Download,
   CheckCircle, XCircle, Clock, Send, ChevronRight,
@@ -33,7 +34,7 @@ const STATUS_CONFIG: Record<string,{label:string;badge:string;icon:React.Element
   rejected:  { label:'Recusado',  badge:'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',          icon:XCircle     },
   converted: { label:'Convertido', badge:'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300', icon:CheckCircle },
 }
-function fmt(v:number){ return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0) }
+function fmt(v:number){ return formatCurrency(v) }
 function uid(){ return Math.random().toString(36).slice(2,10) }
 
 const STEP_META=[

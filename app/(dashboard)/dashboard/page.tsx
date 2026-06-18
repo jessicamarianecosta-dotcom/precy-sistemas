@@ -21,10 +21,11 @@ import { clsx } from 'clsx'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { formatCurrency } from '@/lib/utils/format'
 
 /* ─── Helpers ─── */
 function fmt(v: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
+  return formatCurrency(v)
 }
 
 function fmtPct(v: number | null) {
@@ -815,7 +816,7 @@ export default function DashboardPage() {
                         <p className="text-[11px] text-text-muted">{o.customers?.name ?? '—'} · {o.order_number || ''}</p>
                       </div>
                       <span className="text-sm font-bold text-primary flex-shrink-0">
-                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(o.total))}
+                        {fmt(Number(o.total))}
                       </span>
                     </Link>
                   ))}
@@ -872,7 +873,7 @@ export default function DashboardPage() {
                         'text-sm font-bold flex-shrink-0',
                         f.type === 'income' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
                       )}>
-                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(f.amount))}
+                        {fmt(Number(f.amount))}
                       </span>
                     </Link>
                   ))}

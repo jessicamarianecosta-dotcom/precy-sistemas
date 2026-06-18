@@ -25,6 +25,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useState } from 'react'
 import { clsx } from 'clsx'
+import { formatCurrency } from '@/lib/utils/format'
 
 /* ─────────────────────────────────────────────
    Schema
@@ -77,10 +78,7 @@ const STATUS_CFG = {
 ───────────────────────────────────────────── */
 
 function fmt(v: number) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(v)
+  return formatCurrency(v)
 }
 
 /* ─────────────────────────────────────────────
@@ -824,7 +822,7 @@ export default function EstoquePage() {
                       const cpu = total / qty
                       return (
                         <p className="mt-1.5 text-xs font-medium text-primary flex items-center gap-1">
-                          ✓ Custo unitário: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cpu)}/{unit}
+                          ✓ Custo unitário: {fmt(cpu)}/{unit}
                         </p>
                       )
                     }

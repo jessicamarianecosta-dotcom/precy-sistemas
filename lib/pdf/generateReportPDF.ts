@@ -3,7 +3,9 @@
    Layout A4 profissional, compatível com todos os browsers
    ============================================================= */
 
-const R  = (v: unknown) => new Intl.NumberFormat('pt-BR', { style:'currency', currency:'BRL' }).format(Number(v)||0)
+import { formatCurrency } from '@/lib/utils/format'
+
+const R  = (v: unknown) => formatCurrency(Number(v)||0)
 const N  = (v: unknown) => Number(v||0).toLocaleString('pt-BR')
 const X  = (s: unknown) => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')
 const D  = (s: string) => s.split('-').reverse().join('/')

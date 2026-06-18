@@ -3,14 +3,15 @@
    Visual: ERP / Gráfica Profissional / Proposta Comercial
    ============================================================ */
 
+import { formatCurrency } from '@/lib/utils/format'
+
 interface PDFParams {
   budget:  Record<string, unknown>
   items:   Record<string, unknown>[]
   company: Record<string, unknown> | null
 }
 
-const R = (v: unknown) =>
-  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0)
+const R = (v: unknown) => formatCurrency(Number(v) || 0)
 
 const D = (iso?: string | null) => {
   if (!iso) return ''
