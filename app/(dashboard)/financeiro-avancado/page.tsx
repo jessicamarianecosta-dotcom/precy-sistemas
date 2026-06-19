@@ -19,8 +19,9 @@ import { clsx } from 'clsx'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { format, addDays, addWeeks, addMonths, addYears, isPast, differenceInDays } from 'date-fns'
+import { format, addDays, addWeeks, addMonths, addYears, isPast, differenceInDays, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, eachDayOfInterval } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 /* ════════════════════════════════════════════════════════════
    TIPOS
@@ -97,7 +98,7 @@ export default function FinanceiroAvancadoPage() {
     { id: 'visao_geral',    label: 'Visão Geral',        icon: Sparkles,    ready: true  },
     { id: 'centro_custos',  label: 'Centro de Custos',   icon: Tag,         ready: true  },
     { id: 'recorrentes',    label: 'Contas Recorrentes', icon: RefreshCcw,  ready: true  },
-    { id: 'fluxo_caixa',    label: 'Fluxo de Caixa',     icon: LineChart,   ready: false },
+    { id: 'fluxo_caixa',    label: 'Fluxo de Caixa',     icon: LineChart,   ready: true  },
     { id: 'dre',            label: 'DRE Simplificado',   icon: TrendingUp,  ready: false },
     { id: 'metas',          label: 'Metas Financeiras',  icon: Target,      ready: false },
     { id: 'projecao',       label: 'Projeção de Caixa',  icon: Clock3,      ready: false },
@@ -157,7 +158,10 @@ export default function FinanceiroAvancadoPage() {
             toast={toast}
           />
         )}
-        {tab !== 'visao_geral' && tab !== 'centro_custos' && tab !== 'recorrentes' && (
+        {tab === 'fluxo_caixa' && (
+          <FluxoCaixaTab companyId={companyId} supabase={supabase} />
+        )}
+        {tab !== 'visao_geral' && tab !== 'centro_custos' && tab !== 'recorrentes' && tab !== 'fluxo_caixa' && (
           <ModuloEmBreve tabs={tabs} tab={tab} />
         )}
       </div>
@@ -172,7 +176,7 @@ function VisaoGeralTab({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   const cards: { id: Tab; title: string; desc: string; icon: LucideIcon; ready: boolean }[] = [
     { id: 'centro_custos', title: 'Centro de Custos',   desc: 'Organize suas despesas por categoria customizada',    icon: Tag,        ready: true  },
     { id: 'recorrentes',   title: 'Contas Recorrentes', desc: 'Assinaturas e contas fixas geradas automaticamente',  icon: RefreshCcw, ready: true  },
-    { id: 'fluxo_caixa',   title: 'Fluxo de Caixa',     desc: 'Entradas, saídas e saldo em qualquer período',        icon: LineChart,  ready: false },
+    { id: 'fluxo_caixa',   title: 'Fluxo de Caixa',     desc: 'Entradas, saídas e saldo em qualquer período',        icon: LineChart,  ready: true  },
     { id: 'dre',           title: 'DRE Simplificado',   desc: 'Receita, custos, despesas e lucro líquido',           icon: TrendingUp, ready: false },
     { id: 'metas',         title: 'Metas Financeiras',  desc: 'Acompanhe faturamento e lucro com metas mensais',     icon: Target,     ready: false },
     { id: 'projecao',      title: 'Projeção de Caixa',  desc: 'Previsão de saldo para os próximos 90 dias',          icon: Clock3,     ready: false },
@@ -933,6 +937,245 @@ function RecorrentesTab({
             </div>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+/* ════════════════════════════════════════════════════════════
+   ABA: FLUXO DE CAIXA
+═══════════════════════════════════════════════════════════ */
+type PeriodFilter = 'day' | 'week' | 'month' | 'year' | 'custom'
+
+function FluxoCaixaTab({
+  companyId, supabase,
+}: {
+  companyId: string | null
+  supabase: ReturnType<typeof createClient>
+}) {
+  const [period, setPeriod] = useState<PeriodFilter>('month')
+  const [customStart, setCustomStart] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'))
+  const [customEnd,   setCustomEnd]   = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'))
+
+  /* ── Calcular intervalo de datas conforme filtro ── */
+  const { rangeStart, rangeEnd } = (() => {
+    const now = new Date()
+    switch (period) {
+      case 'day':    return { rangeStart: startOfDay(now), rangeEnd: endOfDay(now) }
+      case 'week':    return { rangeStart: startOfWeek(now, { locale: ptBR }), rangeEnd: endOfWeek(now, { locale: ptBR }) }
+      case 'year':    return { rangeStart: startOfYear(now), rangeEnd: endOfYear(now) }
+      case 'custom':  return { rangeStart: startOfDay(new Date(customStart + 'T00:00:00')), rangeEnd: endOfDay(new Date(customEnd + 'T00:00:00')) }
+      default:        return { rangeStart: startOfMonth(now), rangeEnd: endOfMonth(now) }
+    }
+  })()
+
+  const rangeStartStr = format(rangeStart, 'yyyy-MM-dd')
+  const rangeEndStr   = format(rangeEnd, 'yyyy-MM-dd')
+
+  /* ── Query: todas as transações relevantes (até o fim do período) ──
+     Caixa real considera apenas o que foi efetivamente movimentado:
+     receitas com status 'received' e despesas com status 'paid'. */
+  const { data: allTx, isLoading } = useQuery({
+    queryKey: ['fluxo-caixa', companyId, rangeEndStr],
+    enabled:  !!companyId,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from('financial_transactions') as any)
+        .select('type, amount, date, status, description, category')
+        .eq('company_id', companyId!)
+        .in('status', ['received', 'paid'])
+        .lte('date', rangeEndStr)
+        .order('date')
+      if (error) throw error
+      return data ?? []
+    },
+  })
+
+  const txs = allTx ?? []
+
+  /* ── Saldo inicial: tudo movimentado ANTES do início do período ── */
+  const saldoInicial = txs
+    .filter((t: any) => t.date < rangeStartStr)
+    .reduce((s: number, t: any) => s + (t.type === 'income' ? Number(t.amount) : -Number(t.amount)), 0)
+
+  /* ── Movimentação DENTRO do período ── */
+  const txsNoPeriodo = txs.filter((t: any) => t.date >= rangeStartStr && t.date <= rangeEndStr)
+  const entradas = txsNoPeriodo.filter((t: any) => t.type === 'income').reduce((s: number, t: any) => s + Number(t.amount), 0)
+  const saidas   = txsNoPeriodo.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + Number(t.amount), 0)
+  const saldoFinal = saldoInicial + entradas - saidas
+
+  /* ── Série diária para o gráfico (saldo acumulado dia a dia) ── */
+  const chartData = (() => {
+    if (rangeStart > rangeEnd) return []
+    const days = eachDayOfInterval({ start: rangeStart, end: rangeEnd })
+    let running = saldoInicial
+    return days.map(day => {
+      const dayStr = format(day, 'yyyy-MM-dd')
+      const dayTxs = txsNoPeriodo.filter((t: any) => t.date === dayStr)
+      const dayIn  = dayTxs.filter((t: any) => t.type === 'income').reduce((s: number, t: any) => s + Number(t.amount), 0)
+      const dayOut = dayTxs.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + Number(t.amount), 0)
+      running += dayIn - dayOut
+      return {
+        date: format(day, days.length > 31 ? 'MMM' : 'dd/MM', { locale: ptBR }),
+        saldo: Math.round(running * 100) / 100,
+      }
+    })
+  })()
+
+  /* ── Lista de movimentos do período, mais recentes primeiro ── */
+  const movimentos = [...txsNoPeriodo].sort((a: any, b: any) => b.date.localeCompare(a.date))
+
+  const periodLabel =
+    period === 'day'    ? 'Hoje' :
+    period === 'week'    ? 'Esta semana' :
+    period === 'year'    ? 'Este ano' :
+    period === 'custom'  ? `${format(rangeStart, 'dd/MM/yyyy')} – ${format(rangeEnd, 'dd/MM/yyyy')}` :
+    'Este mês'
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-sm font-semibold text-text-primary dark:text-stone-100">Fluxo de Caixa</p>
+          <p className="text-xs text-text-muted dark:text-stone-400 mt-0.5">
+            Entradas, saídas e saldo real — considera apenas valores já recebidos/pagos
+          </p>
+        </div>
+      </div>
+
+      {/* ── Filtros de período ── */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+        {([
+          { id: 'day', label: 'Dia' },
+          { id: 'week', label: 'Semana' },
+          { id: 'month', label: 'Mês' },
+          { id: 'year', label: 'Ano' },
+          { id: 'custom', label: 'Personalizado' },
+        ] as { id: PeriodFilter; label: string }[]).map(p => (
+          <button
+            key={p.id}
+            onClick={() => setPeriod(p.id)}
+            className={clsx(
+              'px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all flex-shrink-0',
+              period === p.id
+                ? 'bg-primary text-white shadow-btn'
+                : 'bg-white dark:bg-surface-dark border border-border dark:border-border-dark text-text-secondary dark:text-stone-400 hover:border-primary/40'
+            )}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {period === 'custom' && (
+        <div className="card flex items-center gap-3 p-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-text-muted dark:text-stone-400">De</label>
+            <input type="date" className="input py-1.5 text-sm" value={customStart} onChange={e => setCustomStart(e.target.value)} />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-text-muted dark:text-stone-400">Até</label>
+            <input type="date" className="input py-1.5 text-sm" value={customEnd} onChange={e => setCustomEnd(e.target.value)} />
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[1,2,3,4].map(i => <div key={i} className="card h-20 animate-pulse bg-primary-50/50 dark:bg-white/5" />)}
+        </div>
+      ) : (
+        <>
+          {/* ── Cards resumo ── */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="card p-4">
+              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Saldo inicial</p>
+              <p className="text-lg font-bold text-text-primary dark:text-stone-100 mt-1">{formatCurrency(saldoInicial)}</p>
+              <p className="text-[10px] text-text-muted mt-0.5">antes de {periodLabel.toLowerCase()}</p>
+            </div>
+            <div className="card p-4">
+              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Entradas</p>
+              <p className="text-lg font-bold text-success mt-1">+{formatCurrency(entradas)}</p>
+              <p className="text-[10px] text-text-muted mt-0.5">{periodLabel}</p>
+            </div>
+            <div className="card p-4">
+              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Saídas</p>
+              <p className="text-lg font-bold text-error mt-1">−{formatCurrency(saidas)}</p>
+              <p className="text-[10px] text-text-muted mt-0.5">{periodLabel}</p>
+            </div>
+            <div className="card p-4 border-2 border-primary/30">
+              <p className="text-[10px] font-semibold text-primary uppercase tracking-wider">Saldo final</p>
+              <p className={clsx('text-lg font-bold mt-1', saldoFinal >= 0 ? 'text-primary' : 'text-error')}>
+                {formatCurrency(saldoFinal)}
+              </p>
+              <p className="text-[10px] text-text-muted mt-0.5">em {format(rangeEnd, 'dd/MM/yyyy')}</p>
+            </div>
+          </div>
+
+          {/* ── Gráfico de evolução do saldo ── */}
+          {chartData.length > 0 && (
+            <div className="card p-4">
+              <p className="text-xs font-semibold text-text-secondary dark:text-stone-400 mb-3">Evolução do saldo no período</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="saldoGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#8B6C4F" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="#8B6C4F" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#8B6C4F" strokeOpacity={0.08} vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={70}
+                    tickFormatter={(v) => formatCurrency(v).replace('R$', '').trim()} />
+                  <Tooltip
+                    formatter={(v: number) => [formatCurrency(v), 'Saldo']}
+                    contentStyle={{ borderRadius: 12, border: '1px solid rgba(139,108,79,0.2)', fontSize: 12 }}
+                  />
+                  <Area type="monotone" dataKey="saldo" stroke="#8B6C4F" strokeWidth={2} fill="url(#saldoGradient)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* ── Lista de movimentos ── */}
+          <div className="card p-0 overflow-hidden">
+            <div className="p-4 border-b border-border dark:border-border-dark">
+              <p className="text-xs font-semibold text-text-secondary dark:text-stone-400">
+                Movimentos no período ({movimentos.length})
+              </p>
+            </div>
+            {movimentos.length === 0 ? (
+              <div className="p-8 text-center">
+                <p className="text-sm text-text-muted dark:text-stone-400">Nenhuma movimentação neste período.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border dark:divide-border-dark max-h-96 overflow-y-auto">
+                {movimentos.map((t: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between gap-3 p-3.5">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={clsx(
+                        'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
+                        t.type === 'income' ? 'bg-success-light dark:bg-success/10' : 'bg-error-light dark:bg-error/10'
+                      )}>
+                        {t.type === 'income'
+                          ? <TrendingUp size={14} className="text-success" />
+                          : <TrendingUp size={14} className="text-error rotate-180" />
+                        }
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm text-text-primary dark:text-stone-100 leading-snug break-words">{t.description || 'Sem descrição'}</p>
+                        <p className="text-[10px] text-text-muted dark:text-stone-500">{format(new Date(t.date + 'T00:00:00'), 'dd/MM/yyyy')}</p>
+                      </div>
+                    </div>
+                    <span className={clsx('text-sm font-bold flex-shrink-0', t.type === 'income' ? 'text-success' : 'text-error')}>
+                      {t.type === 'income' ? '+' : '−'}{formatCurrency(Number(t.amount))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   )
