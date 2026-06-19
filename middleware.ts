@@ -7,7 +7,7 @@ const PUBLIC = ['/', '/login', '/cadastro', '/recuperar-senha', '/nova-senha',
                 '/termos', '/privacidade', '/reembolso']
 
 /* ── Rotas exclusivas PRO ── */
-const PRO_ROUTES = ['/agenda', '/financeiro', '/relatorios', '/conteudo']
+const PRO_ROUTES = ['/agenda', '/financeiro', '/relatorios', '/conteudo', '/financeiro-avancado']
 
 /* ── Rota de bloqueio por inadimplência ── */
 const BLOCKED_ROUTE   = '/assinatura/bloqueada'

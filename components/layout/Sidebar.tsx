@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Package, Boxes, ShoppingCart,
   Users, FileText, DollarSign, Settings, Calculator,
-  ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays, BookOpen, BarChart2, Crown,
+  ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays, BookOpen, BarChart2, Crown, TrendingUp,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { createClient } from '@/lib/supabase/client'
@@ -40,6 +40,7 @@ const menuItems = [
     items: [
       { href: '/orcamentos',  icon: FileText,   label: 'Orçamentos' },
       { href: '/financeiro',  icon: DollarSign, label: 'Financeiro', pro: true },
+      { href: '/financeiro-avancado', icon: TrendingUp, label: 'Financeiro Avançado', pro: true },
       { href: '/relatorios',  icon: BarChart2,  label: 'Relatórios', pro: true },
     ],
   },
