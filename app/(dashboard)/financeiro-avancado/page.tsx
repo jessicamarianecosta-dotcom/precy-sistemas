@@ -99,7 +99,7 @@ export default function FinanceiroAvancadoPage() {
     { id: 'centro_custos',  label: 'Centro de Custos',   icon: Tag,         ready: true  },
     { id: 'recorrentes',    label: 'Contas Recorrentes', icon: RefreshCcw,  ready: true  },
     { id: 'fluxo_caixa',    label: 'Fluxo de Caixa',     icon: LineChart,   ready: true  },
-    { id: 'dre',            label: 'DRE Simplificado',   icon: TrendingUp,  ready: false },
+    { id: 'dre',            label: 'DRE Simplificado',   icon: TrendingUp,  ready: true  },
     { id: 'metas',          label: 'Metas Financeiras',  icon: Target,      ready: false },
     { id: 'projecao',       label: 'Projeção de Caixa',  icon: Clock3,      ready: false },
     { id: 'lucratividade',  label: 'Lucratividade',      icon: Award,       ready: false },
@@ -161,7 +161,10 @@ export default function FinanceiroAvancadoPage() {
         {tab === 'fluxo_caixa' && (
           <FluxoCaixaTab companyId={companyId} supabase={supabase} />
         )}
-        {tab !== 'visao_geral' && tab !== 'centro_custos' && tab !== 'recorrentes' && tab !== 'fluxo_caixa' && (
+        {tab === 'dre' && (
+          <DRETab companyId={companyId} supabase={supabase} queryClient={queryClient} toast={toast} />
+        )}
+        {tab !== 'visao_geral' && tab !== 'centro_custos' && tab !== 'recorrentes' && tab !== 'fluxo_caixa' && tab !== 'dre' && (
           <ModuloEmBreve tabs={tabs} tab={tab} />
         )}
       </div>
@@ -177,7 +180,7 @@ function VisaoGeralTab({ onNavigate }: { onNavigate: (t: Tab) => void }) {
     { id: 'centro_custos', title: 'Centro de Custos',   desc: 'Organize suas despesas por categoria customizada',    icon: Tag,        ready: true  },
     { id: 'recorrentes',   title: 'Contas Recorrentes', desc: 'Assinaturas e contas fixas geradas automaticamente',  icon: RefreshCcw, ready: true  },
     { id: 'fluxo_caixa',   title: 'Fluxo de Caixa',     desc: 'Entradas, saídas e saldo em qualquer período',        icon: LineChart,  ready: true  },
-    { id: 'dre',           title: 'DRE Simplificado',   desc: 'Receita, custos, despesas e lucro líquido',           icon: TrendingUp, ready: false },
+    { id: 'dre',           title: 'DRE Simplificado',   desc: 'Receita, custos, despesas e lucro líquido',           icon: TrendingUp, ready: true  },
     { id: 'metas',         title: 'Metas Financeiras',  desc: 'Acompanhe faturamento e lucro com metas mensais',     icon: Target,     ready: false },
     { id: 'projecao',      title: 'Projeção de Caixa',  desc: 'Previsão de saldo para os próximos 90 dias',          icon: Clock3,     ready: false },
     { id: 'lucratividade', title: 'Lucratividade',      desc: 'Produtos mais e menos lucrativos do seu negócio',     icon: Award,      ready: false },
@@ -1175,6 +1178,257 @@ function FluxoCaixaTab({
               </div>
             )}
           </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/* ════════════════════════════════════════════════════════════
+   ABA: DRE SIMPLIFICADO
+═══════════════════════════════════════════════════════════ */
+type DREPeriod = 'month' | 'quarter' | 'semester' | 'year'
+
+/* Classificação contábil das categorias já existentes no Financeiro:
+   custos diretos = ligados à produção/entrega (variam com o volume vendido)
+   despesas operacionais = estrutura fixa do negócio */
+const DIRECT_COST_CATEGORIES = ['material', 'fornecedores', 'frete']
+
+function DRETab({
+  companyId, supabase, queryClient, toast,
+}: {
+  companyId: string | null
+  supabase: ReturnType<typeof createClient>
+  queryClient: ReturnType<typeof useQueryClient>
+  toast: (type: 'success' | 'error', msg: string) => void
+}) {
+  const [period, setPeriod] = useState<DREPeriod>('month')
+  const [editingTax, setEditingTax] = useState(false)
+  const [taxInput, setTaxInput] = useState('6.00')
+
+  const { rangeStart, rangeEnd, periodLabel } = (() => {
+    const now = new Date()
+    switch (period) {
+      case 'quarter': {
+        const q = Math.floor(now.getMonth() / 3)
+        const start = new Date(now.getFullYear(), q * 3, 1)
+        return { rangeStart: start, rangeEnd: addMonths(start, 3), periodLabel: 'Trimestre atual' }
+      }
+      case 'semester': {
+        const s = now.getMonth() < 6 ? 0 : 6
+        const start = new Date(now.getFullYear(), s, 1)
+        return { rangeStart: start, rangeEnd: addMonths(start, 6), periodLabel: 'Semestre atual' }
+      }
+      case 'year':
+        return { rangeStart: startOfYear(now), rangeEnd: endOfYear(now), periodLabel: 'Ano atual' }
+      default:
+        return { rangeStart: startOfMonth(now), rangeEnd: endOfMonth(now), periodLabel: 'Mês atual' }
+    }
+  })()
+
+  const rangeStartStr = format(rangeStart, 'yyyy-MM-dd')
+  const rangeEndStr   = format(rangeEnd, 'yyyy-MM-dd')
+
+  /* ── Alíquota de imposto da empresa ── */
+  const { data: company } = useQuery({
+    queryKey: ['company-tax-rate', companyId],
+    enabled:  !!companyId,
+    queryFn:  async () => {
+      const { data } = await (supabase.from('companies') as any)
+        .select('tax_rate').eq('id', companyId!).maybeSingle()
+      return data
+    },
+  })
+  const taxRate = Number(company?.tax_rate ?? 6)
+
+  const saveTaxMutation = useMutation({
+    mutationFn: async (rate: number) => {
+      const { error } = await (supabase.from('companies') as any)
+        .update({ tax_rate: rate, updated_at: new Date().toISOString() })
+        .eq('id', companyId!)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['company-tax-rate', companyId] })
+      toast('success', 'Alíquota de imposto atualizada!')
+      setEditingTax(false)
+    },
+    onError: (err: Error) => toast('error', `Erro ao salvar: ${err.message}`),
+  })
+
+  /* ── Transações do período (apenas movimentadas: received/paid) ── */
+  const { data: txs, isLoading } = useQuery({
+    queryKey: ['dre-transactions', companyId, rangeStartStr, rangeEndStr],
+    enabled:  !!companyId,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from('financial_transactions') as any)
+        .select('type, amount, category, date, status')
+        .eq('company_id', companyId!)
+        .in('status', ['received', 'paid'])
+        .gte('date', rangeStartStr)
+        .lt('date', rangeEndStr)
+      if (error) throw error
+      return data ?? []
+    },
+  })
+
+  const data = txs ?? []
+  const receitaBruta = data.filter((t: any) => t.type === 'income').reduce((s: number, t: any) => s + Number(t.amount), 0)
+
+  const expenses = data.filter((t: any) => t.type === 'expense')
+  const custosDiretos = expenses
+    .filter((t: any) => DIRECT_COST_CATEGORIES.includes(t.category))
+    .reduce((s: number, t: any) => s + Number(t.amount), 0)
+  const despesasOperacionais = expenses
+    .filter((t: any) => !DIRECT_COST_CATEGORIES.includes(t.category))
+    .reduce((s: number, t: any) => s + Number(t.amount), 0)
+
+  const lucroOperacional = receitaBruta - custosDiretos - despesasOperacionais
+  const impostos = Math.max(0, receitaBruta) * (taxRate / 100)
+  const lucroLiquido = lucroOperacional - impostos
+  const margemLiquida = receitaBruta > 0 ? (lucroLiquido / receitaBruta) * 100 : 0
+
+  const linhas = [
+    { label: 'Receita Bruta',           value: receitaBruta,         sign: '',  bold: true,  color: 'text-text-primary dark:text-stone-100' },
+    { label: '(–) Custos diretos',      value: -custosDiretos,       sign: '−', bold: false, color: 'text-error' },
+    { label: '(–) Despesas operacionais', value: -despesasOperacionais, sign: '−', bold: false, color: 'text-error' },
+    { label: '= Lucro Operacional',     value: lucroOperacional,     sign: '',  bold: true,  color: lucroOperacional >= 0 ? 'text-info' : 'text-error', divider: true },
+    { label: `(–) Impostos (${taxRate}%)`, value: -impostos,         sign: '−', bold: false, color: 'text-error' },
+    { label: '= Lucro Líquido',         value: lucroLiquido,         sign: '',  bold: true,  color: lucroLiquido >= 0 ? 'text-success' : 'text-error', divider: true, big: true },
+  ]
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-sm font-semibold text-text-primary dark:text-stone-100">DRE Simplificado</p>
+          <p className="text-xs text-text-muted dark:text-stone-400 mt-0.5">
+            Demonstrativo de Resultado — receita, custos, despesas e lucro
+          </p>
+        </div>
+      </div>
+
+      {/* ── Filtros de período ── */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+        {([
+          { id: 'month', label: 'Mensal' },
+          { id: 'quarter', label: 'Trimestral' },
+          { id: 'semester', label: 'Semestral' },
+          { id: 'year', label: 'Anual' },
+        ] as { id: DREPeriod; label: string }[]).map(p => (
+          <button
+            key={p.id}
+            onClick={() => setPeriod(p.id)}
+            className={clsx(
+              'px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all flex-shrink-0',
+              period === p.id
+                ? 'bg-primary text-white shadow-btn'
+                : 'bg-white dark:bg-surface-dark border border-border dark:border-border-dark text-text-secondary dark:text-stone-400 hover:border-primary/40'
+            )}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {isLoading ? (
+        <div className="card h-64 animate-pulse bg-primary-50/50 dark:bg-white/5" />
+      ) : (
+        <>
+          {/* ── Tabela DRE ── */}
+          <div className="card p-0 overflow-hidden">
+            <div className="p-4 border-b border-border dark:border-border-dark flex items-center justify-between">
+              <p className="text-xs font-semibold text-text-secondary dark:text-stone-400">{periodLabel}</p>
+              <p className="text-[10px] text-text-muted dark:text-stone-500">
+                {format(rangeStart, 'dd/MM/yyyy')} – {format(addDays(rangeEnd, -1), 'dd/MM/yyyy')}
+              </p>
+            </div>
+            <div className="divide-y divide-border dark:divide-border-dark">
+              {linhas.map((l, i) => (
+                <div
+                  key={i}
+                  className={clsx(
+                    'flex items-center justify-between px-4',
+                    l.big ? 'py-4 bg-primary-50/40 dark:bg-primary/5' : 'py-3',
+                    l.divider && !l.big && 'border-t-2 border-primary/15'
+                  )}
+                >
+                  <span className={clsx(
+                    l.bold ? 'font-semibold' : 'font-normal',
+                    l.big ? 'text-sm' : 'text-sm',
+                    'text-text-primary dark:text-stone-100'
+                  )}>
+                    {l.label}
+                  </span>
+                  <span className={clsx(
+                    l.big ? 'text-lg font-bold' : l.bold ? 'text-sm font-bold' : 'text-sm font-medium',
+                    l.color
+                  )}>
+                    {l.value < 0 ? '−' : ''}{formatCurrency(Math.abs(l.value))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Margem líquida + configurar imposto ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="card p-4">
+              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Margem líquida</p>
+              <p className={clsx('text-2xl font-bold mt-1', margemLiquida >= 0 ? 'text-success' : 'text-error')}>
+                {margemLiquida.toFixed(1)}%
+              </p>
+              <p className="text-[10px] text-text-muted mt-1">
+                De cada R$ 100 vendidos, {margemLiquida >= 0 ? `R$ ${margemLiquida.toFixed(0)} ficam de lucro` : 'há prejuízo'}
+              </p>
+            </div>
+
+            <div className="card p-4">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Alíquota de imposto</p>
+                {!editingTax && (
+                  <button onClick={() => { setTaxInput(String(taxRate)); setEditingTax(true) }} className="text-[10px] text-primary hover:underline">
+                    Editar
+                  </button>
+                )}
+              </div>
+              {editingTax ? (
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="relative flex-1">
+                    <input
+                      type="number" step="0.1" min="0" max="100"
+                      className="input py-1.5 text-sm pr-6"
+                      value={taxInput}
+                      onChange={e => setTaxInput(e.target.value)}
+                      autoFocus
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-text-muted">%</span>
+                  </div>
+                  <button
+                    onClick={() => saveTaxMutation.mutate(Number(taxInput) || 0)}
+                    disabled={saveTaxMutation.isPending}
+                    className="p-2 rounded-lg bg-primary text-white hover:opacity-90 transition-opacity flex-shrink-0"
+                  >
+                    {saveTaxMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                  </button>
+                </div>
+              ) : (
+                <p className="text-2xl font-bold text-primary mt-1">{taxRate}%</p>
+              )}
+              <p className="text-[10px] text-text-muted mt-1">
+                Estimativa sobre a receita bruta — ajuste conforme seu regime tributário
+              </p>
+            </div>
+          </div>
+
+          {receitaBruta === 0 && (
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-info-light dark:bg-info/10 border border-info/20">
+              <BellRing size={13} className="text-info flex-shrink-0" />
+              <p className="text-xs text-info-dark dark:text-info">
+                Nenhuma receita recebida neste período ainda. O DRE considera apenas valores já efetivamente recebidos/pagos.
+              </p>
+            </div>
+          )}
         </>
       )}
     </div>
