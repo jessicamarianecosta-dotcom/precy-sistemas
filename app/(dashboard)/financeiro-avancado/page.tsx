@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toaster'
@@ -12,12 +12,15 @@ import { LucideIcon } from 'lucide-react'
 import {
   TrendingUp, Tag, Plus, X, Loader2, Trash2, Edit2,
   Lock, Clock3, RefreshCcw, Target, LineChart, BellRing,
-  Award, ChevronRight, Sparkles, CheckCircle,
+  Award, ChevronRight, Sparkles, CheckCircle, Calendar,
+  AlertTriangle, PauseCircle, PlayCircle, Zap,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { format, addDays, addWeeks, addMonths, addYears, isPast, differenceInDays } from 'date-fns'
+import { ptBR } from 'date-fns/locale'
 
 /* ════════════════════════════════════════════════════════════
    TIPOS
@@ -32,6 +35,41 @@ interface CostCenter {
   is_default: boolean
   is_active:  boolean
   total?:     number
+}
+
+interface RecurringBill {
+  id:             string
+  name:           string
+  amount:         number
+  periodicity:    'weekly' | 'biweekly' | 'monthly' | 'yearly'
+  due_day:        number | null
+  next_due_date:  string
+  is_active:      boolean
+  notes:          string | null
+  cost_center_id: string | null
+}
+
+const recurringBillSchema = z.object({
+  name:        z.string().min(2, 'Nome obrigatório').max(60),
+  amount:      z.coerce.number().min(0.01, 'Valor obrigatório'),
+  periodicity: z.enum(['weekly', 'biweekly', 'monthly', 'yearly']),
+  next_due_date: z.string().min(1, 'Data de vencimento obrigatória'),
+  cost_center_id: z.string().optional(),
+  notes:       z.string().optional(),
+})
+type RecurringBillForm = z.infer<typeof recurringBillSchema>
+
+const PERIODICITY_LABELS: Record<string, string> = {
+  weekly: 'Semanal', biweekly: 'Quinzenal', monthly: 'Mensal', yearly: 'Anual',
+}
+
+function nextDueFrom(date: Date, periodicity: string): Date {
+  switch (periodicity) {
+    case 'weekly':   return addWeeks(date, 1)
+    case 'biweekly': return addDays(date, 14)
+    case 'yearly':   return addYears(date, 1)
+    default:         return addMonths(date, 1)
+  }
 }
 
 const costCenterSchema = z.object({
@@ -58,7 +96,7 @@ export default function FinanceiroAvancadoPage() {
   const tabs: { id: Tab; label: string; icon: LucideIcon; ready: boolean }[] = [
     { id: 'visao_geral',    label: 'Visão Geral',        icon: Sparkles,    ready: true  },
     { id: 'centro_custos',  label: 'Centro de Custos',   icon: Tag,         ready: true  },
-    { id: 'recorrentes',    label: 'Contas Recorrentes', icon: RefreshCcw,  ready: false },
+    { id: 'recorrentes',    label: 'Contas Recorrentes', icon: RefreshCcw,  ready: true  },
     { id: 'fluxo_caixa',    label: 'Fluxo de Caixa',     icon: LineChart,   ready: false },
     { id: 'dre',            label: 'DRE Simplificado',   icon: TrendingUp,  ready: false },
     { id: 'metas',          label: 'Metas Financeiras',  icon: Target,      ready: false },
@@ -111,7 +149,15 @@ export default function FinanceiroAvancadoPage() {
             toast={toast}
           />
         )}
-        {tab !== 'visao_geral' && tab !== 'centro_custos' && (
+        {tab === 'recorrentes' && (
+          <RecorrentesTab
+            companyId={companyId}
+            supabase={supabase}
+            queryClient={queryClient}
+            toast={toast}
+          />
+        )}
+        {tab !== 'visao_geral' && tab !== 'centro_custos' && tab !== 'recorrentes' && (
           <ModuloEmBreve tabs={tabs} tab={tab} />
         )}
       </div>
@@ -125,7 +171,7 @@ export default function FinanceiroAvancadoPage() {
 function VisaoGeralTab({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   const cards: { id: Tab; title: string; desc: string; icon: LucideIcon; ready: boolean }[] = [
     { id: 'centro_custos', title: 'Centro de Custos',   desc: 'Organize suas despesas por categoria customizada',    icon: Tag,        ready: true  },
-    { id: 'recorrentes',   title: 'Contas Recorrentes', desc: 'Assinaturas e contas fixas geradas automaticamente',  icon: RefreshCcw, ready: false },
+    { id: 'recorrentes',   title: 'Contas Recorrentes', desc: 'Assinaturas e contas fixas geradas automaticamente',  icon: RefreshCcw, ready: true  },
     { id: 'fluxo_caixa',   title: 'Fluxo de Caixa',     desc: 'Entradas, saídas e saldo em qualquer período',        icon: LineChart,  ready: false },
     { id: 'dre',           title: 'DRE Simplificado',   desc: 'Receita, custos, despesas e lucro líquido',           icon: TrendingUp, ready: false },
     { id: 'metas',         title: 'Metas Financeiras',  desc: 'Acompanhe faturamento e lucro com metas mensais',     icon: Target,     ready: false },
@@ -482,6 +528,397 @@ function CentroCustosTab({
             <p className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-1">Remover centro de custo?</p>
             <p className="text-xs text-text-muted dark:text-stone-400 mb-4">
               As despesas já lançadas continuam no histórico, apenas o centro de custo deixa de aparecer na lista.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setDeleteId(null)} className="btn-secondary flex-1">Cancelar</button>
+              <button
+                onClick={() => deleteMutation.mutate(deleteId)}
+                disabled={deleteMutation.isPending}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-error hover:bg-error-dark transition-colors disabled:opacity-60"
+              >
+                {deleteMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                Remover
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ════════════════════════════════════════════════════════════
+   ABA: CONTAS RECORRENTES
+═══════════════════════════════════════════════════════════ */
+function RecorrentesTab({
+  companyId, supabase, queryClient, toast,
+}: {
+  companyId: string | null
+  supabase: ReturnType<typeof createClient>
+  queryClient: ReturnType<typeof useQueryClient>
+  toast: (type: 'success' | 'error', msg: string) => void
+}) {
+  const [showModal, setShowModal] = useState(false)
+  const [editing,   setEditing]   = useState<RecurringBill | null>(null)
+  const [deleteId,  setDeleteId]  = useState<string | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const generationChecked = useRef(false)
+
+  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<RecurringBillForm>({
+    resolver: zodResolver(recurringBillSchema),
+    defaultValues: {
+      name: '', amount: 0, periodicity: 'monthly',
+      next_due_date: format(new Date(), 'yyyy-MM-dd'), notes: '',
+    },
+  })
+
+  /* ── Centros de custo (para vincular, opcional) ── */
+  const { data: costCenters } = useQuery<CostCenter[]>({
+    queryKey: ['cost-centers', companyId],
+    enabled:  !!companyId,
+    queryFn:  async () => {
+      const { data } = await (supabase.from('cost_centers') as any)
+        .select('id, name, color, icon, is_default, is_active')
+        .eq('company_id', companyId!)
+        .eq('is_active', true)
+        .order('name')
+      return data ?? []
+    },
+  })
+
+  /* ── Contas recorrentes ── */
+  const { data: bills, isLoading } = useQuery<RecurringBill[]>({
+    queryKey: ['recurring-bills', companyId],
+    enabled:  !!companyId,
+    queryFn:  async () => {
+      const { data, error } = await (supabase.from('recurring_bills') as any)
+        .select('*')
+        .eq('company_id', companyId!)
+        .eq('is_active', true)
+        .order('next_due_date')
+      if (error) throw error
+      return data ?? []
+    },
+  })
+
+  /* ── Geração automática "lazy": ao abrir a aba, verifica vencidas e gera o lançamento ──
+     Roda uma única vez por sessão de visualização desta aba. */
+  useEffect(() => {
+    if (!bills || !companyId || generationChecked.current) return
+    generationChecked.current = true
+
+    const overdue = bills.filter(b => isPast(new Date(b.next_due_date + 'T00:00:00')))
+    if (overdue.length === 0) return
+
+    async function generateOverdueBills() {
+      setGenerating(true)
+      try {
+        for (const bill of overdue) {
+          // Anti-duplicação: verificar se já existe lançamento para esta conta neste vencimento
+          const { data: existing } = await (supabase.from('financial_transactions') as any)
+            .select('id')
+            .eq('recurring_bill_id', bill.id)
+            .eq('date', bill.next_due_date)
+            .maybeSingle()
+
+          if (!existing) {
+            await (supabase.from('financial_transactions') as any).insert([{
+              company_id:       companyId,
+              type:              'expense',
+              category:          'outros',
+              amount:            bill.amount,
+              description:       `${bill.name} (conta recorrente)`,
+              date:              bill.next_due_date,
+              status:            'to_pay',
+              cost_center_id:    bill.cost_center_id,
+              recurring_bill_id: bill.id,
+            }])
+          }
+
+          // Avançar para o próximo vencimento (mesmo se já existia, garante consistência)
+          const newNextDue = nextDueFrom(new Date(bill.next_due_date + 'T00:00:00'), bill.periodicity)
+          await (supabase.from('recurring_bills') as any)
+            .update({ next_due_date: format(newNextDue, 'yyyy-MM-dd'), updated_at: new Date().toISOString() })
+            .eq('id', bill.id)
+        }
+
+        queryClient.invalidateQueries({ queryKey: ['recurring-bills', companyId] })
+        queryClient.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
+        queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
+        toast('success', `${overdue.length} conta(s) recorrente(s) lançada(s) automaticamente no Financeiro!`)
+      } catch (err: unknown) {
+        console.error('[recorrentes] geração automática:', err)
+      } finally {
+        setGenerating(false)
+      }
+    }
+
+    generateOverdueBills()
+  }, [bills, companyId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── Mutations ── */
+  const saveMutation = useMutation({
+    mutationFn: async (d: RecurringBillForm) => {
+      if (!companyId) throw new Error('Empresa não identificada')
+      const payload = {
+        name:           d.name,
+        amount:         d.amount,
+        periodicity:    d.periodicity,
+        next_due_date:  d.next_due_date,
+        cost_center_id: d.cost_center_id || null,
+        notes:          d.notes || null,
+      }
+      if (editing) {
+        const { error } = await (supabase.from('recurring_bills') as any)
+          .update({ ...payload, updated_at: new Date().toISOString() })
+          .eq('id', editing.id)
+        if (error) throw error
+      } else {
+        const { error } = await (supabase.from('recurring_bills') as any)
+          .insert([{ ...payload, company_id: companyId }])
+        if (error) throw error
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recurring-bills', companyId] })
+      toast('success', editing ? 'Conta recorrente atualizada!' : 'Conta recorrente criada!')
+      closeModal()
+    },
+    onError: (err: Error) => toast('error', `Erro ao salvar: ${err.message}`),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await (supabase.from('recurring_bills') as any)
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recurring-bills', companyId] })
+      toast('success', 'Conta recorrente removida.')
+      setDeleteId(null)
+    },
+    onError: (err: Error) => toast('error', `Erro ao remover: ${err.message}`),
+  })
+
+  function openEdit(b: RecurringBill) {
+    setEditing(b)
+    setValue('name', b.name)
+    setValue('amount', b.amount)
+    setValue('periodicity', b.periodicity)
+    setValue('next_due_date', b.next_due_date)
+    setValue('cost_center_id', b.cost_center_id ?? '')
+    setValue('notes', b.notes ?? '')
+    setShowModal(true)
+  }
+
+  function closeModal() {
+    setShowModal(false)
+    setEditing(null)
+    reset({ name: '', amount: 0, periodicity: 'monthly', next_due_date: format(new Date(), 'yyyy-MM-dd'), notes: '' })
+  }
+
+  const totalMensal = (bills ?? []).reduce((s, b) => {
+    const monthlyEquivalent =
+      b.periodicity === 'weekly'   ? b.amount * 4.33 :
+      b.periodicity === 'biweekly' ? b.amount * 2.17 :
+      b.periodicity === 'yearly'   ? b.amount / 12 :
+      b.amount
+    return s + monthlyEquivalent
+  }, 0)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-sm font-semibold text-text-primary dark:text-stone-100">Contas Recorrentes</p>
+          <p className="text-xs text-text-muted dark:text-stone-400 mt-0.5">
+            Assinaturas e contas fixas — lançadas automaticamente quando vencem
+          </p>
+        </div>
+        <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2 text-sm">
+          <Plus size={15} /> Nova conta recorrente
+        </button>
+      </div>
+
+      {generating && (
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-info-light dark:bg-info/10 border border-info/20">
+          <Loader2 size={14} className="text-info animate-spin flex-shrink-0" />
+          <p className="text-xs text-info-dark dark:text-info">Verificando contas vencidas e lançando no Financeiro...</p>
+        </div>
+      )}
+
+      {(bills?.length ?? 0) > 0 && (
+        <div className="card flex items-center justify-between p-4">
+          <div>
+            <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Equivalente mensal</p>
+            <p className="text-xl font-bold text-primary mt-0.5">{formatCurrency(totalMensal)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Contas ativas</p>
+            <p className="text-xl font-bold text-text-primary dark:text-stone-100 mt-0.5">{bills?.length ?? 0}</p>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[1,2,3].map(i => <div key={i} className="card h-20 animate-pulse bg-primary-50/50 dark:bg-white/5" />)}
+        </div>
+      ) : !bills?.length ? (
+        <EmptyState
+          icon={RefreshCcw}
+          title="Nenhuma conta recorrente ainda"
+          description="Cadastre assinaturas e contas fixas (Canva, Adobe, aluguel, internet) para que sejam lançadas automaticamente no Financeiro quando vencerem."
+          action={{ label: '+ Nova conta recorrente', onClick: () => setShowModal(true) }}
+        />
+      ) : (
+        <div className="space-y-2">
+          {bills.map(b => {
+            const due = new Date(b.next_due_date + 'T00:00:00')
+            const daysUntil = differenceInDays(due, new Date())
+            const cc = costCenters?.find(c => c.id === b.cost_center_id)
+            return (
+              <div key={b.id} className="card p-4 flex items-center gap-3.5 group">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0"
+                  style={{ background: cc ? `${cc.color}1A` : 'rgba(139,108,79,0.08)' }}
+                >
+                  {cc?.icon ?? '🔁'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">{b.name}</p>
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-primary-50 dark:bg-primary/10 text-primary">
+                      {PERIODICITY_LABELS[b.periodicity]}
+                    </span>
+                    <span className={clsx(
+                      'text-[10px] font-medium px-1.5 py-0.5 rounded-full flex items-center gap-1',
+                      daysUntil <= 3
+                        ? 'bg-error-light dark:bg-error/10 text-error-dark dark:text-error'
+                        : daysUntil <= 7
+                          ? 'bg-warning-light dark:bg-warning/10 text-warning-dark dark:text-warning'
+                          : 'bg-stone-100 dark:bg-stone-800 text-text-muted'
+                    )}>
+                      <Calendar size={9} />
+                      {daysUntil < 0 ? 'Vencida' : daysUntil === 0 ? 'Vence hoje' : `Vence em ${daysUntil}d`}
+                      {' · '}{format(due, 'dd/MM/yyyy', { locale: ptBR })}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-sm font-bold text-primary">{formatCurrency(b.amount)}</p>
+                  <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
+                    <button onClick={() => openEdit(b)} className="p-1 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50">
+                      <Edit2 size={12} />
+                    </button>
+                    <button onClick={() => setDeleteId(b.id)} className="p-1 rounded-lg text-text-muted hover:text-error hover:bg-error-light">
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── Modal Criar/Editar ── */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeModal} />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-md animate-scaleIn max-h-[85vh] overflow-y-auto">
+            <div className="p-5 pb-3 border-b border-border dark:border-border-dark flex items-center justify-between sticky top-0 bg-white dark:bg-surface-dark">
+              <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">
+                {editing ? 'Editar conta recorrente' : 'Nova conta recorrente'}
+              </h3>
+              <button onClick={closeModal} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50">
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Nome</label>
+                <input className="input" placeholder="Ex: Canva, Aluguel, Internet" {...register('name')} />
+                {errors.name && <p className="mt-1 text-xs text-error">{errors.name.message}</p>}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Valor</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-text-muted font-medium">R$</span>
+                    <input type="number" step="0.01" min="0" className="input pl-9" placeholder="0,00" {...register('amount')} />
+                  </div>
+                  {errors.amount && <p className="mt-1 text-xs text-error">{errors.amount.message}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Periodicidade</label>
+                  <select className="input" {...register('periodicity')}>
+                    <option value="weekly">Semanal</option>
+                    <option value="biweekly">Quinzenal</option>
+                    <option value="monthly">Mensal</option>
+                    <option value="yearly">Anual</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Próximo vencimento</label>
+                <input type="date" className="input" {...register('next_due_date')} />
+                {errors.next_due_date && <p className="mt-1 text-xs text-error">{errors.next_due_date.message}</p>}
+              </div>
+
+              {(costCenters?.length ?? 0) > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
+                    Centro de custo <span className="text-text-muted font-normal">(opcional)</span>
+                  </label>
+                  <select className="input" {...register('cost_center_id')}>
+                    <option value="">Nenhum</option>
+                    {costCenters?.map(c => (
+                      <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
+                  Observações <span className="text-text-muted font-normal">(opcional)</span>
+                </label>
+                <textarea className="input min-h-[60px] resize-none" placeholder="Detalhes adicionais..." {...register('notes')} />
+              </div>
+
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-info-light dark:bg-info/10 border border-info/20">
+                <Zap size={13} className="text-info flex-shrink-0" />
+                <p className="text-xs text-info-dark dark:text-info">
+                  Quando a data chegar, uma conta a pagar será criada automaticamente no Financeiro.
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={closeModal} className="btn-secondary flex-1">Cancelar</button>
+                <button type="submit" disabled={saveMutation.isPending} className="btn-primary flex-1 flex items-center justify-center gap-2">
+                  {saveMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                  {saveMutation.isPending ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal confirmação delete ── */}
+      {deleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setDeleteId(null)} />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm p-5 animate-scaleIn">
+            <p className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-1">Remover conta recorrente?</p>
+            <p className="text-xs text-text-muted dark:text-stone-400 mb-4">
+              Os lançamentos já gerados no Financeiro continuam no histórico. Apenas a recorrência futura é interrompida.
             </p>
             <div className="flex gap-2">
               <button onClick={() => setDeleteId(null)} className="btn-secondary flex-1">Cancelar</button>
