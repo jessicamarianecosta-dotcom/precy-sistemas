@@ -100,7 +100,7 @@ export default function FinanceiroAvancadoPage() {
     { id: 'recorrentes',    label: 'Contas Recorrentes', icon: RefreshCcw,  ready: true  },
     { id: 'fluxo_caixa',    label: 'Fluxo de Caixa',     icon: LineChart,   ready: true  },
     { id: 'dre',            label: 'DRE Simplificado',   icon: TrendingUp,  ready: true  },
-    { id: 'metas',          label: 'Metas Financeiras',  icon: Target,      ready: false },
+    { id: 'metas',          label: 'Metas Financeiras',  icon: Target,      ready: true  },
     { id: 'projecao',       label: 'Projeção de Caixa',  icon: Clock3,      ready: false },
     { id: 'lucratividade',  label: 'Lucratividade',      icon: Award,       ready: false },
   ]
@@ -164,7 +164,10 @@ export default function FinanceiroAvancadoPage() {
         {tab === 'dre' && (
           <DRETab companyId={companyId} supabase={supabase} queryClient={queryClient} toast={toast} />
         )}
-        {tab !== 'visao_geral' && tab !== 'centro_custos' && tab !== 'recorrentes' && tab !== 'fluxo_caixa' && tab !== 'dre' && (
+        {tab === 'metas' && (
+          <MetasTab companyId={companyId} supabase={supabase} queryClient={queryClient} toast={toast} />
+        )}
+        {tab !== 'visao_geral' && tab !== 'centro_custos' && tab !== 'recorrentes' && tab !== 'fluxo_caixa' && tab !== 'dre' && tab !== 'metas' && (
           <ModuloEmBreve tabs={tabs} tab={tab} />
         )}
       </div>
@@ -181,7 +184,7 @@ function VisaoGeralTab({ onNavigate }: { onNavigate: (t: Tab) => void }) {
     { id: 'recorrentes',   title: 'Contas Recorrentes', desc: 'Assinaturas e contas fixas geradas automaticamente',  icon: RefreshCcw, ready: true  },
     { id: 'fluxo_caixa',   title: 'Fluxo de Caixa',     desc: 'Entradas, saídas e saldo em qualquer período',        icon: LineChart,  ready: true  },
     { id: 'dre',           title: 'DRE Simplificado',   desc: 'Receita, custos, despesas e lucro líquido',           icon: TrendingUp, ready: true  },
-    { id: 'metas',         title: 'Metas Financeiras',  desc: 'Acompanhe faturamento e lucro com metas mensais',     icon: Target,     ready: false },
+    { id: 'metas',         title: 'Metas Financeiras',  desc: 'Acompanhe faturamento e lucro com metas mensais',     icon: Target,     ready: true  },
     { id: 'projecao',      title: 'Projeção de Caixa',  desc: 'Previsão de saldo para os próximos 90 dias',          icon: Clock3,     ready: false },
     { id: 'lucratividade', title: 'Lucratividade',      desc: 'Produtos mais e menos lucrativos do seu negócio',     icon: Award,      ready: false },
   ]
@@ -1430,6 +1433,245 @@ function DRETab({
             </div>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+/* ════════════════════════════════════════════════════════════
+   ABA: METAS FINANCEIRAS
+═══════════════════════════════════════════════════════════ */
+type GoalType   = 'revenue' | 'profit'
+type GoalPeriod = 'monthly' | 'yearly'
+
+interface FinancialGoal {
+  id:            string
+  goal_type:     GoalType
+  period_type:   GoalPeriod
+  period_key:    string
+  target_amount: number
+}
+
+const goalSchema = z.object({
+  target_amount: z.coerce.number().min(1, 'Defina um valor maior que zero'),
+})
+type GoalForm = z.infer<typeof goalSchema>
+
+function MetasTab({
+  companyId, supabase, queryClient, toast,
+}: {
+  companyId: string | null
+  supabase: ReturnType<typeof createClient>
+  queryClient: ReturnType<typeof useQueryClient>
+  toast: (type: 'success' | 'error', msg: string) => void
+}) {
+  const [editingGoal, setEditingGoal] = useState<{ type: GoalType; period: GoalPeriod } | null>(null)
+
+  const now = new Date()
+  const monthKey = format(now, 'yyyy-MM')
+  const yearKey  = format(now, 'yyyy')
+
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<GoalForm>({
+    resolver: zodResolver(goalSchema),
+    defaultValues: { target_amount: 0 },
+  })
+
+  /* ── Metas cadastradas (mês e ano atuais) ── */
+  const { data: goals, isLoading: loadingGoals } = useQuery<FinancialGoal[]>({
+    queryKey: ['financial-goals', companyId, monthKey, yearKey],
+    enabled:  !!companyId,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from('financial_goals') as any)
+        .select('*')
+        .eq('company_id', companyId!)
+        .eq('is_active', true)
+        .in('period_key', [monthKey, yearKey])
+      if (error) throw error
+      return data ?? []
+    },
+  })
+
+  /* ── Faturamento e lucro realizados (mesma regra de caixa real) ── */
+  const { data: realized, isLoading: loadingRealized } = useQuery({
+    queryKey: ['goals-realized', companyId, monthKey, yearKey],
+    enabled:  !!companyId,
+    queryFn: async () => {
+      const yearStart = `${yearKey}-01-01`
+      const yearEnd   = `${yearKey}-12-31`
+      const { data, error } = await (supabase.from('financial_transactions') as any)
+        .select('type, amount, date, status')
+        .eq('company_id', companyId!)
+        .in('status', ['received', 'paid'])
+        .gte('date', yearStart)
+        .lte('date', yearEnd)
+      if (error) throw error
+
+      const tx = data ?? []
+      const monthTx = tx.filter((t: any) => t.date.startsWith(monthKey))
+
+      const monthRevenue = monthTx.filter((t: any) => t.type === 'income').reduce((s: number, t: any) => s + Number(t.amount), 0)
+      const monthExpense = monthTx.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + Number(t.amount), 0)
+      const yearRevenue  = tx.filter((t: any) => t.type === 'income').reduce((s: number, t: any) => s + Number(t.amount), 0)
+      const yearExpense  = tx.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + Number(t.amount), 0)
+
+      return {
+        monthRevenue, monthProfit: monthRevenue - monthExpense,
+        yearRevenue,  yearProfit:  yearRevenue - yearExpense,
+      }
+    },
+  })
+
+  const saveMutation = useMutation({
+    mutationFn: async ({ type, period, amount }: { type: GoalType; period: GoalPeriod; amount: number }) => {
+      if (!companyId) throw new Error('Empresa não identificada')
+      const periodKey = period === 'monthly' ? monthKey : yearKey
+      const { error } = await (supabase.from('financial_goals') as any)
+        .upsert([{
+          company_id: companyId, goal_type: type, period_type: period,
+          period_key: periodKey, target_amount: amount, is_active: true,
+          updated_at: new Date().toISOString(),
+        }], { onConflict: 'company_id,goal_type,period_type,period_key' })
+      if (error) throw error
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['financial-goals', companyId] })
+      toast('success', 'Meta salva!')
+      setEditingGoal(null)
+    },
+    onError: (err: Error) => toast('error', `Erro ao salvar: ${err.message}`),
+  })
+
+  function openEdit(type: GoalType, period: GoalPeriod, currentValue: number) {
+    setEditingGoal({ type, period })
+    reset({ target_amount: currentValue || 0 })
+  }
+
+  function getGoal(type: GoalType, period: GoalPeriod): FinancialGoal | undefined {
+    const key = period === 'monthly' ? monthKey : yearKey
+    return goals?.find(g => g.goal_type === type && g.period_type === period && g.period_key === key)
+  }
+
+  const cards: { type: GoalType; period: GoalPeriod; label: string; icon: LucideIcon; realized: number }[] = [
+    { type: 'revenue', period: 'monthly', label: 'Faturamento — Mês', icon: TrendingUp, realized: realized?.monthRevenue ?? 0 },
+    { type: 'profit',  period: 'monthly', label: 'Lucro — Mês',       icon: Award,      realized: realized?.monthProfit  ?? 0 },
+    { type: 'revenue', period: 'yearly',  label: 'Faturamento — Ano', icon: TrendingUp, realized: realized?.yearRevenue  ?? 0 },
+    { type: 'profit',  period: 'yearly',  label: 'Lucro — Ano',       icon: Award,      realized: realized?.yearProfit   ?? 0 },
+  ]
+
+  const isLoading = loadingGoals || loadingRealized
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-sm font-semibold text-text-primary dark:text-stone-100">Metas Financeiras</p>
+        <p className="text-xs text-text-muted dark:text-stone-400 mt-0.5">
+          Defina alvos de faturamento e lucro — o progresso atualiza automaticamente
+        </p>
+      </div>
+
+      {isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {[1,2,3,4].map(i => <div key={i} className="card h-32 animate-pulse bg-primary-50/50 dark:bg-white/5" />)}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {cards.map(c => {
+            const goal = getGoal(c.type, c.period)
+            const target = Number(goal?.target_amount ?? 0)
+            const pct = target > 0 ? Math.min(100, (c.realized / target) * 100) : 0
+            const remaining = Math.max(0, target - c.realized)
+            const isEditing = editingGoal?.type === c.type && editingGoal?.period === c.period
+            const Icon = c.icon
+
+            // Projeção simples: ritmo atual extrapolado para o resto do período (só mensal)
+            const dayOfMonth = now.getDate()
+            const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+            const projection = c.period === 'monthly' && dayOfMonth > 0
+              ? (c.realized / dayOfMonth) * daysInMonth
+              : null
+
+            return (
+              <div key={`${c.type}-${c.period}`} className="card p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-primary-50 dark:bg-primary/10 flex items-center justify-center">
+                      <Icon size={14} className="text-primary" />
+                    </div>
+                    <p className="text-xs font-semibold text-text-secondary dark:text-stone-400">{c.label}</p>
+                  </div>
+                  {!isEditing && (
+                    <button onClick={() => openEdit(c.type, c.period, target)} className="text-[10px] text-primary hover:underline flex-shrink-0">
+                      {target > 0 ? 'Editar meta' : '+ Definir meta'}
+                    </button>
+                  )}
+                </div>
+
+                {isEditing ? (
+                  <form
+                    onSubmit={handleSubmit(d => saveMutation.mutate({ type: c.type, period: c.period, amount: d.target_amount }))}
+                    className="space-y-2"
+                  >
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-text-muted font-medium">R$</span>
+                      <input
+                        type="number" step="0.01" min="0" autoFocus
+                        className="input pl-9 text-sm"
+                        placeholder="Valor da meta"
+                        {...register('target_amount')}
+                      />
+                    </div>
+                    {errors.target_amount && <p className="text-xs text-error">{errors.target_amount.message}</p>}
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setEditingGoal(null)} className="btn-secondary flex-1 text-xs py-1.5">Cancelar</button>
+                      <button type="submit" disabled={saveMutation.isPending} className="btn-primary flex-1 text-xs py-1.5 flex items-center justify-center gap-1.5">
+                        {saveMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+                        Salvar
+                      </button>
+                    </div>
+                  </form>
+                ) : target === 0 ? (
+                  <div className="text-center py-3">
+                    <p className="text-xs text-text-muted dark:text-stone-500">Nenhuma meta definida ainda</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-end justify-between mb-1.5">
+                      <span className="text-lg font-bold text-text-primary dark:text-stone-100">{formatCurrency(c.realized)}</span>
+                      <span className="text-xs text-text-muted dark:text-stone-500">de {formatCurrency(target)}</span>
+                    </div>
+                    <div className="h-2 w-full bg-primary/10 rounded-full overflow-hidden mb-2">
+                      <div
+                        className={clsx(
+                          'h-full rounded-full transition-all duration-500',
+                          pct >= 100 ? 'bg-success' : pct >= 70 ? 'bg-primary' : 'bg-warning'
+                        )}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className={clsx('font-semibold', pct >= 100 ? 'text-success' : 'text-primary')}>
+                        {pct.toFixed(0)}% atingido
+                      </span>
+                      {pct >= 100 ? (
+                        <span className="text-success font-medium flex items-center gap-0.5">
+                          <CheckCircle size={10} /> Meta batida!
+                        </span>
+                      ) : (
+                        <span className="text-text-muted">Faltam {formatCurrency(remaining)}</span>
+                      )}
+                    </div>
+                    {projection !== null && pct < 100 && (
+                      <p className="text-[10px] text-text-muted dark:text-stone-500 mt-2 pt-2 border-t border-border dark:border-border-dark">
+                        📈 No ritmo atual, projeção é fechar o mês em <strong className="text-text-secondary dark:text-stone-300">{formatCurrency(projection)}</strong>
+                        {projection >= target ? ' — meta deve ser atingida!' : ''}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )
+          })}
+        </div>
       )}
     </div>
   )
