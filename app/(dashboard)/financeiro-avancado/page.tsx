@@ -101,7 +101,7 @@ export default function FinanceiroAvancadoPage() {
     { id: 'fluxo_caixa',    label: 'Fluxo de Caixa',     icon: LineChart,   ready: true  },
     { id: 'dre',            label: 'DRE Simplificado',   icon: TrendingUp,  ready: true  },
     { id: 'metas',          label: 'Metas Financeiras',  icon: Target,      ready: true  },
-    { id: 'projecao',       label: 'Projeção de Caixa',  icon: Clock3,      ready: false },
+    { id: 'projecao',       label: 'Projeção de Caixa',  icon: Clock3,      ready: true  },
     { id: 'lucratividade',  label: 'Lucratividade',      icon: Award,       ready: false },
   ]
 
@@ -167,7 +167,10 @@ export default function FinanceiroAvancadoPage() {
         {tab === 'metas' && (
           <MetasTab companyId={companyId} supabase={supabase} queryClient={queryClient} toast={toast} />
         )}
-        {tab !== 'visao_geral' && tab !== 'centro_custos' && tab !== 'recorrentes' && tab !== 'fluxo_caixa' && tab !== 'dre' && tab !== 'metas' && (
+        {tab === 'projecao' && (
+          <ProjecaoTab companyId={companyId} supabase={supabase} />
+        )}
+        {tab !== 'visao_geral' && tab !== 'centro_custos' && tab !== 'recorrentes' && tab !== 'fluxo_caixa' && tab !== 'dre' && tab !== 'metas' && tab !== 'projecao' && (
           <ModuloEmBreve tabs={tabs} tab={tab} />
         )}
       </div>
@@ -185,7 +188,7 @@ function VisaoGeralTab({ onNavigate }: { onNavigate: (t: Tab) => void }) {
     { id: 'fluxo_caixa',   title: 'Fluxo de Caixa',     desc: 'Entradas, saídas e saldo em qualquer período',        icon: LineChart,  ready: true  },
     { id: 'dre',           title: 'DRE Simplificado',   desc: 'Receita, custos, despesas e lucro líquido',           icon: TrendingUp, ready: true  },
     { id: 'metas',         title: 'Metas Financeiras',  desc: 'Acompanhe faturamento e lucro com metas mensais',     icon: Target,     ready: true  },
-    { id: 'projecao',      title: 'Projeção de Caixa',  desc: 'Previsão de saldo para os próximos 90 dias',          icon: Clock3,     ready: false },
+    { id: 'projecao',      title: 'Projeção de Caixa',  desc: 'Previsão de saldo para os próximos 90 dias',          icon: Clock3,     ready: true  },
     { id: 'lucratividade', title: 'Lucratividade',      desc: 'Produtos mais e menos lucrativos do seu negócio',     icon: Award,      ready: false },
   ]
 
@@ -1672,6 +1675,228 @@ function MetasTab({
             )
           })}
         </div>
+      )}
+    </div>
+  )
+}
+
+/* ════════════════════════════════════════════════════════════
+   ABA: PROJEÇÃO DE CAIXA
+═══════════════════════════════════════════════════════════ */
+const PROJECTION_HORIZONS = [7, 15, 30, 60, 90]
+
+function ProjecaoTab({
+  companyId, supabase,
+}: {
+  companyId: string | null
+  supabase: ReturnType<typeof createClient>
+}) {
+  const todayStr = format(new Date(), 'yyyy-MM-dd')
+
+  /* ── Saldo atual real: tudo já movimentado (received/paid) até hoje ── */
+  const { data: saldoAtual, isLoading: loadingSaldo } = useQuery({
+    queryKey: ['projecao-saldo-atual', companyId, todayStr],
+    enabled:  !!companyId,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from('financial_transactions') as any)
+        .select('type, amount')
+        .eq('company_id', companyId!)
+        .in('status', ['received', 'paid'])
+        .lte('date', todayStr)
+      if (error) throw error
+      return (data ?? []).reduce((s: number, t: any) => s + (t.type === 'income' ? Number(t.amount) : -Number(t.amount)), 0)
+    },
+  })
+
+  /* ── Contas a receber futuras: pedidos pendentes/parciais com data prevista ── */
+  const { data: receivables, isLoading: loadingReceivables } = useQuery<{ date: string; amount: number }[]>({
+    queryKey: ['projecao-receivables', companyId, todayStr],
+    enabled:  !!companyId,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from('orders') as any)
+        .select('due_date, remaining_amount, total, payment_status')
+        .eq('company_id', companyId!)
+        .in('payment_status', ['pending', 'partial'])
+        .gte('due_date', todayStr)
+        .not('due_date', 'is', null)
+      if (error) throw error
+      return (data ?? []).map((o: any) => ({
+        date:   o.due_date,
+        amount: Number(o.remaining_amount) > 0 ? Number(o.remaining_amount) : Number(o.total),
+      }))
+    },
+  })
+
+  /* ── Contas a pagar futuras: lançamentos já registrados como a pagar/vencido ── */
+  const { data: payables, isLoading: loadingPayables } = useQuery<{ date: string; amount: number }[]>({
+    queryKey: ['projecao-payables', companyId, todayStr],
+    enabled:  !!companyId,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from('financial_transactions') as any)
+        .select('date, amount')
+        .eq('company_id', companyId!)
+        .eq('type', 'expense')
+        .in('status', ['to_pay', 'due'])
+        .gte('date', todayStr)
+      if (error) throw error
+      return (data ?? []).map((t: any) => ({ date: t.date, amount: Number(t.amount) }))
+    },
+  })
+
+  /* ── Contas recorrentes ativas: projetar próximas ocorrências dentro de 90 dias ── */
+  const { data: recurringProjection, isLoading: loadingRecurring } = useQuery<{ date: string; amount: number }[]>({
+    queryKey: ['projecao-recurring', companyId, todayStr],
+    enabled:  !!companyId,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from('recurring_bills') as any)
+        .select('amount, periodicity, next_due_date')
+        .eq('company_id', companyId!)
+        .eq('is_active', true)
+      if (error) throw error
+
+      const horizon90 = addDays(new Date(todayStr + 'T00:00:00'), 90)
+      const occurrences: { date: string; amount: number }[] = []
+
+      ;(data ?? []).forEach((bill: any) => {
+        let cursor = new Date(bill.next_due_date + 'T00:00:00')
+        // Gera todas as ocorrências futuras da conta recorrente dentro da janela de 90 dias
+        while (cursor <= horizon90) {
+          occurrences.push({ date: format(cursor, 'yyyy-MM-dd'), amount: Number(bill.amount) })
+          cursor = nextDueFrom(cursor, bill.periodicity)
+        }
+      })
+      return occurrences
+    },
+  })
+
+  const isLoading = loadingSaldo || loadingReceivables || loadingPayables || loadingRecurring
+
+  /* ── Calcular saldo projetado para cada horizonte ── */
+  function saldoEm(days: number): { saldo: number; entradas: number; saidas: number } {
+    const limit = format(addDays(new Date(todayStr + 'T00:00:00'), days), 'yyyy-MM-dd')
+    const entradas = (receivables ?? []).filter(r => r.date <= limit).reduce((s, r) => s + r.amount, 0)
+    const saidasPayables = (payables ?? []).filter(p => p.date <= limit).reduce((s, p) => s + p.amount, 0)
+    const saidasRecurring = (recurringProjection ?? []).filter(r => r.date <= limit).reduce((s, r) => s + r.amount, 0)
+    const saidas = saidasPayables + saidasRecurring
+    return { saldo: (saldoAtual ?? 0) + entradas - saidas, entradas, saidas }
+  }
+
+  /* ── Série para o gráfico: saldo projetado dia a dia até 90 dias ── */
+  const chartData = (() => {
+    if (saldoAtual === undefined) return []
+    const days = eachDayOfInterval({ start: new Date(todayStr + 'T00:00:00'), end: addDays(new Date(todayStr + 'T00:00:00'), 90) })
+    return days.map(day => {
+      const dayStr = format(day, 'yyyy-MM-dd')
+      const entradas = (receivables ?? []).filter(r => r.date <= dayStr).reduce((s, r) => s + r.amount, 0)
+      const saidas = (payables ?? []).filter(p => p.date <= dayStr).reduce((s, p) => s + p.amount, 0)
+        + (recurringProjection ?? []).filter(r => r.date <= dayStr).reduce((s, r) => s + r.amount, 0)
+      return {
+        date: format(day, 'dd/MM', { locale: ptBR }),
+        saldo: Math.round(((saldoAtual ?? 0) + entradas - saidas) * 100) / 100,
+      }
+    })
+  })()
+
+  const hasNegativeProjection = PROJECTION_HORIZONS.some(h => saldoEm(h).saldo < 0)
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-sm font-semibold text-text-primary dark:text-stone-100">Projeção de Caixa</p>
+        <p className="text-xs text-text-muted dark:text-stone-400 mt-0.5">
+          Previsão de saldo considerando contas a receber, a pagar e recorrências futuras
+        </p>
+      </div>
+
+      {isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+          {[1,2,3,4,5].map(i => <div key={i} className="card h-24 animate-pulse bg-primary-50/50 dark:bg-white/5" />)}
+        </div>
+      ) : (
+        <>
+          {/* ── Saldo atual ── */}
+          <div className="card p-4 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Saldo atual</p>
+              <p className={clsx('text-2xl font-bold mt-1', (saldoAtual ?? 0) >= 0 ? 'text-text-primary dark:text-stone-100' : 'text-error')}>
+                {formatCurrency(saldoAtual ?? 0)}
+              </p>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Clock3 size={18} className="text-primary" />
+            </div>
+          </div>
+
+          {hasNegativeProjection && (
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-error-light dark:bg-error/10 border border-error/20">
+              <AlertTriangle size={14} className="text-error flex-shrink-0" />
+              <p className="text-xs text-error-dark dark:text-error">
+                Atenção: a projeção indica saldo negativo em algum dos próximos períodos. Revise contas a pagar ou acelere recebimentos.
+              </p>
+            </div>
+          )}
+
+          {/* ── Cards por horizonte ── */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {PROJECTION_HORIZONS.map(h => {
+              const { saldo } = saldoEm(h)
+              return (
+                <div key={h} className="card p-3.5">
+                  <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">{h} dias</p>
+                  <p className={clsx('text-base font-bold mt-1', saldo >= 0 ? 'text-primary' : 'text-error')}>
+                    {formatCurrency(saldo)}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* ── Gráfico de projeção ── */}
+          {chartData.length > 0 && (
+            <div className="card p-4">
+              <p className="text-xs font-semibold text-text-secondary dark:text-stone-400 mb-3">Saldo projetado — próximos 90 dias</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="projecaoGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#8B6C4F" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="#8B6C4F" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#8B6C4F" strokeOpacity={0.08} vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval={6} />
+                  <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={70}
+                    tickFormatter={(v) => formatCurrency(v).replace('R$', '').trim()} />
+                  <Tooltip
+                    formatter={(v: number) => [formatCurrency(v), 'Saldo projetado']}
+                    contentStyle={{ borderRadius: 12, border: '1px solid rgba(139,108,79,0.2)', fontSize: 12 }}
+                  />
+                  <Area type="monotone" dataKey="saldo" stroke="#8B6C4F" strokeWidth={2} fill="url(#projecaoGradient)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* ── Detalhamento ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="card p-4">
+              <p className="text-xs font-semibold text-success mb-2 flex items-center gap-1.5">
+                <TrendingUp size={13} /> A receber (90 dias)
+              </p>
+              <p className="text-lg font-bold text-success">{formatCurrency(saldoEm(90).entradas)}</p>
+              <p className="text-[10px] text-text-muted mt-1">{(receivables ?? []).length} pedido(s) pendente(s)</p>
+            </div>
+            <div className="card p-4">
+              <p className="text-xs font-semibold text-error mb-2 flex items-center gap-1.5">
+                <TrendingUp size={13} className="rotate-180" /> A pagar (90 dias)
+              </p>
+              <p className="text-lg font-bold text-error">{formatCurrency(saldoEm(90).saidas)}</p>
+              <p className="text-[10px] text-text-muted mt-1">
+                {(payables ?? []).length} conta(s) + {(recurringProjection ?? []).length} ocorrência(s) recorrente(s)
+              </p>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )
