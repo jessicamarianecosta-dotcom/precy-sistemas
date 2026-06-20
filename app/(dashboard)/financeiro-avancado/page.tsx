@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toaster'
 import { useCompanyId } from '@/hooks/useCompanyId'
+import { useFinancialAlerts, AlertSeverity } from '@/hooks/useFinancialAlerts'
 import { Header } from '@/components/layout/Header'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency } from '@/lib/utils/format'
@@ -26,7 +27,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 /* ════════════════════════════════════════════════════════════
    TIPOS
 ═══════════════════════════════════════════════════════════ */
-type Tab = 'visao_geral' | 'centro_custos' | 'recorrentes' | 'fluxo_caixa' | 'dre' | 'metas' | 'projecao' | 'lucratividade'
+type Tab = 'visao_geral' | 'centro_custos' | 'recorrentes' | 'fluxo_caixa' | 'dre' | 'metas' | 'projecao' | 'alertas' | 'lucratividade'
 
 interface CostCenter {
   id:         string
@@ -102,6 +103,7 @@ export default function FinanceiroAvancadoPage() {
     { id: 'dre',            label: 'DRE Simplificado',   icon: TrendingUp,  ready: true  },
     { id: 'metas',          label: 'Metas Financeiras',  icon: Target,      ready: true  },
     { id: 'projecao',       label: 'Projeção de Caixa',  icon: Clock3,      ready: true  },
+    { id: 'alertas',        label: 'Alertas',            icon: BellRing,    ready: true  },
     { id: 'lucratividade',  label: 'Lucratividade',      icon: Award,       ready: false },
   ]
 
@@ -170,7 +172,8 @@ export default function FinanceiroAvancadoPage() {
         {tab === 'projecao' && (
           <ProjecaoTab companyId={companyId} supabase={supabase} />
         )}
-        {tab !== 'visao_geral' && tab !== 'centro_custos' && tab !== 'recorrentes' && tab !== 'fluxo_caixa' && tab !== 'dre' && tab !== 'metas' && tab !== 'projecao' && (
+        {tab === 'alertas' && <AlertasTab />}
+        {tab !== 'visao_geral' && tab !== 'centro_custos' && tab !== 'recorrentes' && tab !== 'fluxo_caixa' && tab !== 'dre' && tab !== 'metas' && tab !== 'projecao' && tab !== 'alertas' && (
           <ModuloEmBreve tabs={tabs} tab={tab} />
         )}
       </div>
@@ -189,6 +192,7 @@ function VisaoGeralTab({ onNavigate }: { onNavigate: (t: Tab) => void }) {
     { id: 'dre',           title: 'DRE Simplificado',   desc: 'Receita, custos, despesas e lucro líquido',           icon: TrendingUp, ready: true  },
     { id: 'metas',         title: 'Metas Financeiras',  desc: 'Acompanhe faturamento e lucro com metas mensais',     icon: Target,     ready: true  },
     { id: 'projecao',      title: 'Projeção de Caixa',  desc: 'Previsão de saldo para os próximos 90 dias',          icon: Clock3,     ready: true  },
+    { id: 'alertas',       title: 'Alertas',            desc: 'Avisos automáticos sobre contas, metas e fluxo',      icon: BellRing,   ready: true  },
     { id: 'lucratividade', title: 'Lucratividade',      desc: 'Produtos mais e menos lucrativos do seu negócio',     icon: Award,      ready: false },
   ]
 
@@ -1898,6 +1902,104 @@ function ProjecaoTab({
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+/* ════════════════════════════════════════════════════════════
+   ABA: ALERTAS AUTOMÁTICOS
+═══════════════════════════════════════════════════════════ */
+function AlertasTab() {
+  const { data: alerts, isLoading } = useFinancialAlerts()
+
+  const severityConfig: Record<AlertSeverity, { icon: LucideIcon; color: string; bg: string; label: string }> = {
+    error:   { icon: Lock,        color: 'text-error',   bg: 'bg-error-light dark:bg-error/10',     label: 'Crítico' },
+    warning: { icon: Clock3,      color: 'text-warning',  bg: 'bg-warning-light dark:bg-warning/10', label: 'Atenção' },
+    success: { icon: CheckCircle, color: 'text-success', bg: 'bg-success-light dark:bg-success/10', label: 'Conquista' },
+    info:    { icon: BellRing,    color: 'text-info',     bg: 'bg-info-light dark:bg-info/10',        label: 'Informação' },
+  }
+
+  const grouped = {
+    error:   (alerts ?? []).filter(a => a.severity === 'error'),
+    warning: (alerts ?? []).filter(a => a.severity === 'warning'),
+    success: (alerts ?? []).filter(a => a.severity === 'success'),
+    info:    (alerts ?? []).filter(a => a.severity === 'info'),
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-sm font-semibold text-text-primary dark:text-stone-100">Alertas Automáticos</p>
+        <p className="text-xs text-text-muted dark:text-stone-400 mt-0.5">
+          Avisos calculados em tempo real a partir dos seus dados financeiros — o mesmo sino do topo mostra estes alertas
+        </p>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[1,2,3].map(i => <div key={i} className="card h-20 animate-pulse bg-primary-50/50 dark:bg-white/5" />)}
+        </div>
+      ) : !alerts?.length ? (
+        <EmptyState
+          icon={CheckCircle}
+          title="Tudo certo por aqui!"
+          description="Nenhum alerta no momento. Você será avisada automaticamente sobre contas vencendo, metas atingidas, fluxo de caixa negativo e estoque crítico."
+        />
+      ) : (
+        <div className="space-y-4">
+          {(Object.keys(grouped) as AlertSeverity[]).map(severity => {
+            const list = grouped[severity]
+            if (list.length === 0) return null
+            const cfg = severityConfig[severity]
+            const Icon = cfg.icon
+            return (
+              <div key={severity}>
+                <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-2 px-1">
+                  {cfg.label} ({list.length})
+                </p>
+                <div className="space-y-2">
+                  {list.map(a => (
+                    <a
+                      key={a.id}
+                      href={a.href ?? '#'}
+                      className="card flex items-start gap-3 p-4 hover:border-primary/30 transition-colors block"
+                    >
+                      <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0', cfg.bg)}>
+                        <Icon size={16} className={cfg.color} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">{a.title}</p>
+                        <p className="text-xs text-text-muted dark:text-stone-400 mt-0.5 leading-relaxed">{a.message}</p>
+                      </div>
+                      <ChevronRight size={15} className="text-text-muted flex-shrink-0 mt-1" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── O que monitoramos ── */}
+      <div className="card p-4">
+        <p className="text-xs font-semibold text-text-secondary dark:text-stone-400 mb-3">O que monitoramos automaticamente</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {[
+            'Contas a pagar vencidas',
+            'Contas vencendo nos próximos 7 dias',
+            'Recebimentos de clientes atrasados',
+            'Projeção de fluxo de caixa negativo',
+            'Progresso da meta de faturamento',
+            'Itens em estoque crítico',
+          ].map(item => (
+            <div key={item} className="flex items-center gap-2 text-xs text-text-muted dark:text-stone-400">
+              <CheckCircle size={11} className="text-success flex-shrink-0" />
+              {item}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
