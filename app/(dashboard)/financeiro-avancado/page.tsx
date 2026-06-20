@@ -104,7 +104,7 @@ export default function FinanceiroAvancadoPage() {
     { id: 'metas',          label: 'Metas Financeiras',  icon: Target,      ready: true  },
     { id: 'projecao',       label: 'Projeção de Caixa',  icon: Clock3,      ready: true  },
     { id: 'alertas',        label: 'Alertas',            icon: BellRing,    ready: true  },
-    { id: 'lucratividade',  label: 'Lucratividade',      icon: Award,       ready: false },
+    { id: 'lucratividade',  label: 'Lucratividade',      icon: Award,       ready: true  },
   ]
 
   return (
@@ -173,8 +173,8 @@ export default function FinanceiroAvancadoPage() {
           <ProjecaoTab companyId={companyId} supabase={supabase} />
         )}
         {tab === 'alertas' && <AlertasTab />}
-        {tab !== 'visao_geral' && tab !== 'centro_custos' && tab !== 'recorrentes' && tab !== 'fluxo_caixa' && tab !== 'dre' && tab !== 'metas' && tab !== 'projecao' && tab !== 'alertas' && (
-          <ModuloEmBreve tabs={tabs} tab={tab} />
+        {tab === 'lucratividade' && (
+          <LucratividadeTab companyId={companyId} supabase={supabase} />
         )}
       </div>
     </div>
@@ -193,7 +193,7 @@ function VisaoGeralTab({ onNavigate }: { onNavigate: (t: Tab) => void }) {
     { id: 'metas',         title: 'Metas Financeiras',  desc: 'Acompanhe faturamento e lucro com metas mensais',     icon: Target,     ready: true  },
     { id: 'projecao',      title: 'Projeção de Caixa',  desc: 'Previsão de saldo para os próximos 90 dias',          icon: Clock3,     ready: true  },
     { id: 'alertas',       title: 'Alertas',            desc: 'Avisos automáticos sobre contas, metas e fluxo',      icon: BellRing,   ready: true  },
-    { id: 'lucratividade', title: 'Lucratividade',      desc: 'Produtos mais e menos lucrativos do seu negócio',     icon: Award,      ready: false },
+    { id: 'lucratividade', title: 'Lucratividade',      desc: 'Produtos mais e menos lucrativos do seu negócio',     icon: Award,      ready: true  },
   ]
 
   return (
@@ -2000,6 +2000,206 @@ function AlertasTab() {
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+/* ════════════════════════════════════════════════════════════
+   ABA: LUCRATIVIDADE
+═══════════════════════════════════════════════════════════ */
+interface ProductProfitability {
+  id:            string
+  name:          string
+  category:      string
+  total_cost:    number
+  final_price:   number
+  margin:        number   // final_price - total_cost
+  marginPct:     number    // margin / final_price * 100
+}
+
+type ProfitSort = 'margin_desc' | 'margin_asc' | 'price_desc' | 'marginPct_desc' | 'marginPct_asc'
+
+function LucratividadeTab({
+  companyId, supabase,
+}: {
+  companyId: string | null
+  supabase: ReturnType<typeof createClient>
+}) {
+  const [sortBy, setSortBy] = useState<ProfitSort>('marginPct_desc')
+
+  const { data: products, isLoading } = useQuery<ProductProfitability[]>({
+    queryKey: ['lucratividade-produtos', companyId],
+    enabled:  !!companyId,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from('products') as any)
+        .select('id, name, category, total_cost, material_cost, labor_cost, extra_cost, final_price, is_active')
+        .eq('company_id', companyId!)
+        .eq('is_active', true)
+      if (error) throw error
+
+      return (data ?? []).map((p: any) => {
+        const cost = Number(p.total_cost) > 0
+          ? Number(p.total_cost)
+          : Number(p.material_cost ?? 0) + Number(p.labor_cost ?? 0) + Number(p.extra_cost ?? 0)
+        const price  = Number(p.final_price ?? 0)
+        const margin = price - cost
+        const marginPct = price > 0 ? (margin / price) * 100 : 0
+        return {
+          id: p.id, name: p.name, category: p.category ?? 'geral',
+          total_cost: cost, final_price: price, margin, marginPct,
+        }
+      })
+    },
+  })
+
+  const list = products ?? []
+  const sorted = [...list].sort((a, b) => {
+    switch (sortBy) {
+      case 'margin_asc':       return a.margin - b.margin
+      case 'price_desc':       return b.final_price - a.final_price
+      case 'marginPct_asc':    return a.marginPct - b.marginPct
+      case 'marginPct_desc':   return b.marginPct - a.marginPct
+      default:                 return b.margin - a.margin // margin_desc
+    }
+  })
+
+  const top3 = [...list].sort((a, b) => b.marginPct - a.marginPct).slice(0, 3)
+  const bottom3 = [...list].sort((a, b) => a.marginPct - b.marginPct).slice(0, 3).reverse()
+  const avgMarginPct = list.length > 0 ? list.reduce((s, p) => s + p.marginPct, 0) / list.length : 0
+  const negativeMargin = list.filter(p => p.margin < 0)
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-sm font-semibold text-text-primary dark:text-stone-100">Lucratividade</p>
+        <p className="text-xs text-text-muted dark:text-stone-400 mt-0.5">
+          Margem de cada produto cadastrado — preço de venda menos custo total
+        </p>
+      </div>
+
+      {isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[1,2,3].map(i => <div key={i} className="card h-24 animate-pulse bg-primary-50/50 dark:bg-white/5" />)}
+        </div>
+      ) : list.length === 0 ? (
+        <EmptyState
+          icon={Award}
+          title="Nenhum produto cadastrado ainda"
+          description="Cadastre produtos na Precificação para ver a análise de lucratividade aqui."
+        />
+      ) : (
+        <>
+          {/* ── Resumo ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="card p-4">
+              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Margem média</p>
+              <p className={clsx('text-xl font-bold mt-1', avgMarginPct >= 0 ? 'text-success' : 'text-error')}>
+                {avgMarginPct.toFixed(1)}%
+              </p>
+              <p className="text-[10px] text-text-muted mt-1">entre {list.length} produto(s)</p>
+            </div>
+            <div className="card p-4">
+              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Mais lucrativo</p>
+              <p className="text-sm font-bold text-success mt-1 leading-snug break-words">{top3[0]?.name ?? '—'}</p>
+              <p className="text-[10px] text-text-muted mt-1">{top3[0] ? `${top3[0].marginPct.toFixed(1)}% de margem` : ''}</p>
+            </div>
+            <div className={clsx('card p-4', negativeMargin.length > 0 && 'border-error/30')}>
+              <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Com margem negativa</p>
+              <p className={clsx('text-xl font-bold mt-1', negativeMargin.length > 0 ? 'text-error' : 'text-success')}>
+                {negativeMargin.length}
+              </p>
+              <p className="text-[10px] text-text-muted mt-1">
+                {negativeMargin.length > 0 ? 'vendendo com prejuízo' : 'nenhum produto no prejuízo'}
+              </p>
+            </div>
+          </div>
+
+          {negativeMargin.length > 0 && (
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-error-light dark:bg-error/10 border border-error/20">
+              <AlertTriangle size={14} className="text-error flex-shrink-0" />
+              <p className="text-xs text-error-dark dark:text-error">
+                {negativeMargin.length} produto(s) está(ão) sendo vendido(s) por menos do que custam. Revise o preço ou os custos.
+              </p>
+            </div>
+          )}
+
+          {/* ── Top 3 e Bottom 3 ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="card p-4">
+              <p className="text-xs font-semibold text-success mb-3 flex items-center gap-1.5">
+                <Award size={13} /> Mais lucrativos
+              </p>
+              <div className="space-y-2">
+                {top3.map((p, i) => (
+                  <div key={p.id} className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[10px] font-bold text-success w-4 flex-shrink-0">#{i + 1}</span>
+                      <span className="text-xs text-text-primary dark:text-stone-200 leading-snug break-words">{p.name}</span>
+                    </div>
+                    <span className="text-xs font-bold text-success flex-shrink-0">{p.marginPct.toFixed(0)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="card p-4">
+              <p className="text-xs font-semibold text-error mb-3 flex items-center gap-1.5">
+                <TrendingUp size={13} className="rotate-180" /> Menos lucrativos
+              </p>
+              <div className="space-y-2">
+                {bottom3.map((p, i) => (
+                  <div key={p.id} className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[10px] font-bold text-error w-4 flex-shrink-0">#{i + 1}</span>
+                      <span className="text-xs text-text-primary dark:text-stone-200 leading-snug break-words">{p.name}</span>
+                    </div>
+                    <span className={clsx('text-xs font-bold flex-shrink-0', p.marginPct < 0 ? 'text-error' : 'text-warning')}>
+                      {p.marginPct.toFixed(0)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Tabela completa ── */}
+          <div className="card p-0 overflow-hidden">
+            <div className="p-4 border-b border-border dark:border-border-dark flex items-center justify-between gap-2 flex-wrap">
+              <p className="text-xs font-semibold text-text-secondary dark:text-stone-400">Todos os produtos ({list.length})</p>
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as ProfitSort)}
+                className="input py-1.5 text-xs w-auto"
+              >
+                <option value="marginPct_desc">Maior margem %</option>
+                <option value="marginPct_asc">Menor margem %</option>
+                <option value="margin_desc">Maior margem R$</option>
+                <option value="margin_asc">Menor margem R$</option>
+                <option value="price_desc">Maior preço</option>
+              </select>
+            </div>
+            <div className="divide-y divide-border dark:divide-border-dark max-h-[500px] overflow-y-auto">
+              {sorted.map(p => (
+                <div key={p.id} className="flex items-center justify-between gap-3 p-3.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-text-primary dark:text-stone-100 leading-snug break-words">{p.name}</p>
+                    <p className="text-[10px] text-text-muted dark:text-stone-500 mt-0.5">
+                      Custo {formatCurrency(p.total_cost)} → Venda {formatCurrency(p.final_price)}
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className={clsx('text-sm font-bold', p.margin >= 0 ? 'text-success' : 'text-error')}>
+                      {p.margin >= 0 ? '+' : ''}{formatCurrency(p.margin)}
+                    </p>
+                    <p className={clsx('text-[10px] font-medium', p.marginPct >= 0 ? 'text-text-muted' : 'text-error')}>
+                      {p.marginPct.toFixed(1)}% margem
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
