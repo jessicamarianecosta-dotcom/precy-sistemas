@@ -5,7 +5,7 @@ import { clsx }            from 'clsx'
 import { useSubscription } from '@/hooks/useSubscription'
 import {
   Play, BookOpen, Lock, Crown, X, ExternalLink,
-  Clock, Tag, ChevronRight, FileText,
+  Clock, Tag, ChevronRight, FileText, Loader2,
 } from 'lucide-react'
 
 /* ─── Types ─── */
@@ -126,6 +126,25 @@ export default function ConteudoPage() {
   const [proModal,     setProModal]     = useState(false)
   const [contentModal, setContentModal] = useState(false)
   const [selectedItem, setSelectedItem] = useState<Content | null>(null)
+  const [checkoutLoading, setCheckoutLoading] = useState(false)
+
+  async function handleUpgradeClick() {
+    setCheckoutLoading(true)
+    try {
+      const res  = await fetch('/api/stripe/checkout', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: 'pro' }),
+      })
+      const data = await res.json()
+      if (data.url) {
+        window.location.href = data.url
+      } else {
+        setCheckoutLoading(false)
+      }
+    } catch {
+      setCheckoutLoading(false)
+    }
+  }
 
   /* Plano real via Stripe/Supabase */
   const { data: sub } = useSubscription()
@@ -186,10 +205,12 @@ export default function ConteudoPage() {
               </div>
             </div>
             <button
-              className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90"
+              onClick={handleUpgradeClick}
+              disabled={checkoutLoading}
+              className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 disabled:opacity-60"
               style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}
             >
-              Assinar PRO <ChevronRight size={14} />
+              {checkoutLoading ? <Loader2 size={14} className="animate-spin" /> : null}              Assinar PRO <ChevronRight size={14} />
             </button>
           </div>
         )}
@@ -404,10 +425,13 @@ export default function ConteudoPage() {
 
               <div className="space-y-2.5 px-2">
                 <button
-                  className="w-full py-3 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 transition-all hover:opacity-90"
+                  onClick={handleUpgradeClick}
+                  disabled={checkoutLoading}
+                  className="w-full py-3 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 transition-all hover:opacity-90 disabled:opacity-60"
                   style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)', boxShadow: '0 4px 20px rgba(139,108,79,0.4)' }}
                 >
-                  <Crown size={15} /> Desbloquear PRO — R$47/mês
+                  {checkoutLoading ? <Loader2 size={15} className="animate-spin" /> : <Crown size={15} />}
+                  {checkoutLoading ? 'Redirecionando...' : 'Desbloquear PRO — R$47/mês'}
                 </button>
                 <button
                   onClick={() => setProModal(false)}

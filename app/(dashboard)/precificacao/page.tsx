@@ -14,6 +14,7 @@ import {
 import { clsx } from 'clsx'
 import { CategorySelect } from '@/components/ui/CategorySelect'
 import { formatCurrency as fmt } from '@/lib/utils/format'
+import { useSubscription } from '@/hooks/useSubscription'
 
 /* ─────────────────────────── Types ─── */
 type ProductType = 'produced' | 'resale' | 'meter_product'
@@ -93,6 +94,7 @@ function PrecificacaoPage() {
   const queryClient = useQueryClient()
 
   const [companyId, setCompanyId] = useState<string | null>(null)
+  const { data: sub } = useSubscription()
   const searchParams = useSearchParams()
   const editingProductId = searchParams.get('productId') ?? null
 
@@ -371,6 +373,21 @@ function PrecificacaoPage() {
     mutationFn: async () => {
       if (!companyId || !productName.trim()) {
         throw new Error('Dados incompletos')
+      }
+
+      /* Limite do plano Basic — só verifica em CRIAÇÃO, não em edição
+         (editar um produto existente não aumenta a contagem) */
+      if (!editingProductId && sub && !sub.isPro) {
+        const limit = sub.limits.products
+        if (Number.isFinite(limit)) {
+          const { count } = await supabase
+            .from('products')
+            .select('id', { count: 'exact', head: true })
+            .eq('company_id', companyId)
+          if ((count ?? 0) >= limit) {
+            throw new Error(`Limite de ${limit} produtos do plano Basic atingido. Faça upgrade para o PRO e cadastre produtos ilimitados.`)
+          }
+        }
       }
 
       const productPayload = {
@@ -1161,7 +1178,9 @@ function PrecificacaoPage() {
               {saveMutation.isError && (
                 <div className="flex items-center gap-2 p-3 rounded-xl bg-error-light dark:bg-error/10 border border-error/20">
                   <AlertTriangle size={13} className="text-error flex-shrink-0" />
-                  <p className="text-xs text-error-dark">Erro ao salvar. Tente novamente.</p>
+                  <p className="text-xs text-error-dark">
+                    {(saveMutation.error as Error)?.message || 'Erro ao salvar. Tente novamente.'}
+                  </p>
                 </div>
               )}
 

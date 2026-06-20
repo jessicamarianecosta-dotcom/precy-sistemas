@@ -10,7 +10,12 @@ import { cookies } from 'next/headers'
  * O UPLOAD da logo é feito NESTA ROTA (server-side) usando supabaseAdmin,
  * que possui service role e ignora RLS — evitando o erro de policy.
  *
- * Recebe: multipart/form-data com campo 'file' e 'companyId'
+ * SEGURANÇA: o companyId NUNCA é aceito do client. É sempre derivado
+ * da sessão autenticada (auth.uid() → companies.user_id), exatamente
+ * como as rotas /api/stripe/*. Isso evita que uma usuária autenticada
+ * sobrescreva o logo de outra empresa enviando um companyId arbitrário.
+ *
+ * Recebe: multipart/form-data com campo 'file' (companyId é ignorado se enviado)
  * Retorna: { ok: true, url: string }
  */
 export async function POST(request: Request) {
@@ -19,9 +24,19 @@ export async function POST(request: Request) {
     const { data: { user } } = await serverClient.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
 
+    /* ── Resolver companyId a partir da sessão — nunca do client ── */
+    const { data: company, error: companyErr } = await (supabaseAdmin.from('companies') as any)
+      .select('id')
+      .eq('user_id', user.id)
+      .single()
+
+    if (companyErr || !company) {
+      return NextResponse.json({ error: 'Empresa não encontrada para este usuário' }, { status: 404 })
+    }
+    const companyId = company.id as string
+
     const formData = await request.formData()
     const file      = formData.get('file') as File | null
-    const companyId = formData.get('companyId') as string | null
 
     /* ── Garantir bucket ── */
     const { data: buckets } = await supabaseAdmin.storage.listBuckets()
@@ -40,11 +55,21 @@ export async function POST(request: Request) {
     }
 
     /* ── Se não tem arquivo, só garante o bucket ── */
-    if (!file || !companyId) {
+    if (!file) {
       return NextResponse.json({ ok: true, bucketReady: true })
     }
 
-    /* ── Upload usando supabaseAdmin (service role ignora RLS) ── */
+    /* ── Validar tipo/tamanho no servidor (defesa em profundidade) ── */
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+    if (!allowedTypes.includes(file.type)) {
+      return NextResponse.json({ error: 'Tipo de arquivo não permitido.' }, { status: 400 })
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      return NextResponse.json({ error: 'Arquivo muito grande. Máximo 2MB.' }, { status: 400 })
+    }
+
+    /* ── Upload usando supabaseAdmin (service role ignora RLS) ──
+       path SEMPRE usa o companyId resolvido da sessão, não do client */
     const ext  = file.name.split('.').pop()?.toLowerCase() ?? 'png'
     const path = `logos/${companyId}.${ext}`
 
@@ -68,7 +93,7 @@ export async function POST(request: Request) {
       .from('company-assets')
       .getPublicUrl(path)
 
-    /* ── Salvar logo_url no banco ── */
+    /* ── Salvar logo_url no banco (mesma empresa resolvida acima) ── */
     const { error: dbErr } = await (supabaseAdmin.from('companies') as any)
       .update({ logo_url: urlData.publicUrl, updated_at: new Date().toISOString() })
       .eq('id', companyId)

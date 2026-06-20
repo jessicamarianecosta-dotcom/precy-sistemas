@@ -664,13 +664,16 @@ export default function AgendaPage() {
                         <Edit3 size={12} /> Editar
                       </button>
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           const next: CalTask['status'] = t.status === 'done' ? 'pending' : 'done'
-                          ;(supabase.from('calendar_tasks') as any).update({ status: next }).eq('id', t.id).then(() => {
-                            qc.invalidateQueries({ queryKey: ['calendar-tasks', companyId, monthKey] })
-                            toast('success', next === 'done' ? 'Concluída!' : 'Reaberta!')
-                            setViewEvent(null)
-                          })
+                          const { error } = await (supabase.from('calendar_tasks') as any).update({ status: next }).eq('id', t.id)
+                          if (error) {
+                            toast('error', `Erro ao atualizar: ${error.message}`)
+                            return
+                          }
+                          qc.invalidateQueries({ queryKey: ['calendar-tasks', companyId, monthKey] })
+                          toast('success', next === 'done' ? 'Concluída!' : 'Reaberta!')
+                          setViewEvent(null)
                         }}
                         className={clsx('flex-1 flex items-center justify-center gap-1.5 text-xs py-2 rounded-xl font-medium transition-all',
                           t.status === 'done'

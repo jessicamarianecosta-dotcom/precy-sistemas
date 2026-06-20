@@ -53,6 +53,7 @@ import { format } from 'date-fns'
 
 import { ptBR } from 'date-fns/locale'
 import { formatCurrency as fmtGlobal } from '@/lib/utils/format'
+import { useSubscription } from '@/hooks/useSubscription'
 
 /* ─────────────────────────────────────────────
    STATUS
@@ -163,6 +164,7 @@ export default function PedidosPage() {
   const { toast } = useToast()
 
   const { companyId } = useCompanyId()
+  const { data: sub } = useSubscription()
 
   const [showModal, setShowModal] =
     useState(false)
@@ -387,6 +389,22 @@ export default function PedidosPage() {
   const saveMutation = useMutation({
     mutationFn: async (data: FormData) => {
       const payload = buildOrderPayload(data)
+
+      /* Limite do plano Basic — só verifica em CRIAÇÃO (novo pedido), não em edição */
+      if (!editingId && companyId && sub && !sub.isPro) {
+        const limit = sub.limits.orders
+        if (Number.isFinite(limit)) {
+          const startOfMonth = new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0)
+          const { count } = await supabase
+            .from('orders')
+            .select('id', { count: 'exact', head: true })
+            .eq('company_id', companyId)
+            .gte('created_at', startOfMonth.toISOString())
+          if ((count ?? 0) >= limit) {
+            throw new Error(`Limite de ${limit} pedidos/mês do plano Basic atingido. Faça upgrade para o PRO e crie pedidos ilimitados.`)
+          }
+        }
+      }
 
       if (editingId) {
         // Pegar status anterior para evitar duplicar lançamento

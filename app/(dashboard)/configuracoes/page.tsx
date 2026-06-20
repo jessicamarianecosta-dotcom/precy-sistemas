@@ -17,6 +17,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useToast } from '@/components/ui/Toaster'
 import { useRouter } from 'next/navigation'
+import { useSubscription } from '@/hooks/useSubscription'
 
 /* ─────────────────────────── Types & Schemas ─── */
 type Tab = 'empresa' | 'financeiro' | 'conta'
@@ -108,6 +109,7 @@ export default function ConfiguracoesPage() {
   const [secondaryColor, setSecondaryColor]= useState('#2C2018')
   const [savingColors,   setSavingColors]  = useState(false)
   const [savingRoutine,  setSavingRoutine] = useState(false)
+  const [checkoutLoading, setCheckoutLoading] = useState(false)
 
   /* Rotina — estado local, populado do Supabase no carregamento */
   const [daysPerWeek,   setDaysPerWeek]   = useState(5)
@@ -158,16 +160,6 @@ export default function ConfiguracoesPage() {
       const { data } = await (supabase.from('fixed_costs') as any)
         .select('*').eq('company_id', companyId!).order('created_at')
       return data ?? []
-    },
-  })
-
-  const { data: subscription } = useQuery({
-    queryKey: ['subscription', userId],
-    enabled: !!userId,
-    queryFn: async () => {
-      const { data } = await (supabase.from('subscriptions') as any)
-        .select('*').eq('user_id', userId!).maybeSingle()
-      return data
     },
   })
 
@@ -251,10 +243,15 @@ export default function ConfiguracoesPage() {
   const totalFixedCosts = (fixedCosts as any[])?.reduce((s: number, c: any) => s + Number(c.amount), 0) ?? 0
   const hoursPerMonth   = Math.max(1, Math.round(daysPerWeek * hoursPerDay * weeksPerMonth))
   const costPerHour     = hoursPerMonth > 0 ? (totalFixedCosts + prolabore) / hoursPerMonth : 0
-  const planStatus      = (subscription as any)?.status ?? 'trial'
-  const planName        = (subscription as any)?.plan   ?? 'basic'
-  const trialEndsAt     = (subscription as any)?.trial_ends_at
-  const trialDaysLeft   = trialEndsAt
+
+  /* Fonte única da verdade sobre o plano — mesma usada pela Sidebar e pelo middleware.
+     Lê de companies.current_plan/subscription_status (atualizado pelo webhook Stripe),
+     nunca da tabela 'subscriptions' legada (que nunca é escrita em produção). */
+  const { data: sub } = useSubscription()
+  const planName        = sub?.isPro ? 'pro' : 'basic'
+  const planStatus       = sub?.isExpired ? 'expired' : sub?.isTrial ? 'trial' : sub?.isActive ? 'active' : 'trial'
+  const trialEndsAt      = sub?.isTrial ? sub?.trialEnd : null
+  const trialDaysLeft    = trialEndsAt
     ? Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / 86400000))
     : 0
 
@@ -381,7 +378,6 @@ export default function ConfiguracoesPage() {
       reader.readAsDataURL(file)
       const fd = new FormData()
       fd.append('file', file)
-      fd.append('companyId', companyId)
       const res  = await fetch('/api/ensure-bucket', { method: 'POST', body: fd })
       const json = await res.json()
       if (!res.ok || !json.url) { showError(json.error ?? 'Erro ao salvar logo.'); return }
@@ -412,6 +408,27 @@ export default function ConfiguracoesPage() {
       showError(`Erro ao salvar cores: ${(err as Error).message}`)
     } finally {
       setSavingColors(false)
+    }
+  }
+
+  /* ─── Upgrade para PRO — mesmo fluxo de /assinatura/upgrade ─── */
+  async function handleUpgradeClick() {
+    setCheckoutLoading(true)
+    try {
+      const res  = await fetch('/api/stripe/checkout', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: 'pro' }),
+      })
+      const data = await res.json()
+      if (data.url) {
+        window.location.href = data.url
+      } else {
+        showError(data.error ?? 'Erro ao iniciar upgrade.')
+        setCheckoutLoading(false)
+      }
+    } catch {
+      showError('Erro ao iniciar upgrade. Tente novamente.')
+      setCheckoutLoading(false)
     }
   }
 
@@ -846,7 +863,7 @@ export default function ConfiguracoesPage() {
                           <Zap size={14} className="text-primary" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{cost.name}</p>
+                          <p className="text-sm font-medium text-text-primary dark:text-stone-100 leading-snug break-words">{cost.name}</p>
                           <span className="badge badge-primary text-[10px]">{cost.category}</span>
                         </div>
                       </div>
@@ -941,8 +958,13 @@ export default function ConfiguracoesPage() {
                     <span className="text-2xl font-bold text-primary">R$ 47</span>
                     <span className="text-text-muted mb-1">/mês</span>
                   </div>
-                  <button className="btn-primary w-full flex items-center justify-center gap-2">
-                    <Star size={15} /> Assinar Pro agora
+                  <button
+                    onClick={handleUpgradeClick}
+                    disabled={checkoutLoading}
+                    className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {checkoutLoading ? <Loader2 size={15} className="animate-spin" /> : <Star size={15} />}
+                    {checkoutLoading ? 'Redirecionando...' : 'Assinar Pro agora'}
                   </button>
                 </div>
               )}

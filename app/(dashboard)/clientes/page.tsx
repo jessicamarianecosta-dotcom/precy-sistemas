@@ -303,7 +303,7 @@ export default function ClientesPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="text-sm font-semibold text-text-primary dark:text-stone-100 truncate">{c.name}</p>
+                            <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">{c.name}</p>
                             {c.cpf_cnpj && <p className="text-[10px] text-text-muted mt-0.5">{c.cpf_cnpj}</p>}
                           </div>
                           {c.total_purchases > 0 && (
@@ -379,7 +379,7 @@ export default function ClientesPage() {
                             {initials(c.name)}
                           </div>
                           <div className="min-w-0">
-                            <p className="text-sm font-semibold text-text-primary dark:text-stone-100 truncate">
+                            <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">
                               {c.name}
                             </p>
                             {c.cpf_cnpj && (

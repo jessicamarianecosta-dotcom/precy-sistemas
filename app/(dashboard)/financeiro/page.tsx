@@ -667,7 +667,7 @@ export default function FinanceiroPage() {
                               <SIcon size={9} /> {status.label}
                             </span>
                           </div>
-                          <p className="text-sm font-semibold text-text-primary dark:text-stone-100 truncate">
+                          <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">
                             {t.description || (t.type === 'income' ? 'Receita' : 'Despesa')}
                           </p>
                           <div className="flex items-center gap-3 mt-0.5">
@@ -717,7 +717,7 @@ export default function FinanceiroPage() {
                             {format(parseISO(t.date), 'dd/MM/yy', { locale: ptBR })}
                           </td>
                           <td className="p-4 max-w-[220px]">
-                            <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">
+                            <p className="text-sm font-medium text-text-primary dark:text-stone-100 leading-snug break-words">
                               {t.description || (t.type === 'income' ? 'Receita' : 'Despesa')}
                             </p>
                             {t.order_id && (
