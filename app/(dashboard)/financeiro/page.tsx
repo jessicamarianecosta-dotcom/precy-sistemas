@@ -14,6 +14,7 @@ import {
   DollarSign, ArrowUpRight, ArrowDownRight, Search,
   Filter, Edit3, CheckCircle, Clock, AlertTriangle,
   Calendar, Tag, User, ShoppingCart, FileText,
+  Eye, Wallet, HandCoins,
 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, startOfWeek, isToday, parseISO, subMonths, addMonths, getDaysInMonth, getDay, isBefore, isAfter } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -35,6 +36,16 @@ interface Transaction {
 
 type Period = 'all' | 'today' | 'week' | 'month' | 'last_month' | 'next_month' | 'custom'
 type TypeFilter = 'all' | 'income' | 'expense'
+
+type PaymentMethod = 'pix' | 'dinheiro' | 'cartao' | 'transferencia' | 'boleto' | 'outro'
+const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
+  { value: 'pix',           label: 'Pix' },
+  { value: 'dinheiro',      label: 'Dinheiro' },
+  { value: 'cartao',        label: 'Cartão' },
+  { value: 'transferencia', label: 'Transferência' },
+  { value: 'boleto',        label: 'Boleto' },
+  { value: 'outro',         label: 'Outro' },
+]
 
 /* ─── Categories ─── */
 const INCOME_CATS = [
@@ -93,15 +104,21 @@ export default function FinanceiroPage() {
   const [customStart, setCustomStart] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'))
   const [customEnd,   setCustomEnd]   = useState(format(endOfMonth(new Date()),   'yyyy-MM-dd'))
   const [showCustom,  setShowCustom]  = useState(false)
-  // Estado interno do calendário personalizado
-  const [calViewDate, setCalViewDate] = useState(new Date())  // mês exibido
-  const [pickStep,    setPickStep]    = useState<'start'|'end'>('start')  // qual data está sendo selecionada
+  const [calViewDate, setCalViewDate] = useState(new Date())
+  const [pickStep,    setPickStep]    = useState<'start'|'end'>('start')
   const [typeFilter,  setTypeFilter] = useState<TypeFilter>('all')
   const [search,      setSearch]     = useState('')
   const [showModal,   setShowModal]  = useState(false)
   const [editTx,      setEditTx]     = useState<Transaction | null>(null)
   const [deleteId,    setDeleteId]   = useState<string | null>(null)
   const [saving,      setSaving]     = useState(false)
+  const [viewTx,      setViewTx]     = useState<Transaction | null>(null)
+  const [confirmTx,    setConfirmTx]    = useState<Transaction | null>(null)
+  const [confirmAmount, setConfirmAmount] = useState('')
+  const [confirmDate,   setConfirmDate]   = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [confirmMethod, setConfirmMethod] = useState<PaymentMethod>('pix')
+  const [confirmNotes,  setConfirmNotes]  = useState('')
+  const [confirming,    setConfirming]    = useState(false)
 
   /* ── Form state ── */
   const [fType,     setFType]     = useState<'income' | 'expense'>('income')
@@ -131,7 +148,6 @@ export default function FinanceiroPage() {
   const filtered = useMemo(() => {
     const now = new Date()
     return (transactions ?? []).filter(t => {
-      // Period filter
       if (period !== 'all') {
         const d = parseISO(t.date)
         if (period === 'today'      && !isToday(d)) return false
@@ -165,16 +181,12 @@ export default function FinanceiroPage() {
     })
   }, [transactions, period, typeFilter, search, customStart, customEnd])
 
-  /* ── Computed stats: dinâmico, baseado em `filtered` ── */
+  /* ── Computed stats ── */
   const stats = useMemo(() => {
-    // Usar `filtered` como fonte — já respeita período, tipo e busca
     const f = filtered
 
-    // REALIZADOS no período filtrado
     const realInc = f.filter(t => t.type === 'income'  && (t.status === 'received' || t.status === 'paid'))
     const realExp = f.filter(t => t.type === 'expense' && (t.status === 'received' || t.status === 'paid'))
-
-    // PREVISTOS no período filtrado
     const foreInc = f.filter(t => t.type === 'income'  && ['pending','to_pay','partial'].includes(t.status ?? ''))
     const foreExp = f.filter(t => t.type === 'expense' && ['pending','to_pay','partial'].includes(t.status ?? ''))
 
@@ -184,24 +196,20 @@ export default function FinanceiroPage() {
     const monthForeInc = foreInc.reduce((s,t) => s + Number(t.amount), 0)
     const monthForeExp = foreExp.reduce((s,t) => s + Number(t.amount), 0)
 
-    // Ticket médio e contagem (receitas realizadas no período)
     const incCount  = realInc.length
     const ticketAvg = incCount > 0 ? monthInc / incCount : 0
 
-    // Atrasados: todo o banco (não apenas filtrado) — alerta global
     const now = new Date()
     const todayStr = now.toISOString().split('T')[0]
     const overdueCount = (transactions ?? []).filter(t =>
       ['pending','to_pay','overdue','due'].includes(t.status ?? '') && t.date < todayStr
     ).length
 
-    // Categoria top de despesas realizadas no período
     const expByCat = EXPENSE_CATS.map(c => ({
       label: c.label,
       total: realExp.filter(t => t.category === c.value).reduce((s,t) => s + Number(t.amount), 0)
     })).sort((a,b) => b.total - a.total)
 
-    // Saldo geral acumulado (all-time realizado, para referência interna)
     const allReal   = (transactions ?? []).filter(t => t.status === 'received' || t.status === 'paid')
     const totalRealInc = allReal.filter(t => t.type === 'income') .reduce((s,t) => s + Number(t.amount), 0)
     const totalRealExp = allReal.filter(t => t.type === 'expense').reduce((s,t) => s + Number(t.amount), 0)
@@ -247,7 +255,6 @@ export default function FinanceiroPage() {
         amount,
         description: fDesc.trim() || null,
         date:        fDate,
-        // Extra fields (gracious fallback if columns don't exist)
         status:      fStatus || null,
         client_name: fClient.trim() || null,
         notes:       fNotes.trim() || null,
@@ -256,7 +263,6 @@ export default function FinanceiroPage() {
         const { error } = await (supabase.from('financial_transactions') as any)
           .update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editTx.id)
         if (error?.code === '42703') {
-          // Retry without extra columns
           await (supabase.from('financial_transactions') as any)
             .update({ company_id: payload.company_id, type: payload.type, category: payload.category, amount, description: payload.description, date: payload.date })
             .eq('id', editTx.id)
@@ -291,6 +297,62 @@ export default function FinanceiroPage() {
     onError: (err: Error) => toast('error', err.message),
   })
 
+  /* ── Ações rápidas: Receber / Pagar ── */
+  function openConfirm(tx: Transaction) {
+    setConfirmTx(tx)
+    setConfirmAmount(String(tx.amount))
+    setConfirmDate(format(new Date(), 'yyyy-MM-dd'))
+    setConfirmMethod('pix')
+    setConfirmNotes('')
+  }
+
+  function invalidateFinancialQueries() {
+    qc.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
+    qc.invalidateQueries({ queryKey: ['dashboard', companyId] })
+    qc.invalidateQueries({ queryKey: ['fluxo-caixa', companyId] })
+    qc.invalidateQueries({ queryKey: ['dre-transactions', companyId] })
+    qc.invalidateQueries({ queryKey: ['financial-goals', companyId] })
+    qc.invalidateQueries({ queryKey: ['goals-realized', companyId] })
+    qc.invalidateQueries({ queryKey: ['projecao-payables', companyId] })
+    qc.invalidateQueries({ queryKey: ['projecao-receivables', companyId] })
+    qc.invalidateQueries({ queryKey: ['projecao-recurring', companyId] })
+    qc.invalidateQueries({ queryKey: ['projecao-saldo-atual', companyId] })
+  }
+
+  const confirmMutation = useMutation({
+    mutationFn: async () => {
+      if (!confirmTx) throw new Error('Lançamento não selecionado')
+      const amount = parseFloat(confirmAmount.replace(',', '.'))
+      if (!amount || amount <= 0) throw new Error('Valor inválido')
+      setConfirming(true)
+      const newStatus = confirmTx.type === 'income' ? 'received' : 'paid'
+      const methodLabel = PAYMENT_METHODS.find(m => m.value === confirmMethod)?.label ?? confirmMethod
+      const extraNote = `Forma de pagamento: ${methodLabel}${confirmNotes.trim() ? ` — ${confirmNotes.trim()}` : ''}`
+      const combinedNotes = confirmTx.notes ? `${confirmTx.notes}\n${extraNote}` : extraNote
+      const payload: Record<string, unknown> = {
+        amount,
+        status: newStatus,
+        date: confirmDate,
+        notes: combinedNotes,
+        updated_at: new Date().toISOString(),
+      }
+      const { error } = await (supabase.from('financial_transactions') as any)
+        .update(payload).eq('id', confirmTx.id)
+      if (error?.code === '42703') {
+        await (supabase.from('financial_transactions') as any)
+          .update({ amount, status: newStatus }).eq('id', confirmTx.id)
+      } else if (error) throw error
+    },
+    onSuccess: () => {
+      invalidateFinancialQueries()
+      toast('success', confirmTx?.type === 'income'
+        ? 'Recebimento registrado com sucesso.'
+        : 'Pagamento registrado com sucesso.')
+      setConfirmTx(null); setConfirming(false)
+    },
+    onError: (err: Error) => { toast('error', err.message); setConfirming(false) },
+  })
+
   /* ── Category options for current type ── */
   const catOptions = fType === 'income' ? INCOME_CATS : EXPENSE_CATS
   const statusOptions = fType === 'income' ? STATUS_INCOME : STATUS_EXPENSE
@@ -301,7 +363,7 @@ export default function FinanceiroPage() {
 
       <div className="p-3 sm:p-5 lg:p-6 space-y-4">
 
-        {/* ── CARDS SUPERIORES — REALIZADO VS PREVISTO ── */}
+        {/* ── CARDS SUPERIORES ── */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {/* Receitas */}
           <div className="card bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/10 dark:to-emerald-900/10 border-green-200/60 dark:border-green-800/30">
@@ -430,15 +492,10 @@ export default function FinanceiroPage() {
                 }
               </button>
 
-              {/* Date range popover */}
               {showCustom && (
                 <div className="fixed sm:absolute inset-x-0 sm:inset-x-auto bottom-0 sm:bottom-auto top-auto sm:top-full sm:right-0 mt-0 sm:mt-2 z-[60] sm:animate-scaleIn px-3 sm:px-0 pb-4 sm:pb-0">
-                  {/* Backdrop mobile */}
                   <div className="fixed inset-0 bg-black/40 sm:hidden" onClick={() => setShowCustom(false)} />
-
                   <div className="relative bg-white dark:bg-[#1C1714] rounded-t-2xl sm:rounded-2xl border-t sm:border border-border dark:border-stone-800 shadow-[0_-8px_32px_rgba(0,0,0,0.3)] sm:shadow-[0_8px_32px_rgba(0,0,0,0.4)] p-4 space-y-3 sm:w-[320px]">
-
-                    {/* Header */}
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-bold text-text-primary dark:text-stone-100">Período personalizado</p>
                       <button onClick={() => setShowCustom(false)}
@@ -447,7 +504,6 @@ export default function FinanceiroPage() {
                       </button>
                     </div>
 
-                    {/* Campos De/Até em texto */}
                     <div className="grid grid-cols-2 gap-2">
                       {[
                         { label: 'De', value: customStart, active: pickStep === 'start' },
@@ -474,30 +530,26 @@ export default function FinanceiroPage() {
                     {(() => {
                       const year  = calViewDate.getFullYear()
                       const month = calViewDate.getMonth()
-                      const firstDay   = new Date(year, month, 1)
+                      const firstDay    = new Date(year, month, 1)
                       const daysInMonth = getDaysInMonth(firstDay)
-                      const startWday  = getDay(firstDay)  // 0=Dom
+                      const startWday   = getDay(firstDay)
                       const today = format(new Date(), 'yyyy-MM-dd')
 
                       const cells: (number|null)[] = [
                         ...Array(startWday).fill(null),
                         ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
                       ]
-                      // Preencher até múltiplo de 7
                       while (cells.length % 7 !== 0) cells.push(null)
 
                       return (
                         <div>
-                          {/* Navegação mês/ano */}
                           <div className="flex items-center justify-between mb-2">
                             <button
                               onClick={() => setCalViewDate(d => subMonths(d, 1))}
                               className="w-7 h-7 rounded-lg flex items-center justify-center text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-primary/10 transition-colors text-sm font-bold">
                               ‹
                             </button>
-
                             <div className="flex items-center gap-1.5">
-                              {/* Seletor de mês */}
                               <select
                                 value={month}
                                 onChange={e => setCalViewDate(d => new Date(d.getFullYear(), Number(e.target.value), 1))}
@@ -509,8 +561,6 @@ export default function FinanceiroPage() {
                                   </option>
                                 ))}
                               </select>
-
-                              {/* Seletor de ano */}
                               <select
                                 value={year}
                                 onChange={e => setCalViewDate(d => new Date(Number(e.target.value), d.getMonth(), 1))}
@@ -522,7 +572,6 @@ export default function FinanceiroPage() {
                                 })}
                               </select>
                             </div>
-
                             <button
                               onClick={() => setCalViewDate(d => addMonths(d, 1))}
                               className="w-7 h-7 rounded-lg flex items-center justify-center text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-primary/10 transition-colors text-sm font-bold">
@@ -530,14 +579,12 @@ export default function FinanceiroPage() {
                             </button>
                           </div>
 
-                          {/* Dias da semana */}
                           <div className="grid grid-cols-7 mb-1">
                             {['D','S','T','Q','Q','S','S'].map((d,i) => (
                               <div key={i} className="text-center text-[9px] font-bold text-text-muted dark:text-stone-600 uppercase py-0.5">{d}</div>
                             ))}
                           </div>
 
-                          {/* Células dos dias */}
                           <div className="grid grid-cols-7 gap-px">
                             {cells.map((day, idx) => {
                               if (!day) return <div key={idx} />
@@ -546,7 +593,6 @@ export default function FinanceiroPage() {
                               const isEnd   = dateStr === customEnd
                               const inRange = customStart && customEnd && dateStr > customStart && dateStr < customEnd
                               const isNow   = dateStr === today
-
                               return (
                                 <button
                                   key={idx}
@@ -610,7 +656,6 @@ export default function FinanceiroPage() {
                       </div>
                     </div>
 
-                    {/* Ações */}
                     <div className="flex gap-2 pt-1">
                       <button onClick={() => { setShowCustom(false); setPeriod('all') }}
                         className="btn-secondary flex-1 text-xs py-2">Limpar</button>
@@ -688,8 +733,17 @@ export default function FinanceiroPage() {
                         </div>
                       </div>
                       <div className="flex gap-2 justify-end">
-                        <button onClick={() => openEdit(t)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>
-                        <button onClick={() => setDeleteId(t.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>
+                        {t.type === 'income' && ['pending','partial','overdue'].includes(t.status ?? '') && (
+                          <button onClick={() => openConfirm(t)} title="Receber"
+                            className="p-1.5 rounded-lg text-success-dark dark:text-green-400 hover:bg-success-light dark:hover:bg-success/10 transition-colors"><HandCoins size={13}/></button>
+                        )}
+                        {t.type === 'expense' && ['to_pay','due'].includes(t.status ?? '') && (
+                          <button onClick={() => openConfirm(t)} title="Pagar"
+                            className="p-1.5 rounded-lg text-error dark:text-red-400 hover:bg-error-light dark:hover:bg-error/10 transition-colors"><Wallet size={13}/></button>
+                        )}
+                        <button onClick={() => setViewTx(t)} title="Visualizar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Eye size={13}/></button>
+                        <button onClick={() => openEdit(t)} title="Editar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>
+                        <button onClick={() => setDeleteId(t.id)} title="Excluir" className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>
                       </div>
                     </div>
                   )
@@ -751,8 +805,23 @@ export default function FinanceiroPage() {
                           </td>
                           <td className="p-4">
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => openEdit(t)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>
-                              <button onClick={() => setDeleteId(t.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>
+                              {t.type === 'income' && ['pending','partial','overdue'].includes(t.status ?? '') && (
+                                <button onClick={() => openConfirm(t)}
+                                  title="Receber"
+                                  className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold text-success-dark dark:text-green-400 hover:bg-success-light dark:hover:bg-success/10 transition-colors">
+                                  <HandCoins size={13}/> Receber
+                                </button>
+                              )}
+                              {t.type === 'expense' && ['to_pay','due'].includes(t.status ?? '') && (
+                                <button onClick={() => openConfirm(t)}
+                                  title="Pagar"
+                                  className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold text-error dark:text-red-400 hover:bg-error-light dark:hover:bg-error/10 transition-colors">
+                                  <Wallet size={13}/> Pagar
+                                </button>
+                              )}
+                              <button onClick={() => setViewTx(t)} title="Visualizar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Eye size={13}/></button>
+                              <button onClick={() => openEdit(t)} title="Editar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>
+                              <button onClick={() => setDeleteId(t.id)} title="Excluir" className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>
                             </div>
                           </td>
                         </tr>
@@ -764,7 +833,6 @@ export default function FinanceiroPage() {
             </>
           )}
         </div>
-
 
       </div>
 
@@ -786,7 +854,7 @@ export default function FinanceiroPage() {
             <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
               {/* Tipo */}
               <div className="grid grid-cols-2 gap-2">
-                {([['income','Receita','TrendingUp'],['expense','Despesa','TrendingDown']] as const).map(([val, label, _]) => (
+                {([['income','Receita'],['expense','Despesa']] as const).map(([val, label]) => (
                   <button key={val} type="button" onClick={() => { setFType(val); setFCat(val === 'income' ? 'pedidos' : 'fornecedores'); setFStatus(val === 'income' ? 'received' : 'to_pay') }}
                     className={clsx('flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-all',
                       fType === val
@@ -894,6 +962,141 @@ export default function FinanceiroPage() {
                 className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-error hover:opacity-90 disabled:opacity-50">
                 {deleteMutation.isPending && <Loader2 size={14} className="animate-spin"/>} Excluir
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════
+          MODAL CONFIRMAR RECEBIMENTO / PAGAMENTO
+      ══════════════════════════════════════════════ */}
+      {confirmTx && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !confirming && setConfirmTx(null)} />
+          <div className="relative bg-white dark:bg-surface-dark w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-modal animate-scaleIn max-h-[92dvh] flex flex-col overflow-hidden">
+
+            <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border dark:border-border-dark flex-shrink-0">
+              <h2 className="text-base font-bold text-text-primary dark:text-stone-100 flex items-center gap-2">
+                {confirmTx.type === 'income'
+                  ? <><HandCoins size={17} className="text-success-dark dark:text-green-400" /> Confirmar recebimento</>
+                  : <><Wallet size={17} className="text-error dark:text-red-400" /> Confirmar pagamento</>}
+              </h2>
+              <button onClick={() => !confirming && setConfirmTx(null)} className="p-1.5 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted"><X size={15}/></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+              <p className="text-sm text-text-secondary dark:text-stone-400">
+                {confirmTx.description || (confirmTx.type === 'income' ? 'Receita' : 'Despesa')}
+              </p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">
+                    {confirmTx.type === 'income' ? 'Valor recebido (R$) *' : 'Valor pago (R$) *'}
+                  </label>
+                  <input type="number" step="0.01" min="0" className="input"
+                    value={confirmAmount} onChange={e => setConfirmAmount(e.target.value)} autoFocus />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">
+                    {confirmTx.type === 'income' ? 'Data do recebimento *' : 'Data do pagamento *'}
+                  </label>
+                  <input type="date" className="input" value={confirmDate} onChange={e => setConfirmDate(e.target.value)} />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Forma de pagamento</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {PAYMENT_METHODS.map(m => (
+                    <button key={m.value} type="button" onClick={() => setConfirmMethod(m.value)}
+                      className={clsx('text-xs font-medium px-2.5 py-1 rounded-full border transition-all',
+                        confirmMethod === m.value
+                          ? (confirmTx.type === 'income' ? 'bg-success-light text-success-dark dark:bg-success/10 dark:text-green-400' : 'bg-error-light text-error dark:bg-error/10 dark:text-red-400') + ' border-transparent'
+                          : 'border-border dark:border-border-dark text-text-muted hover:text-text-primary')}>
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Observações</label>
+                <textarea rows={2} className="input resize-none text-sm" placeholder="Notas extras (opcional)..."
+                  value={confirmNotes} onChange={e => setConfirmNotes(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="flex gap-3 p-4 sm:p-5 border-t border-border dark:border-border-dark flex-shrink-0">
+              <button onClick={() => setConfirmTx(null)} disabled={confirming} className="btn-secondary flex-1">Cancelar</button>
+              <button onClick={() => confirmMutation.mutate()} disabled={confirming || !confirmAmount.trim() || !confirmDate}
+                className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50">
+                {confirming && <Loader2 size={14} className="animate-spin"/>}
+                {confirming ? 'Salvando...' : confirmTx.type === 'income' ? 'Confirmar Recebimento' : 'Confirmar Pagamento'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════
+          MODAL VISUALIZAR (somente leitura)
+      ══════════════════════════════════════════════ */}
+      {viewTx && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setViewTx(null)} />
+          <div className="relative bg-white dark:bg-surface-dark w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-modal animate-scaleIn max-h-[92dvh] flex flex-col overflow-hidden">
+
+            <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border dark:border-border-dark flex-shrink-0">
+              <h2 className="text-base font-bold text-text-primary dark:text-stone-100">Detalhes do lançamento</h2>
+              <button onClick={() => setViewTx(null)} className="p-1.5 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted"><X size={15}/></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
+              {(() => {
+                const cat    = getCatInfo(viewTx.category)
+                const status = getStatusInfo(viewTx.type, viewTx.status)
+                const SIcon  = status.icon
+                return (
+                  <>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={clsx('text-[11px] font-semibold px-2.5 py-1 rounded-full', cat?.color ?? 'bg-stone-100 text-stone-600')}>
+                        {cat?.label ?? viewTx.category}
+                      </span>
+                      <span className={clsx('text-[11px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1', status.badge)}>
+                        <SIcon size={11} /> {status.label}
+                      </span>
+                    </div>
+                    <p className="text-lg font-bold text-text-primary dark:text-stone-100">
+                      {viewTx.description || (viewTx.type === 'income' ? 'Receita' : 'Despesa')}
+                    </p>
+                    <p className={clsx('text-2xl font-bold', viewTx.type === 'income' ? 'text-success-dark dark:text-green-400' : 'text-error dark:text-red-400')}>
+                      {viewTx.type === 'income' ? '+' : '−'}{fmt(viewTx.amount)}
+                    </p>
+                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border dark:border-border-dark">
+                      <div>
+                        <p className="text-[10px] text-text-muted uppercase tracking-wider">Data</p>
+                        <p className="text-sm font-medium text-text-primary dark:text-stone-200">{format(parseISO(viewTx.date), 'dd/MM/yyyy', { locale: ptBR })}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-text-muted uppercase tracking-wider">Cliente</p>
+                        <p className="text-sm font-medium text-text-primary dark:text-stone-200">{viewTx.client_name || '—'}</p>
+                      </div>
+                    </div>
+                    {viewTx.notes && (
+                      <div className="pt-2 border-t border-border dark:border-border-dark">
+                        <p className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Observações</p>
+                        <p className="text-sm text-text-secondary dark:text-stone-400 whitespace-pre-wrap">{viewTx.notes}</p>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
+            </div>
+
+            <div className="flex gap-3 p-4 sm:p-5 border-t border-border dark:border-border-dark flex-shrink-0">
+              <button onClick={() => setViewTx(null)} className="btn-secondary flex-1">Fechar</button>
+              <button onClick={() => { setViewTx(null); openEdit(viewTx) }} className="btn-primary flex-1">Editar</button>
             </div>
           </div>
         </div>
