@@ -20,7 +20,8 @@ import { clsx } from 'clsx'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { format, addDays, addWeeks, addMonths, addYears, isPast, differenceInDays, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, eachDayOfInterval } from 'date-fns'
+import { format, addDays, addMonths, isPast, differenceInDays, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, eachDayOfInterval } from 'date-fns'
+import { nextDueFrom } from '@/lib/utils/recurring'
 import { ptBR } from 'date-fns/locale'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
@@ -67,14 +68,6 @@ const PERIODICITY_LABELS: Record<string, string> = {
   weekly: 'Semanal', biweekly: 'Quinzenal', monthly: 'Mensal', yearly: 'Anual',
 }
 
-function nextDueFrom(date: Date, periodicity: string): Date {
-  switch (periodicity) {
-    case 'weekly':   return addWeeks(date, 1)
-    case 'biweekly': return addDays(date, 14)
-    case 'yearly':   return addYears(date, 1)
-    default:         return addMonths(date, 1)
-  }
-}
 
 const costCenterSchema = z.object({
   name:  z.string().min(2, 'Nome obrigatório').max(40, 'Máximo 40 caracteres'),

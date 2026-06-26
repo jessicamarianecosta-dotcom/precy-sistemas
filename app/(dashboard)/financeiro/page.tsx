@@ -19,19 +19,21 @@ import {
 import { format, startOfMonth, endOfMonth, startOfWeek, isToday, parseISO, subMonths, addMonths, getDaysInMonth, getDay, isBefore, isAfter } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { formatCurrency } from '@/lib/utils/format'
+import { nextDueFrom } from '@/lib/utils/recurring'
 
 /* ─── Types ─── */
 interface Transaction {
-  id:          string
-  type:        'income' | 'expense'
-  category:    string
-  amount:      number
-  description: string
-  date:        string
-  status?:     string
-  client_name?: string
-  order_id?:   string | null
-  notes?:      string
+  id:                string
+  type:              'income' | 'expense'
+  category:          string
+  amount:            number
+  description:       string
+  date:              string
+  status?:           string
+  client_name?:      string
+  order_id?:         string | null
+  notes?:            string
+  recurring_bill_id?: string | null
 }
 
 type Period = 'all' | 'today' | 'week' | 'month' | 'last_month' | 'next_month' | 'custom'
@@ -342,6 +344,22 @@ export default function FinanceiroPage() {
         await (supabase.from('financial_transactions') as any)
           .update({ amount, status: newStatus }).eq('id', confirmTx.id)
       } else if (error) throw error
+
+      // Sincronização reversa: se lançamento pertence a uma recorrência,
+      // avança o next_due_date apenas se este é o ciclo atual (não um pagamento atrasado fora de ordem)
+      if (confirmTx.recurring_bill_id) {
+        const { data: bill } = await (supabase.from('recurring_bills') as any)
+          .select('id, next_due_date, periodicity')
+          .eq('id', confirmTx.recurring_bill_id)
+          .single()
+
+        if (bill && bill.next_due_date === confirmTx.date) {
+          const newNextDue = nextDueFrom(new Date(bill.next_due_date + 'T00:00:00'), bill.periodicity)
+          await (supabase.from('recurring_bills') as any)
+            .update({ next_due_date: format(newNextDue, 'yyyy-MM-dd'), updated_at: new Date().toISOString() })
+            .eq('id', bill.id)
+        }
+      }
     },
     onSuccess: () => {
       invalidateFinancialQueries()
