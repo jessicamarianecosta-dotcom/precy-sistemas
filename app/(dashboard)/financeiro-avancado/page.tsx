@@ -43,6 +43,7 @@ interface RecurringBill {
   id:             string
   name:           string
   amount:         number
+  type:           'income' | 'expense'
   periodicity:    'weekly' | 'biweekly' | 'monthly' | 'yearly'
   due_day:        number | null
   next_due_date:  string
@@ -52,12 +53,13 @@ interface RecurringBill {
 }
 
 const recurringBillSchema = z.object({
-  name:        z.string().min(2, 'Nome obrigatório').max(60),
-  amount:      z.coerce.number().min(0.01, 'Valor obrigatório'),
-  periodicity: z.enum(['weekly', 'biweekly', 'monthly', 'yearly']),
-  next_due_date: z.string().min(1, 'Data de vencimento obrigatória'),
+  name:           z.string().min(2, 'Nome obrigatório').max(60),
+  amount:         z.coerce.number().min(0.01, 'Valor obrigatório'),
+  type:           z.enum(['income', 'expense']),
+  periodicity:    z.enum(['weekly', 'biweekly', 'monthly', 'yearly']),
+  next_due_date:  z.string().min(1, 'Data de vencimento obrigatória'),
   cost_center_id: z.string().optional(),
-  notes:       z.string().optional(),
+  notes:          z.string().optional(),
 })
 type RecurringBillForm = z.infer<typeof recurringBillSchema>
 
@@ -578,13 +580,15 @@ function RecorrentesTab({
   const [showModal, setShowModal] = useState(false)
   const [editing,   setEditing]   = useState<RecurringBill | null>(null)
   const [deleteId,  setDeleteId]  = useState<string | null>(null)
+  const [deleteScope, setDeleteScope] = useState<'future-only' | 'with-pending'>('future-only')
+  const [editScope,   setEditScope]   = useState<'future-only' | 'with-pending'>('future-only')
   const [generating, setGenerating] = useState(false)
   const generationChecked = useRef(false)
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<RecurringBillForm>({
     resolver: zodResolver(recurringBillSchema),
     defaultValues: {
-      name: '', amount: 0, periodicity: 'monthly',
+      name: '', amount: 0, type: 'expense', periodicity: 'monthly',
       next_due_date: format(new Date(), 'yyyy-MM-dd'), notes: '',
     },
   })
@@ -638,15 +642,16 @@ function RecorrentesTab({
             .eq('date', bill.next_due_date)
             .maybeSingle()
 
+          const billType = (bill.type ?? 'expense') as 'income' | 'expense'
           if (!existing) {
             await (supabase.from('financial_transactions') as any).insert([{
               company_id:       companyId,
-              type:              'expense',
-              category:          'outros',
+              type:              billType,
+              category:          billType === 'income' ? 'outros' : 'outros',
               amount:            bill.amount,
               description:       `${bill.name} (conta recorrente)`,
               date:              bill.next_due_date,
-              status:            'to_pay',
+              status:            billType === 'income' ? 'pending' : 'to_pay',
               cost_center_id:    bill.cost_center_id,
               recurring_bill_id: bill.id,
             }])
@@ -680,6 +685,7 @@ function RecorrentesTab({
       const payload = {
         name:           d.name,
         amount:         d.amount,
+        type:           d.type,
         periodicity:    d.periodicity,
         next_due_date:  d.next_due_date,
         cost_center_id: d.cost_center_id || null,
@@ -690,22 +696,71 @@ function RecorrentesTab({
           .update({ ...payload, updated_at: new Date().toISOString() })
           .eq('id', editing.id)
         if (error) throw error
+
+        // Se editScope === 'with-pending', atualizar também lançamentos pendentes não quitados
+        if (editScope === 'with-pending') {
+          const pendingStatuses = d.type === 'income' ? ['pending', 'partial', 'overdue'] : ['to_pay', 'due']
+          await (supabase.from('financial_transactions') as any)
+            .update({ amount: d.amount, updated_at: new Date().toISOString() })
+            .eq('recurring_bill_id', editing.id)
+            .in('status', pendingStatuses)
+        }
       } else {
-        const { error } = await (supabase.from('recurring_bills') as any)
+        const { data: inserted, error } = await (supabase.from('recurring_bills') as any)
           .insert([{ ...payload, company_id: companyId }])
+          .select('id')
+          .single()
         if (error) throw error
+
+        // Gerar lançamento imediato para o ciclo inicial (anti-dup garantida)
+        const newId = inserted?.id
+        if (newId) {
+          const { data: existing } = await (supabase.from('financial_transactions') as any)
+            .select('id')
+            .eq('recurring_bill_id', newId)
+            .eq('date', d.next_due_date)
+            .maybeSingle()
+          if (!existing) {
+            await (supabase.from('financial_transactions') as any).insert([{
+              company_id:       companyId,
+              type:              d.type,
+              category:          'outros',
+              amount:            d.amount,
+              description:       `${d.name} (conta recorrente)`,
+              date:              d.next_due_date,
+              status:            d.type === 'income' ? 'pending' : 'to_pay',
+              cost_center_id:    d.cost_center_id || null,
+              recurring_bill_id: newId,
+            }])
+          }
+        }
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recurring-bills', companyId] })
-      toast('success', editing ? 'Conta recorrente atualizada!' : 'Conta recorrente criada!')
+      queryClient.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
+      toast('success', editing ? 'Conta recorrente atualizada!' : 'Conta recorrente criada! Lançamento adicionado ao Financeiro.')
       closeModal()
     },
     onError: (err: Error) => toast('error', `Erro ao salvar: ${err.message}`),
   })
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async ({ id, scope }: { id: string; scope: 'future-only' | 'with-pending' }) => {
+      if (scope === 'with-pending') {
+        // Buscar tipo da conta para saber quais status são pendentes
+        const { data: bill } = await (supabase.from('recurring_bills') as any)
+          .select('type')
+          .eq('id', id)
+          .single()
+        const billType = (bill?.type ?? 'expense') as 'income' | 'expense'
+        const pendingStatuses = billType === 'income' ? ['pending', 'partial', 'overdue'] : ['to_pay', 'due']
+        await (supabase.from('financial_transactions') as any)
+          .delete()
+          .eq('recurring_bill_id', id)
+          .in('status', pendingStatuses)
+      }
       const { error } = await (supabase.from('recurring_bills') as any)
         .update({ is_active: false, updated_at: new Date().toISOString() })
         .eq('id', id)
@@ -713,7 +768,9 @@ function RecorrentesTab({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recurring-bills', companyId] })
-      toast('success', 'Conta recorrente removida.')
+      queryClient.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
+      toast('success', deleteScope === 'with-pending' ? 'Conta e lançamentos pendentes removidos.' : 'Conta recorrente removida.')
       setDeleteId(null)
     },
     onError: (err: Error) => toast('error', `Erro ao remover: ${err.message}`),
@@ -721,8 +778,10 @@ function RecorrentesTab({
 
   function openEdit(b: RecurringBill) {
     setEditing(b)
+    setEditScope('future-only')
     setValue('name', b.name)
     setValue('amount', b.amount)
+    setValue('type', b.type ?? 'expense')
     setValue('periodicity', b.periodicity)
     setValue('next_due_date', b.next_due_date)
     setValue('cost_center_id', b.cost_center_id ?? '')
@@ -733,7 +792,7 @@ function RecorrentesTab({
   function closeModal() {
     setShowModal(false)
     setEditing(null)
-    reset({ name: '', amount: 0, periodicity: 'monthly', next_due_date: format(new Date(), 'yyyy-MM-dd'), notes: '' })
+    reset({ name: '', amount: 0, type: 'expense', periodicity: 'monthly', next_due_date: format(new Date(), 'yyyy-MM-dd'), notes: '' })
   }
 
   const totalMensal = (bills ?? []).reduce((s, b) => {
@@ -796,17 +855,26 @@ function RecorrentesTab({
             const due = new Date(b.next_due_date + 'T00:00:00')
             const daysUntil = differenceInDays(due, new Date())
             const cc = costCenters?.find(c => c.id === b.cost_center_id)
+            const billType = b.type ?? 'expense'
             return (
               <div key={b.id} className="card p-4 flex items-center gap-3.5 group">
                 <div
                   className="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0"
                   style={{ background: cc ? `${cc.color}1A` : 'rgba(139,108,79,0.08)' }}
                 >
-                  {cc?.icon ?? '🔁'}
+                  {cc?.icon ?? (billType === 'income' ? '💰' : '🔁')}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">{b.name}</p>
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    <span className={clsx(
+                      'text-[10px] font-medium px-1.5 py-0.5 rounded-full',
+                      billType === 'income'
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                    )}>
+                      {billType === 'income' ? 'A receber' : 'A pagar'}
+                    </span>
                     <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-primary-50 dark:bg-primary/10 text-primary">
                       {PERIODICITY_LABELS[b.periodicity]}
                     </span>
@@ -856,9 +924,34 @@ function RecorrentesTab({
             </div>
 
             <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="p-5 space-y-4">
+              {/* Tipo: A Pagar / A Receber */}
+              <div>
+                <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Tipo</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([['expense', 'A Pagar', '🔁'], ['income', 'A Receber', '💰']] as const).map(([val, label, icon]) => (
+                    <label key={val} className={clsx(
+                      'flex items-center gap-2 px-3 py-2.5 rounded-xl border cursor-pointer transition-all',
+                      watch('type') === val
+                        ? val === 'income'
+                          ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                          : 'border-red-400 bg-red-50 dark:bg-red-900/20'
+                        : 'border-border dark:border-border-dark hover:border-primary/40'
+                    )}>
+                      <input type="radio" value={val} {...register('type')} className="sr-only" />
+                      <span className="text-base">{icon}</span>
+                      <span className={clsx('text-sm font-medium',
+                        watch('type') === val
+                          ? val === 'income' ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'
+                          : 'text-text-muted'
+                      )}>{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Nome</label>
-                <input className="input" placeholder="Ex: Canva, Aluguel, Internet" {...register('name')} />
+                <input className="input" placeholder="Ex: Canva, Aluguel, Mensalidade Cliente" {...register('name')} />
                 {errors.name && <p className="mt-1 text-xs text-error">{errors.name.message}</p>}
               </div>
 
@@ -888,6 +981,31 @@ function RecorrentesTab({
                 {errors.next_due_date && <p className="mt-1 text-xs text-error">{errors.next_due_date.message}</p>}
               </div>
 
+              {/* Escopo de edição (só quando editando) */}
+              {editing && (
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30">
+                  <p className="text-xs font-semibold text-amber-800 dark:text-amber-400 mb-2">Aplicar alteração a:</p>
+                  <div className="space-y-1.5">
+                    {([
+                      ['future-only', 'Somente próximas recorrências'],
+                      ['with-pending', 'Futuras + lançamentos pendentes (atualiza valor)'],
+                    ] as const).map(([val, label]) => (
+                      <label key={val} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="editScope"
+                          value={val}
+                          checked={editScope === val}
+                          onChange={() => setEditScope(val)}
+                          className="accent-primary"
+                        />
+                        <span className="text-xs text-amber-800 dark:text-amber-300">{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {(costCenters?.length ?? 0) > 0 && (
                 <div>
                   <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
@@ -909,12 +1027,14 @@ function RecorrentesTab({
                 <textarea className="input min-h-[60px] resize-none" placeholder="Detalhes adicionais..." {...register('notes')} />
               </div>
 
-              <div className="flex items-center gap-2 p-3 rounded-xl bg-info-light dark:bg-info/10 border border-info/20">
-                <Zap size={13} className="text-info flex-shrink-0" />
-                <p className="text-xs text-info-dark dark:text-info">
-                  Quando a data chegar, uma conta a pagar será criada automaticamente no Financeiro.
-                </p>
-              </div>
+              {!editing && (
+                <div className="flex items-center gap-2 p-3 rounded-xl bg-info-light dark:bg-info/10 border border-info/20">
+                  <Zap size={13} className="text-info flex-shrink-0" />
+                  <p className="text-xs text-info-dark dark:text-info">
+                    Um lançamento será criado automaticamente no Financeiro para o próximo vencimento.
+                  </p>
+                </div>
+              )}
 
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={closeModal} className="btn-secondary flex-1">Cancelar</button>
@@ -934,13 +1054,34 @@ function RecorrentesTab({
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setDeleteId(null)} />
           <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm p-5 animate-scaleIn">
             <p className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-1">Remover conta recorrente?</p>
-            <p className="text-xs text-text-muted dark:text-stone-400 mb-4">
-              Os lançamentos já gerados no Financeiro continuam no histórico. Apenas a recorrência futura é interrompida.
+            <p className="text-xs text-text-muted dark:text-stone-400 mb-3">
+              Escolha o que acontece com os lançamentos já criados no Financeiro:
             </p>
+            <div className="space-y-2 mb-4 p-3 rounded-xl bg-stone-50 dark:bg-stone-900/40 border border-border dark:border-border-dark">
+              {([
+                ['future-only', 'Desativar somente a recorrência', 'Lançamentos já gerados permanecem no histórico.'],
+                ['with-pending', 'Desativar + remover pendentes', 'Remove também os lançamentos pendentes (não pagos/recebidos). Lançamentos já quitados permanecem.'],
+              ] as const).map(([val, label, desc]) => (
+                <label key={val} className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="deleteScope"
+                    value={val}
+                    checked={deleteScope === val}
+                    onChange={() => setDeleteScope(val)}
+                    className="mt-0.5 accent-primary"
+                  />
+                  <div>
+                    <p className="text-xs font-semibold text-text-primary dark:text-stone-200">{label}</p>
+                    <p className="text-[10px] text-text-muted dark:text-stone-500 mt-0.5">{desc}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
             <div className="flex gap-2">
               <button onClick={() => setDeleteId(null)} className="btn-secondary flex-1">Cancelar</button>
               <button
-                onClick={() => deleteMutation.mutate(deleteId)}
+                onClick={() => deleteMutation.mutate({ id: deleteId, scope: deleteScope })}
                 disabled={deleteMutation.isPending}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-error hover:bg-error-dark transition-colors disabled:opacity-60"
               >
@@ -1748,24 +1889,24 @@ function ProjecaoTab({
   })
 
   /* ── Contas recorrentes ativas: projetar próximas ocorrências dentro de 90 dias ── */
-  const { data: recurringProjection, isLoading: loadingRecurring } = useQuery<{ date: string; amount: number }[]>({
+  const { data: recurringProjection, isLoading: loadingRecurring } = useQuery<{ date: string; amount: number; type: 'income' | 'expense' }[]>({
     queryKey: ['projecao-recurring', companyId, todayStr],
     enabled:  !!companyId,
     queryFn: async () => {
       const { data, error } = await (supabase.from('recurring_bills') as any)
-        .select('amount, periodicity, next_due_date')
+        .select('amount, periodicity, next_due_date, type')
         .eq('company_id', companyId!)
         .eq('is_active', true)
       if (error) throw error
 
       const horizon90 = addDays(new Date(todayStr + 'T00:00:00'), 90)
-      const occurrences: { date: string; amount: number }[] = []
+      const occurrences: { date: string; amount: number; type: 'income' | 'expense' }[] = []
 
       ;(data ?? []).forEach((bill: any) => {
         let cursor = new Date(bill.next_due_date + 'T00:00:00')
-        // Gera todas as ocorrências futuras da conta recorrente dentro da janela de 90 dias
+        const billType = (bill.type ?? 'expense') as 'income' | 'expense'
         while (cursor <= horizon90) {
-          occurrences.push({ date: format(cursor, 'yyyy-MM-dd'), amount: Number(bill.amount) })
+          occurrences.push({ date: format(cursor, 'yyyy-MM-dd'), amount: Number(bill.amount), type: billType })
           cursor = nextDueFrom(cursor, bill.periodicity)
         }
       })
@@ -1778,9 +1919,11 @@ function ProjecaoTab({
   /* ── Calcular saldo projetado para cada horizonte ── */
   function saldoEm(days: number): { saldo: number; entradas: number; saidas: number } {
     const limit = format(addDays(new Date(todayStr + 'T00:00:00'), days), 'yyyy-MM-dd')
-    const entradas = (receivables ?? []).filter(r => r.date <= limit).reduce((s, r) => s + r.amount, 0)
+    const entradasFromOrders = (receivables ?? []).filter(r => r.date <= limit).reduce((s, r) => s + r.amount, 0)
+    const entradasFromRecurring = (recurringProjection ?? []).filter(r => r.date <= limit && r.type === 'income').reduce((s, r) => s + r.amount, 0)
+    const entradas = entradasFromOrders + entradasFromRecurring
     const saidasPayables = (payables ?? []).filter(p => p.date <= limit).reduce((s, p) => s + p.amount, 0)
-    const saidasRecurring = (recurringProjection ?? []).filter(r => r.date <= limit).reduce((s, r) => s + r.amount, 0)
+    const saidasRecurring = (recurringProjection ?? []).filter(r => r.date <= limit && r.type === 'expense').reduce((s, r) => s + r.amount, 0)
     const saidas = saidasPayables + saidasRecurring
     return { saldo: (saldoAtual ?? 0) + entradas - saidas, entradas, saidas }
   }
@@ -1792,8 +1935,9 @@ function ProjecaoTab({
     return days.map(day => {
       const dayStr = format(day, 'yyyy-MM-dd')
       const entradas = (receivables ?? []).filter(r => r.date <= dayStr).reduce((s, r) => s + r.amount, 0)
+        + (recurringProjection ?? []).filter(r => r.date <= dayStr && r.type === 'income').reduce((s, r) => s + r.amount, 0)
       const saidas = (payables ?? []).filter(p => p.date <= dayStr).reduce((s, p) => s + p.amount, 0)
-        + (recurringProjection ?? []).filter(r => r.date <= dayStr).reduce((s, r) => s + r.amount, 0)
+        + (recurringProjection ?? []).filter(r => r.date <= dayStr && r.type === 'expense').reduce((s, r) => s + r.amount, 0)
       return {
         date: format(day, 'dd/MM', { locale: ptBR }),
         saldo: Math.round(((saldoAtual ?? 0) + entradas - saidas) * 100) / 100,
