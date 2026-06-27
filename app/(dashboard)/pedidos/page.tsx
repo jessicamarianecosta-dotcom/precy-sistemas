@@ -1211,7 +1211,7 @@ export default function PedidosPage() {
                         <div className="rounded-xl border border-dashed border-border dark:border-border-dark p-4 text-center">
                           <History size={18} className="text-text-muted mx-auto mb-1.5" />
                           <p className="text-xs text-text-muted">Nenhum recebimento registrado ainda.</p>
-                          <p className="text-[10px] text-text-muted/70 mt-0.5">Clique em "Registrar Recebimento" para adicionar.</p>
+                          <p className="text-[10px] text-text-muted/70 mt-0.5">Clique em &quot;Registrar Recebimento&quot; para adicionar.</p>
                         </div>
                       ) : (
                         <div className="space-y-0 rounded-xl border border-border dark:border-border-dark overflow-hidden">
