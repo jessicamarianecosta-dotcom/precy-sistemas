@@ -14,6 +14,7 @@ import {
 import { clsx } from 'clsx'
 import { CategorySelect } from '@/components/ui/CategorySelect'
 import { formatCurrency as fmt } from '@/lib/utils/format'
+import { formatDimDisplay, formatAreaM2 } from '@/lib/utils/dimensions'
 import { useSubscription } from '@/hooks/useSubscription'
 
 /* ─────────────────────────── Types ─── */
@@ -861,19 +862,10 @@ function PrecificacaoPage() {
 
                 {/* Área calculada */}
                 {mAreaM2 > 0 && (
-                  <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-info-light dark:bg-info/10 border border-info/20">
-                    <div>
-                      <p className="text-xs font-semibold text-info-dark dark:text-info uppercase tracking-wider">Área calculada</p>
-                      <p className="text-xl font-bold text-info-dark dark:text-info mt-0.5">{mAreaM2.toFixed(4)} m²</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-text-muted dark:text-stone-500">= {mAreaCm2.toFixed(0)} cm²</p>
-                      <p className="text-xs text-text-muted dark:text-stone-500 mt-0.5">
-                        {mUnit === 'cm'
-                          ? `${mWidth}cm × ${mHeight}cm`
-                          : `${mWidth}m × ${mHeight}m`}
-                      </p>
-                    </div>
+                  <div className="px-4 py-3 rounded-xl bg-info-light dark:bg-info/10 border border-info/20 space-y-0.5">
+                    <p className="text-xs font-semibold text-info-dark dark:text-info uppercase tracking-wider">Área calculada</p>
+                    <p className="text-sm font-medium text-info-dark dark:text-info">{formatDimDisplay(mWidth, mHeight, mUnit)}</p>
+                    <p className="text-xl font-bold text-info-dark dark:text-info">{formatAreaM2(mAreaM2)} m²</p>
                   </div>
                 )}
 

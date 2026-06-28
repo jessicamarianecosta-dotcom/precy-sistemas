@@ -18,7 +18,7 @@ import {
   ChevronLeft, User, Package, CreditCard, Truck,
   Eye, Search, Edit3, Edit2, Minus, Info, ShoppingBag, ExternalLink, Copy,
 } from 'lucide-react'
-import { calculateAreaM2, formatAreaM2 } from '@/lib/utils/dimensions'
+import { calculateAreaM2, formatAreaM2, formatDimDisplay } from '@/lib/utils/dimensions'
 
 interface BudgetItem {
   id: string; type: 'product'|'service'|'manual'; name: string
@@ -1069,11 +1069,33 @@ export default function OrcamentosPage() {
               {/* Dimensões */}
               <div>
                 <label className="block text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Dimensões (opcional)</label>
+                {/* Unidade primeiro para que os inputs já reflitam a unidade correta */}
+                <div className="mb-2">
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Unidade</label>
+                  <div className="flex gap-2">
+                    {['mm','cm','m'].map(u=>(
+                      <button key={u} type="button"
+                        onClick={()=>{
+                          const w=editItem.width, h=editItem.height
+                          const a=w&&h?calculateAreaM2(w,h,u):undefined
+                          setEditItem(p=>p?{...p,measurement_unit:u,area:a}:null)
+                        }}
+                        className={clsx('flex-1 py-1.5 rounded-xl text-xs font-semibold border transition-all',
+                          (editItem.measurement_unit??'m')===u
+                            ?'border-primary bg-primary text-white'
+                            :'border-border dark:border-stone-700 text-text-secondary dark:text-stone-400 hover:border-primary/50')}>
+                        {u}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Largura</label>
+                    <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">
+                      Largura ({editItem.measurement_unit??'m'})
+                    </label>
                     <input type="number" min="0" step="0.01" className="input text-sm"
-                      placeholder="Ex: 1.00"
+                      placeholder="Ex: 100"
                       value={editItem.width??''}
                       onChange={e=>{
                         const w=parseFloat(e.target.value)||undefined
@@ -1084,9 +1106,11 @@ export default function OrcamentosPage() {
                       }}/>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Altura</label>
+                    <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">
+                      Altura ({editItem.measurement_unit??'m'})
+                    </label>
                     <input type="number" min="0" step="0.01" className="input text-sm"
-                      placeholder="Ex: 0.50"
+                      placeholder="Ex: 30"
                       value={editItem.height??''}
                       onChange={e=>{
                         const h=parseFloat(e.target.value)||undefined
@@ -1097,24 +1121,16 @@ export default function OrcamentosPage() {
                       }}/>
                   </div>
                 </div>
-                {editItem.width&&editItem.height&&(editItem.width>0)&&(editItem.height>0)&&(
-                  <p className="mt-1 text-xs text-primary font-medium">
-                    Área: {formatAreaM2(calculateAreaM2(editItem.width,editItem.height,editItem.measurement_unit??'m'))} m²
-                  </p>
-                )}
-                <div className="mt-2">
-                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Unidade</label>
-                  <select className="input text-sm" value={editItem.measurement_unit??'m'}
-                    onChange={e=>{
-                      const u=e.target.value
-                      const w=editItem.width
-                      const h=editItem.height
-                      const a=w&&h?calculateAreaM2(w,h,u):undefined
-                      setEditItem(p=>p?{...p,measurement_unit:u,area:a}:null)
-                    }}>
-                    {['mm','cm','m'].map(u=><option key={u} value={u}>{u}</option>)}
-                  </select>
-                </div>
+                {editItem.width&&editItem.height&&(editItem.width>0)&&(editItem.height>0)&&(()=>{
+                  const u=editItem.measurement_unit??'m'
+                  const area=calculateAreaM2(editItem.width,editItem.height,u)
+                  return(
+                    <div className="mt-2 px-3 py-2 rounded-xl bg-primary-50/60 dark:bg-primary/10 border border-primary/20">
+                      <p className="text-xs font-semibold text-primary">{formatDimDisplay(editItem.width,editItem.height,u)}</p>
+                      <p className="text-[11px] text-text-muted dark:text-stone-500 mt-0.5">Área: <span className="font-bold text-primary">{formatAreaM2(area)} m²</span></p>
+                    </div>
+                  )
+                })()}
               </div>
               {/* Acabamentos */}
               <div>

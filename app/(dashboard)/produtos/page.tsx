@@ -12,7 +12,7 @@ import {
   Copy, ExternalLink, DollarSign, Clock, Layers,
   TrendingUp, ChevronRight, Tag, Zap, Ruler, FileText,
 } from 'lucide-react'
-import { calculateAreaM2, formatAreaM2 } from '@/lib/utils/dimensions'
+import { calculateAreaM2, formatAreaM2, formatDimDisplay } from '@/lib/utils/dimensions'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -633,21 +633,17 @@ export default function ProdutosPage() {
                     const w = Number(vp?.width)
                     const h = Number(vp?.height)
                     const u = vp?.measurement_unit ?? 'm'
-                    // Usar área salva no banco; se ausente, calcular com conversão correta
                     const a = Number(vp?.area) > 0
                       ? Number(vp!.area)
                       : (w > 0 && h > 0 ? calculateAreaM2(w, h, u) : 0)
-                    const fmt2 = (v: number) => v % 1 === 0 ? String(v) : v.toFixed(2).replace('.', ',')
                     return (
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg font-bold text-info-dark dark:text-info">
-                            {fmt2(w)} × {fmt2(h)} {u}
-                          </span>
-                        </div>
+                      <div className="space-y-1">
+                        <p className="text-base font-bold text-info-dark dark:text-info">
+                          {formatDimDisplay(w, h, u)}
+                        </p>
                         {a > 0 && (
                           <p className="text-xs text-text-secondary dark:text-stone-400">
-                            Área: {formatAreaM2(a)} m²
+                            Área: <span className="font-semibold">{formatAreaM2(a)} m²</span>
                           </p>
                         )}
                       </div>
