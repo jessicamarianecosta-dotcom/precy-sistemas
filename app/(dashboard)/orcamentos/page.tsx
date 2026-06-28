@@ -148,10 +148,15 @@ export default function OrcamentosPage() {
     // Carregar itens do orçamento
     const {data:bi}=await(supabase.from('budget_items')as any).select('*').eq('budget_id',b.id)
     const loadedItems=(bi??[]).map((i:any)=>({
-      id:i.id||uid(),type:'product' as const,
-      name:i.product_name||i.name||'Item',description:i.description||'',
-      quantity:Number(i.quantity)||1,unit_price:Number(i.unit_price)||0,
-      discount:0,subtotal:Number(i.subtotal)||0,product_id:i.product_id||undefined,
+      id:          i.id||uid(),
+      type:        (i.product_id ? 'product' : 'manual') as 'product'|'manual',
+      name:        i.name||'Item',
+      description: i.description||'',
+      quantity:    Number(i.quantity)||1,
+      unit_price:  Number(i.unit_price)||0,
+      discount:    0,
+      subtotal:    Number(i.subtotal)||0,
+      product_id:  i.product_id||undefined,
     }))
     setItems(loadedItems)
     // Cliente
@@ -263,8 +268,13 @@ export default function OrcamentosPage() {
 
       if(budgetId&&items.length>0){
         await(supabase.from('budget_items')as any).insert(items.map(i=>({
-          budget_id:budgetId,product_id:i.product_id||null,
-          name:i.name||null,quantity:i.quantity,unit_price:i.unit_price,subtotal:i.subtotal,
+          budget_id:   budgetId,
+          product_id:  i.product_id  || null,
+          name:        i.name        || null,
+          description: i.description || null,
+          quantity:    i.quantity,
+          unit_price:  i.unit_price,
+          subtotal:    i.subtotal,
         })))
       }
     },
@@ -285,44 +295,27 @@ export default function OrcamentosPage() {
   async function handleGeneratePDF(b:any){
     setGenerating(true)
     try{
-      const{generateBudgetPDF}=await import('@/lib/pdf/generateBudgetPDF')
+      const[{generateBudgetPDF},{getBudgetItems}]=await Promise.all([
+        import('@/lib/pdf/generateBudgetPDF'),
+        import('@/lib/pdf/getBudgetItems'),
+      ])
 
-      // Buscar orçamento completo com cliente expandido
+      // Orçamento completo com cliente expandido
       const {data:fullBudget}=await(supabase.from('budgets')as any)
         .select('*,customers(id,name,email,phone,city,state,cpf_cnpj,address)')
         .eq('id',b.id).single()
 
-      // Buscar itens com produto vinculado (para pegar nome se não salvo no item)
+      // Itens com produto vinculado (para resolver nome via JOIN)
       const {data:bi}=await(supabase.from('budget_items')as any)
         .select('*,products(name,description,category)')
         .eq('budget_id',b.id)
 
-      // Enriquecer itens: usar nome do produto se item não tem nome próprio
-      let enrichedItems=(bi??[]).map((item:any)=>({
-        ...item,
-        name: item.name || item.products?.name || 'Item',
-        description: item.description || item.products?.description || '',
-      }))
-
-      // Fallback para orçamento livre: sem itens mas com valor total definido
-      if(enrichedItems.length===0){
-        const tot=Number((fullBudget??b).total)||0
-        const sub=Number((fullBudget??b).subtotal)||tot
-        const desc=String((fullBudget??b).notes||'').trim()||'Serviço conforme proposta'
-        if(tot>0){
-          enrichedItems=[{
-            name: desc,
-            description: '',
-            quantity: 1,
-            unit_price: sub,
-            subtotal: sub,
-          }]
-        }
-      }
+      // Fonte única de verdade — getBudgetItems lida com itens reais e fallback legado
+      const effectiveItems = getBudgetItems(fullBudget??b, bi??[])
 
       await generateBudgetPDF({
         budget: fullBudget??b,
-        items:  enrichedItems,
+        items:  effectiveItems as any,
         company:companyData,
       })
     }catch(err){
