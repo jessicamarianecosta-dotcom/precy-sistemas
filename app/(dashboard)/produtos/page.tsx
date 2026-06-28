@@ -12,7 +12,7 @@ import {
   Copy, ExternalLink, DollarSign, Clock, Layers,
   TrendingUp, ChevronRight, Tag, Zap, Ruler, FileText,
 } from 'lucide-react'
-import { calculateAreaM2, formatAreaM2, formatDimDisplay } from '@/lib/utils/dimensions'
+import { calculateAreaM2, formatAreaM2, formatDimDisplay, getDimBlock } from '@/lib/utils/dimensions'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -633,18 +633,25 @@ export default function ProdutosPage() {
                     const w = Number(vp?.width)
                     const h = Number(vp?.height)
                     const u = vp?.measurement_unit ?? 'm'
-                    const a = Number(vp?.area) > 0
-                      ? Number(vp!.area)
-                      : (w > 0 && h > 0 ? calculateAreaM2(w, h, u) : 0)
+                    if (!w || !h) return null
+                    const block = getDimBlock(w, h, u, Number(vp?.area) || null)
                     return (
-                      <div className="space-y-1">
-                        <p className="text-base font-bold text-info-dark dark:text-info">
-                          {formatDimDisplay(w, h, u)}
-                        </p>
-                        {a > 0 && (
-                          <p className="text-xs text-text-secondary dark:text-stone-400">
-                            Área: <span className="font-semibold">{formatAreaM2(a)} m²</span>
-                          </p>
+                      <div className="space-y-1.5">
+                        <div>
+                          <p className="text-[10px] font-semibold text-info/60 uppercase tracking-wider">Dimensões</p>
+                          <p className="text-base font-bold text-info-dark dark:text-info">{block.original}</p>
+                        </div>
+                        {block.meters && (
+                          <div>
+                            <p className="text-[10px] font-semibold text-info/60 uppercase tracking-wider">Conversão para metros</p>
+                            <p className="text-xs text-info-dark/70 dark:text-info/70">{block.meters}</p>
+                          </div>
+                        )}
+                        {block.areaValue > 0 && (
+                          <div>
+                            <p className="text-[10px] font-semibold text-info/60 uppercase tracking-wider">Área calculada</p>
+                            <p className="text-sm font-bold text-info-dark dark:text-info">{block.area} m²</p>
+                          </div>
                         )}
                       </div>
                     )

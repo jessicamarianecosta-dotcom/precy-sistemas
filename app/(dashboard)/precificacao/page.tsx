@@ -14,7 +14,7 @@ import {
 import { clsx } from 'clsx'
 import { CategorySelect } from '@/components/ui/CategorySelect'
 import { formatCurrency as fmt } from '@/lib/utils/format'
-import { formatDimDisplay, formatAreaM2 } from '@/lib/utils/dimensions'
+import { formatDimDisplay, formatAreaM2, getDimBlock } from '@/lib/utils/dimensions'
 import { useSubscription } from '@/hooks/useSubscription'
 
 /* ─────────────────────────── Types ─── */
@@ -861,13 +861,27 @@ function PrecificacaoPage() {
                 </div>
 
                 {/* Área calculada */}
-                {mAreaM2 > 0 && (
-                  <div className="px-4 py-3 rounded-xl bg-info-light dark:bg-info/10 border border-info/20 space-y-0.5">
-                    <p className="text-xs font-semibold text-info-dark dark:text-info uppercase tracking-wider">Área calculada</p>
-                    <p className="text-sm font-medium text-info-dark dark:text-info">{formatDimDisplay(mWidth, mHeight, mUnit)}</p>
-                    <p className="text-xl font-bold text-info-dark dark:text-info">{formatAreaM2(mAreaM2)} m²</p>
-                  </div>
-                )}
+                {mAreaM2 > 0 && (()=>{
+                  const block = getDimBlock(mWidth, mHeight, mUnit)
+                  return (
+                    <div className="px-4 py-3 rounded-xl bg-info-light dark:bg-info/10 border border-info/20 space-y-1.5">
+                      <div>
+                        <p className="text-[10px] font-semibold text-info/60 uppercase tracking-wider">Dimensões</p>
+                        <p className="text-sm font-medium text-info-dark dark:text-info">{block.original}</p>
+                      </div>
+                      {block.meters && (
+                        <div>
+                          <p className="text-[10px] font-semibold text-info/60 uppercase tracking-wider">Conversão para metros</p>
+                          <p className="text-xs text-info-dark/70 dark:text-info/70">{block.meters}</p>
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-[10px] font-semibold text-info/60 uppercase tracking-wider">Área calculada</p>
+                        <p className="text-xl font-bold text-info-dark dark:text-info">{block.area} m²</p>
+                      </div>
+                    </div>
+                  )
+                })()}
 
                 {/* Preço por m² */}
                 <div>

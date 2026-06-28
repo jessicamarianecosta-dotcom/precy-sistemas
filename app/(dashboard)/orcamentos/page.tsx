@@ -18,7 +18,7 @@ import {
   ChevronLeft, User, Package, CreditCard, Truck,
   Eye, Search, Edit3, Edit2, Minus, Info, ShoppingBag, ExternalLink, Copy,
 } from 'lucide-react'
-import { calculateAreaM2, formatAreaM2, formatDimDisplay } from '@/lib/utils/dimensions'
+import { calculateAreaM2, formatAreaM2, formatDimDisplay, getDimBlock, getDimWarning } from '@/lib/utils/dimensions'
 
 interface BudgetItem {
   id: string; type: 'product'|'service'|'manual'; name: string
@@ -1123,12 +1123,33 @@ export default function OrcamentosPage() {
                 </div>
                 {editItem.width&&editItem.height&&(editItem.width>0)&&(editItem.height>0)&&(()=>{
                   const u=editItem.measurement_unit??'m'
-                  const area=calculateAreaM2(editItem.width,editItem.height,u)
+                  const block=getDimBlock(editItem.width,editItem.height,u,editItem.area)
+                  const warning=getDimWarning(editItem.width,editItem.height,u)
                   return(
-                    <div className="mt-2 px-3 py-2 rounded-xl bg-primary-50/60 dark:bg-primary/10 border border-primary/20">
-                      <p className="text-xs font-semibold text-primary">{formatDimDisplay(editItem.width,editItem.height,u)}</p>
-                      <p className="text-[11px] text-text-muted dark:text-stone-500 mt-0.5">Área: <span className="font-bold text-primary">{formatAreaM2(area)} m²</span></p>
-                    </div>
+                    <>
+                      <div className="mt-2 px-3 py-2.5 rounded-xl bg-primary-50/60 dark:bg-primary/10 border border-primary/20 space-y-1.5">
+                        <div>
+                          <p className="text-[10px] font-semibold text-primary/60 uppercase tracking-wider">Dimensões</p>
+                          <p className="text-sm font-bold text-primary">{block.original}</p>
+                        </div>
+                        {block.meters&&(
+                          <div>
+                            <p className="text-[10px] font-semibold text-primary/60 uppercase tracking-wider">Conversão para metros</p>
+                            <p className="text-xs text-primary/80">{block.meters}</p>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-[10px] font-semibold text-primary/60 uppercase tracking-wider">Área calculada</p>
+                          <p className="text-base font-bold text-primary">{block.area} m²</p>
+                        </div>
+                      </div>
+                      {warning&&(
+                        <div className="mt-1.5 px-3 py-2 rounded-xl bg-warning-light dark:bg-warning/10 border border-warning/30 flex gap-2 items-start">
+                          <span className="text-warning text-sm mt-0.5">⚠</span>
+                          <p className="text-[11px] text-warning-dark dark:text-warning leading-snug">{warning}</p>
+                        </div>
+                      )}
+                    </>
                   )
                 })()}
               </div>
