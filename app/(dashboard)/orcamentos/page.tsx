@@ -23,6 +23,9 @@ interface BudgetItem {
   id: string; type: 'product'|'service'|'manual'; name: string
   description: string; quantity: number; unit_price: number
   discount: number; subtotal: number; product_id?: string
+  // Especificações técnicas
+  width?: number; height?: number; area?: number; measurement_unit?: string
+  finishings?: string[]; finishing_type?: string; technical_notes?: string
 }
 interface NewClientData { name: string; phone: string; email: string }
 type Step = 1|2|3|4|5
@@ -116,7 +119,7 @@ export default function OrcamentosPage() {
   const {data:products}=useQuery<any[]>({
     queryKey:['products-select',companyId],enabled:!!companyId,
     queryFn:async()=>{
-      const r:any=await supabase.from('products').select('id,name,final_price,category').eq('company_id',companyId!).eq('is_active',true).order('name')
+      const r:any=await supabase.from('products').select('id,name,final_price,category,width,height,area,measurement_unit,finishings,finishing_type,technical_notes').eq('company_id',companyId!).eq('is_active',true).order('name')
       return r?.data??[]
     },
   })
@@ -148,15 +151,22 @@ export default function OrcamentosPage() {
     // Carregar itens do orçamento
     const {data:bi}=await(supabase.from('budget_items')as any).select('*').eq('budget_id',b.id)
     const loadedItems=(bi??[]).map((i:any)=>({
-      id:          i.id||uid(),
-      type:        (i.product_id ? 'product' : 'manual') as 'product'|'manual',
-      name:        i.name||'Item',
-      description: i.description||'',
-      quantity:    Number(i.quantity)||1,
-      unit_price:  Number(i.unit_price)||0,
-      discount:    0,
-      subtotal:    Number(i.subtotal)||0,
-      product_id:  i.product_id||undefined,
+      id:              i.id||uid(),
+      type:            (i.product_id ? 'product' : 'manual') as 'product'|'manual',
+      name:            i.name||'Item',
+      description:     i.description||'',
+      quantity:        Number(i.quantity)||1,
+      unit_price:      Number(i.unit_price)||0,
+      discount:        0,
+      subtotal:        Number(i.subtotal)||0,
+      product_id:      i.product_id||undefined,
+      width:           i.width           ?? undefined,
+      height:          i.height          ?? undefined,
+      area:            i.area            ?? undefined,
+      measurement_unit:i.measurement_unit?? undefined,
+      finishings:      Array.isArray(i.finishings) ? i.finishings : [],
+      finishing_type:  i.finishing_type  ?? undefined,
+      technical_notes: i.technical_notes ?? undefined,
     }))
     setItems(loadedItems)
     // Cliente
@@ -181,11 +191,22 @@ export default function OrcamentosPage() {
     setStep(1);setShowWizard(true)
   }
   function addItemFromProduct(p:any){
-    setItems(prev=>[...prev,{id:uid(),type:'product',name:p.name,description:'',quantity:1,unit_price:Number(p.final_price),discount:0,subtotal:Number(p.final_price),product_id:p.id}])
+    setItems(prev=>[...prev,{
+      id:uid(),type:'product',name:p.name,description:'',
+      quantity:1,unit_price:Number(p.final_price),discount:0,subtotal:Number(p.final_price),
+      product_id:p.id,
+      width:           p.width          ?? undefined,
+      height:          p.height         ?? undefined,
+      area:            p.area           ?? undefined,
+      measurement_unit:p.measurement_unit?? undefined,
+      finishings:      Array.isArray(p.finishings) ? p.finishings : [],
+      finishing_type:  p.finishing_type ?? undefined,
+      technical_notes: p.technical_notes?? undefined,
+    }])
     setAddMode(null);setProdSearch('')
   }
   function openNewItem(type:'service'|'manual'){
-    setEditItem({id:uid(),type,name:'',description:'',quantity:1,unit_price:0,discount:0,subtotal:0})
+    setEditItem({id:uid(),type,name:'',description:'',quantity:1,unit_price:0,discount:0,subtotal:0,finishings:[]})
     setAddMode(null)
   }
   function saveEditItem(item:BudgetItem){
@@ -268,13 +289,20 @@ export default function OrcamentosPage() {
 
       if(budgetId&&items.length>0){
         await(supabase.from('budget_items')as any).insert(items.map(i=>({
-          budget_id:   budgetId,
-          product_id:  i.product_id  || null,
-          name:        i.name        || null,
-          description: i.description || null,
-          quantity:    i.quantity,
-          unit_price:  i.unit_price,
-          subtotal:    i.subtotal,
+          budget_id:       budgetId,
+          product_id:      i.product_id     || null,
+          name:            i.name           || null,
+          description:     i.description    || null,
+          quantity:        i.quantity,
+          unit_price:      i.unit_price,
+          subtotal:        i.subtotal,
+          width:           i.width          ?? null,
+          height:          i.height         ?? null,
+          area:            i.area           ?? null,
+          measurement_unit:i.measurement_unit?? null,
+          finishings:      i.finishings?.length ? i.finishings : null,
+          finishing_type:  i.finishing_type ?? null,
+          technical_notes: i.technical_notes?? null,
         })))
       }
     },
@@ -305,9 +333,9 @@ export default function OrcamentosPage() {
         .select('*,customers(id,name,email,phone,city,state,cpf_cnpj,address)')
         .eq('id',b.id).single()
 
-      // Itens com produto vinculado (para resolver nome via JOIN)
+      // Itens com produto vinculado (para resolver nome e specs via JOIN)
       const {data:bi}=await(supabase.from('budget_items')as any)
-        .select('*,products(name,description,category)')
+        .select('*,products(name,description,category,width,height,area,measurement_unit,finishings,finishing_type,technical_notes)')
         .eq('budget_id',b.id)
 
       // Fonte única de verdade — getBudgetItems lida com itens reais e fallback legado
@@ -1023,13 +1051,94 @@ export default function OrcamentosPage() {
               <h3 className="text-sm font-bold text-text-primary dark:text-stone-100">{editItem.type==='product'?'Editar produto':editItem.type==='service'?'Novo serviço':'Novo item'}</h3>
               <button onClick={()=>setEditItem(null)} className="p-1.5 rounded-xl hover:bg-primary-50 text-text-muted"><X size={15}/></button>
             </div>
-            <div className="p-4 space-y-3">
+            <div className="p-4 space-y-3 overflow-y-auto max-h-[70vh]">
               <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Nome *</label><input className="input" value={editItem.name} onChange={e=>setEditItem(p=>p?{...p,name:e.target.value}:null)}/></div>
               <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Descrição</label><input className="input text-sm" value={editItem.description} onChange={e=>setEditItem(p=>p?{...p,description:e.target.value}:null)}/></div>
               <div className="grid grid-cols-3 gap-3">
                 <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Qtd</label><input type="number" min="1" step="1" className="input text-sm" value={editItem.quantity} onChange={e=>setEditItem(p=>p?{...p,quantity:Number(e.target.value)}:null)}/></div>
                 <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Valor unit.</label><input type="number" step="0.01" className="input text-sm" value={editItem.unit_price} onChange={e=>setEditItem(p=>p?{...p,unit_price:Number(e.target.value)}:null)}/></div>
                 <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Desc. %</label><input type="number" min="0" max="100" className="input text-sm" value={editItem.discount} onChange={e=>setEditItem(p=>p?{...p,discount:Number(e.target.value)}:null)}/></div>
+              </div>
+              {/* Dimensões */}
+              <div>
+                <label className="block text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Dimensões (opcional)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Largura</label>
+                    <input type="number" min="0" step="0.01" className="input text-sm"
+                      placeholder="Ex: 1.00"
+                      value={editItem.width??''}
+                      onChange={e=>{
+                        const w=parseFloat(e.target.value)||undefined
+                        const h=editItem.height
+                        const a=w&&h?w*h:undefined
+                        setEditItem(p=>p?{...p,width:w,area:a}:null)
+                      }}/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Altura</label>
+                    <input type="number" min="0" step="0.01" className="input text-sm"
+                      placeholder="Ex: 0.50"
+                      value={editItem.height??''}
+                      onChange={e=>{
+                        const h=parseFloat(e.target.value)||undefined
+                        const w=editItem.width
+                        const a=w&&h?w*h:undefined
+                        setEditItem(p=>p?{...p,height:h,area:a}:null)
+                      }}/>
+                  </div>
+                </div>
+                {editItem.width&&editItem.height&&(editItem.width>0)&&(editItem.height>0)&&(
+                  <p className="mt-1 text-xs text-primary font-medium">Área: {((editItem.width??0)*(editItem.height??0)).toFixed(4)} m²</p>
+                )}
+                <div className="mt-2">
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Unidade</label>
+                  <select className="input text-sm" value={editItem.measurement_unit??'m'} onChange={e=>setEditItem(p=>p?{...p,measurement_unit:e.target.value}:null)}>
+                    {['m','cm'].map(u=><option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+              </div>
+              {/* Acabamentos */}
+              <div>
+                <label className="block text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Acabamentos</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {['Laminação Fosca','Laminação Brilho','Recorte eletrônico','Corte reto','Ilhós','Bastão','Bainha','Cantos arredondados','Vinco','Dobra','Furação','Refile'].map(opt=>{
+                    const active=(editItem.finishings??[]).includes(opt)
+                    return(
+                      <button key={opt} type="button"
+                        onClick={()=>setEditItem(p=>p?{...p,finishings:active?(p.finishings??[]).filter(f=>f!==opt):[...(p.finishings??[]),opt]}:null)}
+                        className={clsx('px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all',
+                          active?'border-primary bg-primary text-white':'border-border dark:border-stone-700 text-text-secondary dark:text-stone-400 hover:border-primary/50')}>
+                        {opt}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              {/* Finalização */}
+              <div>
+                <label className="block text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Finalização</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {['Entrega enrolado','Entrega dobrado','Montado','Instalado','Aplicado','Embalado','Kit'].map(opt=>{
+                    const active=editItem.finishing_type===opt
+                    return(
+                      <button key={opt} type="button"
+                        onClick={()=>setEditItem(p=>p?{...p,finishing_type:active?'':opt}:null)}
+                        className={clsx('px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all',
+                          active?'border-primary bg-primary text-white':'border-border dark:border-stone-700 text-text-secondary dark:text-stone-400 hover:border-primary/50')}>
+                        {opt}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              {/* Observações Técnicas */}
+              <div>
+                <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Obs. Técnicas</label>
+                <textarea className="input text-sm resize-none" rows={2}
+                  placeholder="Ex: Impressão CMYK, sangria 3mm..."
+                  value={editItem.technical_notes??''}
+                  onChange={e=>setEditItem(p=>p?{...p,technical_notes:e.target.value}:null)}/>
               </div>
               <div className="flex items-center justify-between py-2 px-3 rounded-xl bg-primary-50/50 dark:bg-primary/5">
                 <span className="text-xs text-text-muted">Subtotal</span>

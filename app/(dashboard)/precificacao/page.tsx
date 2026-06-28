@@ -9,7 +9,7 @@ import {
   Calculator, TrendingUp, Plus, X, Package, Ruler,
   Save, CheckCircle, Loader2, AlertTriangle,
   ShoppingBag, Hammer, ChevronRight,
-  ArrowRight, Info,
+  ArrowRight, Info, Tag, Layers, FileText,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { CategorySelect } from '@/components/ui/CategorySelect'
@@ -127,6 +127,13 @@ function PrecificacaoPage() {
   ])
   const [materials,        setMaterials]        = useState<MaterialLine[]>([])
 
+  // ── Specs técnicas ──
+  const [finishings,      setFinishings]      = useState<string[]>([])
+  const [finishingType,   setFinishingType]   = useState<string>('')
+  const [technicalNotes,  setTechnicalNotes]  = useState<string>('')
+  const [customFinishing,   setCustomFinishing]   = useState('')
+  const [customFinishingType, setCustomFinishingType] = useState('')
+
   /* ── ui state ── */
   const [showPicker,  setShowPicker]  = useState(false)
   const [pickerSearch, setPickerSearch] = useState('')
@@ -209,6 +216,10 @@ function PrecificacaoPage() {
       if (p.price_per_m2)    setPricePerM2(Number(p.price_per_m2))
       if (p.finishing_cost)  setFinishingCost(Number(p.finishing_cost))
     }
+    // Specs técnicas
+    if (Array.isArray(p.finishings))  setFinishings(p.finishings)
+    if (p.finishing_type)  setFinishingType(p.finishing_type)
+    if (p.technical_notes) setTechnicalNotes(p.technical_notes)
   }, [existingProduct, editingProductId, loadedProductId])
 
   // Buscar tabela fixed_costs (mesma fonte que Configurações)
@@ -408,6 +419,9 @@ function PrecificacaoPage() {
           width: mWidth, height: mHeight, measurement_unit: mUnit,
           price_per_m2: pricePerM2, finishing_cost: finishingCost,
         } : {}),
+        finishings:      finishings,
+        finishing_type:  finishingType || null,
+        technical_notes: technicalNotes || null,
         updated_at: new Date().toISOString(),
       }
 
@@ -494,6 +508,9 @@ function PrecificacaoPage() {
         setPurchaseCost(0)
         setExtraCosts([{ id: crypto.randomUUID(), name: '', value: 0 }])
         setMaterials([])
+        setFinishings([])
+        setFinishingType('')
+        setTechnicalNotes('')
       }
     },
 
@@ -1002,6 +1019,134 @@ function PrecificacaoPage() {
                   </span>
                 </div>
               </div>
+            </div>
+
+            {/* ── Acabamentos (multi-select chips) ── */}
+            <div className="card space-y-3">
+              <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100 flex items-center gap-2">
+                <Layers size={14} className="text-primary" />
+                Acabamentos
+              </h3>
+              <p className="text-xs text-text-muted dark:text-stone-400 -mt-1">
+                Selecione um ou mais acabamentos aplicados neste produto
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {['Laminação Fosca','Laminação Brilho','Laminação Holográfica','Recorte eletrônico','Corte reto','Meio corte','Vinco','Dobra','Cantos arredondados','Ilhós','Bastão','Bainha','Verniz Localizado','Hot Stamping','Refile','Furação','Corte Especial'].map(opt => {
+                  const active = finishings.includes(opt)
+                  return (
+                    <button key={opt} type="button"
+                      onClick={() => setFinishings(prev => active ? prev.filter(f => f !== opt) : [...prev, opt])}
+                      className={clsx(
+                        'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+                        active
+                          ? 'border-primary bg-primary text-white'
+                          : 'border-border dark:border-border-dark text-text-secondary dark:text-stone-400 hover:border-primary/50'
+                      )}>
+                      {opt}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="input flex-1 text-sm"
+                  placeholder="Outro acabamento..."
+                  value={customFinishing}
+                  onChange={e => setCustomFinishing(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && customFinishing.trim()) {
+                      const v = customFinishing.trim()
+                      if (!finishings.includes(v)) setFinishings(prev => [...prev, v])
+                      setCustomFinishing('')
+                    }
+                  }}
+                />
+                <button type="button"
+                  disabled={!customFinishing.trim()}
+                  onClick={() => {
+                    const v = customFinishing.trim()
+                    if (v && !finishings.includes(v)) setFinishings(prev => [...prev, v])
+                    setCustomFinishing('')
+                  }}
+                  className="btn-secondary px-3 py-2 text-xs">
+                  <Plus size={13} />
+                </button>
+              </div>
+              {finishings.filter(f => !['Laminação Fosca','Laminação Brilho','Laminação Holográfica','Recorte eletrônico','Corte reto','Meio corte','Vinco','Dobra','Cantos arredondados','Ilhós','Bastão','Bainha','Verniz Localizado','Hot Stamping','Refile','Furação','Corte Especial'].includes(f)).map(f => (
+                <div key={f} className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border border-primary bg-primary text-white w-fit">
+                  {f}
+                  <button type="button" onClick={() => setFinishings(prev => prev.filter(x => x !== f))} className="ml-1 opacity-75 hover:opacity-100"><X size={11} /></button>
+                </div>
+              ))}
+            </div>
+
+            {/* ── Finalização / Entrega (single-select chips) ── */}
+            <div className="card space-y-3">
+              <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100 flex items-center gap-2">
+                <Tag size={14} className="text-primary" />
+                Finalização / Entrega
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {['Sem acabamento','Entrega enrolado','Entrega dobrado','Montado','Instalado','Aplicado','Embalado','Kit'].map(opt => {
+                  const active = finishingType === opt
+                  return (
+                    <button key={opt} type="button"
+                      onClick={() => setFinishingType(active ? '' : opt)}
+                      className={clsx(
+                        'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+                        active
+                          ? 'border-primary bg-primary text-white'
+                          : 'border-border dark:border-border-dark text-text-secondary dark:text-stone-400 hover:border-primary/50'
+                      )}>
+                      {opt}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="input flex-1 text-sm"
+                  placeholder="Outra finalização..."
+                  value={customFinishingType}
+                  onChange={e => setCustomFinishingType(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && customFinishingType.trim()) {
+                      setFinishingType(customFinishingType.trim())
+                      setCustomFinishingType('')
+                    }
+                  }}
+                />
+                <button type="button"
+                  disabled={!customFinishingType.trim()}
+                  onClick={() => {
+                    if (customFinishingType.trim()) { setFinishingType(customFinishingType.trim()); setCustomFinishingType('') }
+                  }}
+                  className="btn-secondary px-3 py-2 text-xs">
+                  <Plus size={13} />
+                </button>
+              </div>
+              {finishingType && !['Sem acabamento','Entrega enrolado','Entrega dobrado','Montado','Instalado','Aplicado','Embalado','Kit'].includes(finishingType) && (
+                <div className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border border-primary bg-primary text-white w-fit">
+                  {finishingType}
+                  <button type="button" onClick={() => setFinishingType('')} className="ml-1 opacity-75 hover:opacity-100"><X size={11} /></button>
+                </div>
+              )}
+            </div>
+
+            {/* ── Observações Técnicas ── */}
+            <div className="card space-y-3">
+              <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100 flex items-center gap-2">
+                <FileText size={14} className="text-primary" />
+                Observações Técnicas
+              </h3>
+              <textarea
+                className="input min-h-[80px] resize-y text-sm"
+                placeholder="Ex: Impressão em alta resolução, sangria de 3mm, arquivo em CMYK..."
+                value={technicalNotes}
+                onChange={e => setTechnicalNotes(e.target.value)}
+              />
             </div>
 
             {/* Slider margem */}

@@ -96,6 +96,18 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
   /* ── Itens — fonte única via getBudgetItems ── */
   const effectiveItems = getBudgetItems(budget, items)
 
+  const fmtDim = (item: typeof effectiveItems[0]) => {
+    const w = Number(item.width)
+    const h = Number(item.height)
+    const a = Number(item.area) || (w && h ? w * h : 0)
+    const u = item.measurement_unit ?? 'm'
+    if (!w && !h) return ''
+    const fmt2 = (v: number) => v % 1 === 0 ? String(v) : v.toFixed(2).replace('.',',')
+    let line = `${fmt2(w)} × ${fmt2(h)} ${u}`
+    if (a > 0) line += ` · Área: ${a.toFixed(4).replace('.',',')} m²`
+    return line
+  }
+
   const rowsHTML = effectiveItems.length === 0
     ? `<tr><td colspan="5" style="text-align:center;padding:28px;color:#bbb;font-size:12px;font-style:italic;">Nenhum item cadastrado</td></tr>`
     : effectiveItems.map((item,idx) => {
@@ -105,12 +117,20 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
         const up   = Number(item.unit_price) || 0
         const sub  = Number(item.subtotal)   || 0
         const bg   = idx % 2 === 0 ? '#ffffff' : '#faf8f5'
+        const dim  = fmtDim(item)
+        const fins = (item.finishings ?? []).filter(Boolean)
+        const finT = item.finishing_type ?? ''
+        const obs  = item.technical_notes ?? ''
         return `
         <tr style="background:${bg};page-break-inside:avoid;">
           <td style="padding:11px 10px;border-bottom:1px solid #ede9e3;color:#aaa;font-size:11px;text-align:center;width:28px;vertical-align:top;">${idx+1}</td>
           <td style="padding:11px 14px;border-bottom:1px solid #ede9e3;vertical-align:top;">
             <div style="font-size:13px;font-weight:600;color:#1a1208;line-height:1.35;">${nm}</div>
-            ${desc ? `<div style="font-size:11px;color:#9a8a7a;margin-top:3px;line-height:1.5;">${desc}</div>` : ''}
+            ${desc ? `<div style="font-size:11px;color:#9a8a7a;margin-top:3px;line-height:1.5;">${X(desc)}</div>` : ''}
+            ${dim ? `<div style="font-size:10.5px;color:#6b7280;margin-top:4px;">📐 ${X(dim)}</div>` : ''}
+            ${fins.length > 0 ? `<div style="font-size:10.5px;color:#6b7280;margin-top:3px;">✂ ${fins.map(X).join(' · ')}</div>` : ''}
+            ${finT ? `<div style="font-size:10.5px;color:#6b7280;margin-top:2px;">📦 ${X(finT)}</div>` : ''}
+            ${obs ? `<div style="font-size:10px;color:#9a8a7a;margin-top:3px;font-style:italic;">ℹ ${X(obs)}</div>` : ''}
           </td>
           <td style="padding:11px 10px;border-bottom:1px solid #ede9e3;text-align:center;font-size:12.5px;color:#333;width:52px;vertical-align:top;">${qty}</td>
           <td style="padding:11px 10px;border-bottom:1px solid #ede9e3;text-align:right;font-size:12.5px;color:#555;width:92px;vertical-align:top;">${R(up)}</td>
