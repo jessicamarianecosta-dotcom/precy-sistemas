@@ -10,7 +10,7 @@ import { useCompanyId } from '@/hooks/useCompanyId'
 import {
   Package, Plus, Search, Edit2, Trash2, X, Loader2,
   Copy, ExternalLink, DollarSign, Clock, Layers,
-  TrendingUp, ChevronRight, Tag, Zap,
+  TrendingUp, ChevronRight, Tag, Zap, Ruler, FileText,
 } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -40,6 +40,14 @@ interface Product {
   final_price:           number
   is_active:             boolean
   created_at:            string
+  // Especificações técnicas
+  width?:            number | null
+  height?:           number | null
+  area?:             number | null
+  measurement_unit?: string | null
+  finishings?:       string[] | null
+  finishing_type?:   string | null
+  technical_notes?:  string | null
 }
 
 interface ProductMaterial {
@@ -615,6 +623,79 @@ export default function ProdutosPage() {
                   })}
                 </div>
               </FichaSection>
+
+              {/* ── S7: Dimensões ── */}
+              {(vp?.width || vp?.height) && (
+                <FichaSection icon={Ruler} title="Dimensões"
+                  color="text-info" bg="bg-info-light dark:bg-info/10">
+                  {(() => {
+                    const w = Number(vp?.width)
+                    const h = Number(vp?.height)
+                    const a = Number(vp?.area) || (w && h ? w * h : 0)
+                    const u = vp?.measurement_unit ?? 'm'
+                    const fmt2 = (v: number) => v % 1 === 0 ? String(v) : v.toFixed(2).replace('.', ',')
+                    return (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg font-bold text-info-dark dark:text-info">
+                            {fmt2(w)} × {fmt2(h)} {u}
+                          </span>
+                        </div>
+                        {a > 0 && (
+                          <p className="text-xs text-text-secondary dark:text-stone-400">
+                            Área: {a.toFixed(4).replace('.', ',')} m²
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })()}
+                </FichaSection>
+              )}
+
+              {/* ── S8: Acabamentos ── */}
+              {Array.isArray(vp?.finishings) && (vp?.finishings ?? []).length > 0 && (
+                <FichaSection icon={Tag} title="Acabamentos"
+                  color="text-warning" bg="bg-warning-light dark:bg-warning/10">
+                  <div className="flex flex-wrap gap-1.5">
+                    {(vp!.finishings as string[]).map((f: string) => (
+                      <span key={f} className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-warning-light dark:bg-warning/15 text-warning-dark dark:text-warning border border-warning/30">
+                        <span className="text-warning-dark dark:text-warning opacity-70">✓</span> {f}
+                      </span>
+                    ))}
+                  </div>
+                </FichaSection>
+              )}
+
+              {/* ── S9: Finalização ── */}
+              {vp?.finishing_type && (
+                <FichaSection icon={Tag} title="Finalização"
+                  color="text-success" bg="bg-success-light dark:bg-success/10">
+                  {(() => {
+                    const ft = vp!.finishing_type as string
+                    const isOthers = ft.startsWith('Outros: ')
+                    return isOthers ? (
+                      <div>
+                        <p className="text-xs font-semibold text-success-dark dark:text-success">Outros</p>
+                        <p className="text-xs text-text-secondary dark:text-stone-400 mt-0.5 italic">{ft.slice(8)}</p>
+                      </div>
+                    ) : (
+                      <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium bg-success-light dark:bg-success/15 text-success-dark dark:text-success border border-success/30 w-fit">
+                        <span className="opacity-70">✓</span> {ft}
+                      </span>
+                    )
+                  })()}
+                </FichaSection>
+              )}
+
+              {/* ── S10: Observações Técnicas ── */}
+              {vp?.technical_notes && (
+                <FichaSection icon={FileText} title="Observações Técnicas"
+                  color="text-text-muted" bg="bg-primary-50/40 dark:bg-white/[0.03]">
+                  <p className="text-xs text-text-secondary dark:text-stone-400 leading-relaxed whitespace-pre-wrap">
+                    {vp.technical_notes}
+                  </p>
+                </FichaSection>
+              )}
 
             </div>
 
