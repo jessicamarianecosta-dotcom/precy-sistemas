@@ -27,6 +27,9 @@ interface BudgetItem {
   // Especificações técnicas
   width?: number; height?: number; area?: number; measurement_unit?: string
   finishings?: string[]; finishing_type?: string; technical_notes?: string
+  // Modo de precificação
+  pricing_mode?: 'fixed'|'square_meter'
+  price_per_m2?: number
 }
 interface NewClientData { name: string; phone: string; email: string }
 type Step = 1|2|3|4|5
@@ -170,10 +173,12 @@ export default function OrcamentosPage() {
       width:           i.width           ?? undefined,
       height:          i.height          ?? undefined,
       area:            i.area            ?? undefined,
-      measurement_unit:i.measurement_unit?? undefined,
+      measurement_unit:i.measurement_unit?? 'm',
       finishings:      Array.isArray(i.finishings) ? i.finishings : [],
       finishing_type:  i.finishing_type  ?? undefined,
       technical_notes: i.technical_notes ?? undefined,
+      pricing_mode:    (i.pricing_mode as 'fixed'|'square_meter') ?? 'fixed',
+      price_per_m2:    i.price_per_m2    ?? undefined,
     }))
     setItems(loadedItems)
     // Cliente
@@ -213,8 +218,18 @@ export default function OrcamentosPage() {
     setAddMode(null);setProdSearch('')
   }
   function openNewItem(type:'service'|'manual'){
-    setEditItem({id:uid(),type,name:'',description:'',quantity:1,unit_price:0,discount:0,subtotal:0,finishings:[]})
+    setEditItem({id:uid(),type,name:'',description:'',quantity:1,unit_price:0,discount:0,subtotal:0,finishings:[],pricing_mode:'fixed',measurement_unit:'m'})
     setAddMode(null)
+  }
+
+  function applySquareMeterCalc(base: BudgetItem, overrides: Partial<BudgetItem>): BudgetItem {
+    const merged = {...base, ...overrides}
+    const w = merged.width, h = merged.height
+    const u = merged.measurement_unit ?? 'm'
+    const ppm2 = merged.price_per_m2 ?? 0
+    const area = w && h && w > 0 && h > 0 ? calculateAreaM2(w, h, u) : 0
+    const unit_price = area * ppm2
+    return {...merged, area: area || undefined, unit_price}
   }
   function saveEditItem(item:BudgetItem){
     const sub=item.unit_price*item.quantity*(1-item.discount/100)
@@ -310,6 +325,8 @@ export default function OrcamentosPage() {
           finishings:      i.finishings?.length ? i.finishings : null,
           finishing_type:  i.finishing_type ?? null,
           technical_notes: i.technical_notes?? null,
+          pricing_mode:    i.pricing_mode   ?? 'fixed',
+          price_per_m2:    i.price_per_m2   ?? null,
         })))
       }
     },
@@ -1061,106 +1078,214 @@ export default function OrcamentosPage() {
             <div className="p-4 space-y-3 overflow-y-auto max-h-[70vh]">
               <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Nome *</label><input className="input" value={editItem.name} onChange={e=>setEditItem(p=>p?{...p,name:e.target.value}:null)}/></div>
               <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Descrição</label><input className="input text-sm" value={editItem.description} onChange={e=>setEditItem(p=>p?{...p,description:e.target.value}:null)}/></div>
-              <div className="grid grid-cols-3 gap-3">
-                <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Qtd</label><input type="number" min="1" step="1" className="input text-sm" value={editItem.quantity} onChange={e=>setEditItem(p=>p?{...p,quantity:Number(e.target.value)}:null)}/></div>
-                <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Valor unit.</label><input type="number" step="0.01" className="input text-sm" value={editItem.unit_price} onChange={e=>setEditItem(p=>p?{...p,unit_price:Number(e.target.value)}:null)}/></div>
-                <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Desc. %</label><input type="number" min="0" max="100" className="input text-sm" value={editItem.discount} onChange={e=>setEditItem(p=>p?{...p,discount:Number(e.target.value)}:null)}/></div>
-              </div>
-              {/* Dimensões */}
-              <div>
-                <label className="block text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Dimensões (opcional)</label>
-                {/* Unidade primeiro para que os inputs já reflitam a unidade correta */}
-                <div className="mb-2">
-                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Unidade</label>
+              {/* ── Toggle modo de precificação (apenas itens manuais) ── */}
+              {editItem.type==='manual'&&(
+                <div>
+                  <label className="block text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Modo de precificação</label>
                   <div className="flex gap-2">
-                    {['mm','cm','m'].map(u=>(
-                      <button key={u} type="button"
-                        onClick={()=>{
-                          const w=editItem.width, h=editItem.height
-                          const a=w&&h?calculateAreaM2(w,h,u):undefined
-                          setEditItem(p=>p?{...p,measurement_unit:u,area:a}:null)
-                        }}
-                        className={clsx('flex-1 py-1.5 rounded-xl text-xs font-semibold border transition-all',
-                          (editItem.measurement_unit??'m')===u
+                    {(['fixed','square_meter'] as const).map(mode=>(
+                      <button key={mode} type="button"
+                        onClick={()=>setEditItem(p=>p?{...p,pricing_mode:mode}:null)}
+                        className={clsx('flex-1 py-2 rounded-xl text-xs font-semibold border transition-all',
+                          (editItem.pricing_mode??'fixed')===mode
                             ?'border-primary bg-primary text-white'
                             :'border-border dark:border-stone-700 text-text-secondary dark:text-stone-400 hover:border-primary/50')}>
-                        {u}
+                        {mode==='fixed'?'💰 Valor fixo':'📐 Calcular por m²'}
                       </button>
                     ))}
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">
-                      Largura ({editItem.measurement_unit??'m'})
-                    </label>
-                    <input type="number" min="0" step="0.01" className="input text-sm"
-                      placeholder="Ex: 100"
-                      value={editItem.width??''}
-                      onChange={e=>{
-                        const w=parseFloat(e.target.value)||undefined
-                        const h=editItem.height
-                        const u=editItem.measurement_unit??'m'
-                        const a=w&&h?calculateAreaM2(w,h,u):undefined
-                        setEditItem(p=>p?{...p,width:w,area:a}:null)
-                      }}/>
+              )}
+
+              {/* ── MODO: VALOR FIXO ── */}
+              {(editItem.pricing_mode??'fixed')!=='square_meter'&&(
+                <>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Qtd</label><input type="number" min="1" step="1" className="input text-sm" value={editItem.quantity} onChange={e=>setEditItem(p=>p?{...p,quantity:Number(e.target.value)}:null)}/></div>
+                    <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Valor unit.</label><input type="number" step="0.01" className="input text-sm" value={editItem.unit_price} onChange={e=>setEditItem(p=>p?{...p,unit_price:Number(e.target.value)}:null)}/></div>
+                    <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Desc. %</label><input type="number" min="0" max="100" className="input text-sm" value={editItem.discount} onChange={e=>setEditItem(p=>p?{...p,discount:Number(e.target.value)}:null)}/></div>
                   </div>
+                  {/* Dimensões (opcional no modo fixo) */}
                   <div>
-                    <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">
-                      Altura ({editItem.measurement_unit??'m'})
-                    </label>
-                    <input type="number" min="0" step="0.01" className="input text-sm"
-                      placeholder="Ex: 30"
-                      value={editItem.height??''}
-                      onChange={e=>{
-                        const h=parseFloat(e.target.value)||undefined
-                        const w=editItem.width
-                        const u=editItem.measurement_unit??'m'
-                        const a=w&&h?calculateAreaM2(w,h,u):undefined
-                        setEditItem(p=>p?{...p,height:h,area:a}:null)
-                      }}/>
-                  </div>
-                </div>
-                {editItem.width&&editItem.height&&(editItem.width>0)&&(editItem.height>0)&&(()=>{
-                  const u=editItem.measurement_unit??'m'
-                  const block=getDimBlock(editItem.width,editItem.height,u,editItem.area)
-                  const wFmt=block.wM.toFixed(4).replace('.',',')
-                  const hFmt=block.hM.toFixed(4).replace('.',',')
-                  return(
-                    <div className="mt-2 rounded-xl bg-primary-50/60 dark:bg-primary/10 border border-primary/20 overflow-hidden">
-                      {/* Principal: dimensões e área */}
-                      <div className="px-3 py-2.5 flex items-center justify-between">
-                        <div>
-                          <p className="text-[10px] font-semibold text-primary/50 uppercase tracking-wider mb-0.5">Dimensões informadas</p>
-                          <p className="text-sm font-bold text-primary">{block.original}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[10px] font-semibold text-primary/50 uppercase tracking-wider mb-0.5">Área</p>
-                          <p className="text-base font-bold text-primary">{block.area} m²</p>
-                        </div>
+                    <label className="block text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Dimensões (opcional)</label>
+                    <div className="mb-2">
+                      <div className="flex gap-2">
+                        {['mm','cm','m'].map(u=>(
+                          <button key={u} type="button"
+                            onClick={()=>setEditItem(p=>p?{...p,measurement_unit:u,area:p.width&&p.height?calculateAreaM2(p.width,p.height,u):undefined}:null)}
+                            className={clsx('flex-1 py-1.5 rounded-xl text-xs font-semibold border transition-all',
+                              (editItem.measurement_unit??'m')===u
+                                ?'border-primary bg-primary text-white'
+                                :'border-border dark:border-stone-700 text-text-secondary dark:text-stone-400 hover:border-primary/50')}>
+                            {u}
+                          </button>
+                        ))}
                       </div>
-                      {/* Detalhes expandíveis */}
-                      {block.meters&&(
-                        <details className="border-t border-primary/10">
-                          <summary className="px-3 py-1.5 text-[11px] text-primary/60 cursor-pointer select-none hover:text-primary transition-colors list-none flex items-center gap-1">
-                            <span className="text-[9px]">▶</span> Ver detalhes do cálculo
-                          </summary>
-                          <div className="px-3 pb-2.5 space-y-1.5 bg-primary/5">
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Largura ({editItem.measurement_unit??'m'})</label>
+                        <input type="number" min="0" step="0.01" className="input text-sm" placeholder="Ex: 100"
+                          value={editItem.width??''}
+                          onChange={e=>{
+                            const w=parseFloat(e.target.value)||undefined
+                            const u=editItem.measurement_unit??'m'
+                            setEditItem(p=>p?{...p,width:w,area:w&&p.height?calculateAreaM2(w,p.height,u):undefined}:null)
+                          }}/>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Altura ({editItem.measurement_unit??'m'})</label>
+                        <input type="number" min="0" step="0.01" className="input text-sm" placeholder="Ex: 30"
+                          value={editItem.height??''}
+                          onChange={e=>{
+                            const h=parseFloat(e.target.value)||undefined
+                            const u=editItem.measurement_unit??'m'
+                            setEditItem(p=>p?{...p,height:h,area:p.width&&h?calculateAreaM2(p.width,h,u):undefined}:null)
+                          }}/>
+                      </div>
+                    </div>
+                    {editItem.width&&editItem.height&&editItem.width>0&&editItem.height>0&&(()=>{
+                      const u=editItem.measurement_unit??'m'
+                      const block=getDimBlock(editItem.width,editItem.height,u,editItem.area)
+                      const wFmt=block.wM.toFixed(4).replace('.',',')
+                      const hFmt=block.hM.toFixed(4).replace('.',',')
+                      return(
+                        <div className="mt-2 rounded-xl bg-primary-50/60 dark:bg-primary/10 border border-primary/20 overflow-hidden">
+                          <div className="px-3 py-2.5 flex items-center justify-between">
                             <div>
-                              <p className="text-[10px] font-semibold text-primary/50 uppercase tracking-wider">Conversão para metros</p>
-                              <p className="text-xs text-primary/80">{block.meters}</p>
+                              <p className="text-[10px] font-semibold text-primary/50 uppercase tracking-wider mb-0.5">Dimensões</p>
+                              <p className="text-sm font-bold text-primary">{block.original}</p>
                             </div>
-                            <div>
-                              <p className="text-[10px] font-semibold text-primary/50 uppercase tracking-wider">Fórmula</p>
-                              <p className="text-xs text-primary/70">{wFmt} × {hFmt} = <span className="font-semibold text-primary">{block.area} m²</span></p>
+                            <div className="text-right">
+                              <p className="text-[10px] font-semibold text-primary/50 uppercase tracking-wider mb-0.5">Área</p>
+                              <p className="text-base font-bold text-primary">{block.area} m²</p>
                             </div>
                           </div>
-                        </details>
-                      )}
+                          {block.meters&&(
+                            <details className="border-t border-primary/10">
+                              <summary className="px-3 py-1.5 text-[11px] text-primary/60 cursor-pointer select-none list-none flex items-center gap-1">
+                                <span className="text-[9px]">▶</span> Ver detalhes do cálculo
+                              </summary>
+                              <div className="px-3 pb-2.5 space-y-1.5 bg-primary/5">
+                                <div><p className="text-[10px] font-semibold text-primary/50 uppercase tracking-wider">Conversão</p><p className="text-xs text-primary/80">{block.meters}</p></div>
+                                <div><p className="text-[10px] font-semibold text-primary/50 uppercase tracking-wider">Fórmula</p><p className="text-xs text-primary/70">{wFmt} × {hFmt} = <span className="font-semibold text-primary">{block.area} m²</span></p></div>
+                              </div>
+                            </details>
+                          )}
+                        </div>
+                      )
+                    })()}
+                  </div>
+                </>
+              )}
+
+              {/* ── MODO: CALCULAR POR M² ── */}
+              {(editItem.pricing_mode??'fixed')==='square_meter'&&(()=>{
+                const u=editItem.measurement_unit??'m'
+                const w=editItem.width, h=editItem.height
+                const ppm2=editItem.price_per_m2??0
+                const area=w&&h&&w>0&&h>0?calculateAreaM2(w,h,u):0
+                const unitPrice=area*ppm2
+                const subtotalPreview=unitPrice*editItem.quantity*(1-editItem.discount/100)
+                const block=w&&h&&w>0&&h>0?getDimBlock(w,h,u,area):null
+                return(
+                  <>
+                    {/* Unidade */}
+                    <div>
+                      <label className="block text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Unidade</label>
+                      <div className="flex gap-2">
+                        {(['mm','cm','m'] as const).map(un=>(
+                          <button key={un} type="button"
+                            onClick={()=>setEditItem(p=>p?applySquareMeterCalc(p,{measurement_unit:un}):null)}
+                            className={clsx('flex-1 py-1.5 rounded-xl text-xs font-semibold border transition-all',
+                              u===un
+                                ?'border-primary bg-primary text-white'
+                                :'border-border dark:border-stone-700 text-text-secondary dark:text-stone-400 hover:border-primary/50')}>
+                            {un}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  )
-                })()}
-              </div>
+                    {/* Largura × Altura */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Largura ({u})</label>
+                        <input type="number" min="0" step="0.01" className="input text-sm" placeholder="Ex: 100"
+                          value={editItem.width??''}
+                          onChange={e=>setEditItem(p=>p?applySquareMeterCalc(p,{width:parseFloat(e.target.value)||undefined}):null)}/>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Altura ({u})</label>
+                        <input type="number" min="0" step="0.01" className="input text-sm" placeholder="Ex: 30"
+                          value={editItem.height??''}
+                          onChange={e=>setEditItem(p=>p?applySquareMeterCalc(p,{height:parseFloat(e.target.value)||undefined}):null)}/>
+                      </div>
+                    </div>
+                    {/* Valor por m² */}
+                    <div>
+                      <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Valor por m² (R$)</label>
+                      <input type="number" min="0" step="0.01" className="input text-sm" placeholder="Ex: 80,00"
+                        value={editItem.price_per_m2??''}
+                        onChange={e=>setEditItem(p=>p?applySquareMeterCalc(p,{price_per_m2:parseFloat(e.target.value)||undefined}):null)}/>
+                    </div>
+                    {/* Qtd + Desconto */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Quantidade</label><input type="number" min="1" step="1" className="input text-sm" value={editItem.quantity} onChange={e=>setEditItem(p=>p?{...p,quantity:Number(e.target.value)}:null)}/></div>
+                      <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Desconto %</label><input type="number" min="0" max="100" className="input text-sm" value={editItem.discount} onChange={e=>setEditItem(p=>p?{...p,discount:Number(e.target.value)}:null)}/></div>
+                    </div>
+                    {/* Preview do cálculo */}
+                    {block&&ppm2>0&&(
+                      <div className="rounded-xl border border-primary/20 bg-primary-50/60 dark:bg-primary/10 overflow-hidden">
+                        <div className="px-3 py-2 border-b border-primary/10">
+                          <p className="text-[10px] font-bold text-primary/60 uppercase tracking-widest">Resumo do cálculo</p>
+                        </div>
+                        <div className="px-3 py-2.5 space-y-1.5">
+                          <div className="flex justify-between items-baseline">
+                            <span className="text-[11px] text-text-muted">Medidas</span>
+                            <span className="text-xs font-medium text-text-primary dark:text-stone-200">{block.original}</span>
+                          </div>
+                          {block.meters&&(
+                            <div className="flex justify-between items-baseline">
+                              <span className="text-[11px] text-text-muted">Em metros</span>
+                              <span className="text-xs text-text-secondary">{block.meters}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between items-baseline">
+                            <span className="text-[11px] text-text-muted">Área</span>
+                            <span className="text-xs font-semibold text-text-primary dark:text-stone-200">{block.wM.toFixed(4).replace('.',',')} × {block.hM.toFixed(4).replace('.',',')} = <span className="text-primary font-bold">{block.area} m²</span></span>
+                          </div>
+                          <div className="flex justify-between items-baseline">
+                            <span className="text-[11px] text-text-muted">Valor do m²</span>
+                            <span className="text-xs text-text-secondary">{fmt(ppm2)}</span>
+                          </div>
+                          <div className="flex justify-between items-baseline border-t border-primary/10 pt-1.5">
+                            <span className="text-[11px] font-semibold text-text-primary dark:text-stone-200">Preço/peça</span>
+                            <span className="text-sm font-bold text-primary">{fmt(unitPrice)}</span>
+                          </div>
+                          {editItem.quantity>1&&(
+                            <>
+                              <div className="flex justify-between items-baseline">
+                                <span className="text-[11px] text-text-muted">Quantidade</span>
+                                <span className="text-xs text-text-secondary">× {editItem.quantity}</span>
+                              </div>
+                              {editItem.discount>0&&(
+                                <div className="flex justify-between items-baseline">
+                                  <span className="text-[11px] text-text-muted">Desconto</span>
+                                  <span className="text-xs text-text-secondary">− {editItem.discount}%</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between items-baseline border-t border-primary/10 pt-1.5">
+                                <span className="text-[11px] font-bold text-text-primary dark:text-stone-200">Subtotal</span>
+                                <span className="text-base font-bold text-primary">{fmt(subtotalPreview)}</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
               {/* Acabamentos */}
               <div>
                 <label className="block text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Acabamentos</label>
