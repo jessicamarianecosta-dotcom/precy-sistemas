@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Package, Boxes, ShoppingCart,
   Users, FileText, DollarSign, Settings, Calculator,
-  ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays, BookOpen, BarChart2, Crown, TrendingUp,
+  ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays, BookOpen, BarChart2, Crown, TrendingUp, Truck,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { createClient } from '@/lib/supabase/client'
@@ -33,6 +33,7 @@ const menuItems = [
       { href: '/pedidos',     icon: ShoppingCart,label: 'Pedidos'   },
       { href: '/agenda',      icon: CalendarDays,label: 'Agenda',   pro: true },
       { href: '/clientes',    icon: Users,       label: 'Clientes'  },
+      { href: '/fornecedores',icon: Truck,       label: 'Fornecedores' },
     ],
   },
   {
