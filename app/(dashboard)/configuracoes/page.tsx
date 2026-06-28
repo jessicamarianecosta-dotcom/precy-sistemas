@@ -1045,7 +1045,7 @@ export default function ConfiguracoesPage() {
                 <div className="text-center py-8">
                   <Scissors size={32} className="text-border mx-auto mb-2"/>
                   <p className="text-sm text-text-muted">Nenhum acabamento cadastrado</p>
-                  <p className="text-xs text-text-muted mt-1">Clique em "Novo" para começar</p>
+                  <p className="text-xs text-text-muted mt-1">Clique em &quot;Novo&quot; para começar</p>
                 </div>
               ) : (
                 <div className="space-y-2">
