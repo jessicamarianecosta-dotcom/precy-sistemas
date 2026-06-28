@@ -5,7 +5,7 @@
 
 import { formatCurrency } from '@/lib/utils/format'
 import { getBudgetItems } from '@/lib/pdf/getBudgetItems'
-import { formatDimCompact } from '@/lib/utils/dimensions'
+import { formatDimDisplay } from '@/lib/utils/dimensions'
 
 interface PDFParams {
   budget:  Record<string, unknown>
@@ -102,7 +102,7 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
     const h = Number(item.height)
     const u = item.measurement_unit ?? 'm'
     if (!w || !h) return ''
-    return formatDimCompact(w, h, u, Number(item.area) || null)
+    return formatDimDisplay(w, h, u)
   }
 
   const rowsHTML = effectiveItems.length === 0
@@ -127,8 +127,8 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
           <td style="padding:11px 14px;border-bottom:1px solid #ede9e3;vertical-align:top;">
             <div style="font-size:13px;font-weight:600;color:#1a1208;line-height:1.35;">${nm}</div>
             ${desc ? `<div style="font-size:11px;color:#9a8a7a;margin-top:3px;line-height:1.5;">${X(desc)}</div>` : ''}
-            ${dim ? `<div style="font-size:10.5px;color:#6b7280;margin-top:4px;">📐 ${X(dim)}</div>` : ''}
-            ${fins.length > 0 ? `<div style="font-size:10.5px;color:#6b7280;margin-top:3px;">✂ ${fins.map(X).join(' · ')}</div>` : ''}
+            ${dim ? `<div style="font-size:10.5px;color:#6b7280;margin-top:4px;">📐 Medidas: ${X(dim)}</div>` : ''}
+            ${fins.length > 0 ? `<div style="font-size:10.5px;color:#6b7280;margin-top:3px;">✂ Acabamento: ${fins.map(X).join(' · ')}</div>` : ''}
             ${finT ? `<div style="font-size:10.5px;color:#6b7280;margin-top:2px;">📦 Finalização: ${finTHTML}</div>` : ''}
             ${obs ? `<div style="font-size:10px;color:#9a8a7a;margin-top:3px;font-style:italic;">ℹ ${X(obs)}</div>` : ''}
           </td>
