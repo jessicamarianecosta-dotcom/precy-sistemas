@@ -49,6 +49,12 @@ const STEP_META=[
 ] as const
 
 const PAYMENT_OPTIONS=['PIX','Dinheiro','Cartão crédito','Cartão débito','Boleto','Transferência','Parcelado']
+const FINISHING_TYPE_OPTIONS=[
+  'Em cartela','Em folhas','Em bobina','Dobrado','Enrolado','Recortado',
+  'Separado por kits','Embalado individualmente','Embalado em pacote',
+  'Instalado','Aplicado','Com ilhós','Com bastão','Com bainha',
+  'Sem finalização','Outros',
+]
 const DELIVERY_OPTIONS=[
   {value:'pickup',   label:'Retirada',      emoji:'🏪'},
   {value:'delivery', label:'Entrega',        emoji:'🚗'},
@@ -1119,11 +1125,19 @@ export default function OrcamentosPage() {
               <div>
                 <label className="block text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Finalização</label>
                 <div className="flex flex-wrap gap-1.5">
-                  {['Entrega enrolado','Entrega dobrado','Montado','Instalado','Aplicado','Embalado','Kit'].map(opt=>{
-                    const active=editItem.finishing_type===opt
+                  {FINISHING_TYPE_OPTIONS.map(opt=>{
+                    const ftVal=editItem.finishing_type??''
+                    const isOthersSelected=ftVal.startsWith('Outros')
+                    const active=opt==='Outros'?isOthersSelected:ftVal===opt
                     return(
                       <button key={opt} type="button"
-                        onClick={()=>setEditItem(p=>p?{...p,finishing_type:active?'':opt}:null)}
+                        onClick={()=>{
+                          if(opt==='Outros'){
+                            setEditItem(p=>p?{...p,finishing_type:isOthersSelected?'':'Outros: '}:null)
+                          }else{
+                            setEditItem(p=>p?{...p,finishing_type:active?'':opt}:null)
+                          }
+                        }}
                         className={clsx('px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all',
                           active?'border-primary bg-primary text-white':'border-border dark:border-stone-700 text-text-secondary dark:text-stone-400 hover:border-primary/50')}>
                         {opt}
@@ -1131,6 +1145,14 @@ export default function OrcamentosPage() {
                     )
                   })}
                 </div>
+                {(editItem.finishing_type??'').startsWith('Outros')&&(
+                  <input
+                    className="input text-sm mt-2"
+                    placeholder="Descreva a finalização... ex: Separado em kits de 10 unidades"
+                    value={(editItem.finishing_type??'').replace(/^Outros:\s*/,'')}
+                    onChange={e=>setEditItem(p=>p?{...p,finishing_type:'Outros: '+e.target.value}:null)}
+                  />
+                )}
               </div>
               {/* Observações Técnicas */}
               <div>

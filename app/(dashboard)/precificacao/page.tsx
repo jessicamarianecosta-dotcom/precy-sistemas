@@ -132,7 +132,6 @@ function PrecificacaoPage() {
   const [finishingType,   setFinishingType]   = useState<string>('')
   const [technicalNotes,  setTechnicalNotes]  = useState<string>('')
   const [customFinishing,   setCustomFinishing]   = useState('')
-  const [customFinishingType, setCustomFinishingType] = useState('')
 
   /* ── ui state ── */
   const [showPicker,  setShowPicker]  = useState(false)
@@ -1088,11 +1087,23 @@ function PrecificacaoPage() {
                 Finalização / Entrega
               </h3>
               <div className="flex flex-wrap gap-2">
-                {['Sem acabamento','Entrega enrolado','Entrega dobrado','Montado','Instalado','Aplicado','Embalado','Kit'].map(opt => {
-                  const active = finishingType === opt
+                {[
+                  'Em cartela','Em folhas','Em bobina','Dobrado','Enrolado','Recortado',
+                  'Separado por kits','Embalado individualmente','Embalado em pacote',
+                  'Instalado','Aplicado','Com ilhós','Com bastão','Com bainha',
+                  'Sem finalização','Outros',
+                ].map(opt => {
+                  const isOthersSelected = finishingType.startsWith('Outros')
+                  const active = opt === 'Outros' ? isOthersSelected : finishingType === opt
                   return (
                     <button key={opt} type="button"
-                      onClick={() => setFinishingType(active ? '' : opt)}
+                      onClick={() => {
+                        if (opt === 'Outros') {
+                          setFinishingType(isOthersSelected ? '' : 'Outros: ')
+                        } else {
+                          setFinishingType(active ? '' : opt)
+                        }
+                      }}
                       className={clsx(
                         'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
                         active
@@ -1104,34 +1115,14 @@ function PrecificacaoPage() {
                   )
                 })}
               </div>
-              <div className="flex gap-2">
+              {finishingType.startsWith('Outros') && (
                 <input
                   type="text"
-                  className="input flex-1 text-sm"
-                  placeholder="Outra finalização..."
-                  value={customFinishingType}
-                  onChange={e => setCustomFinishingType(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && customFinishingType.trim()) {
-                      setFinishingType(customFinishingType.trim())
-                      setCustomFinishingType('')
-                    }
-                  }}
+                  className="input text-sm"
+                  placeholder="Descreva a finalização... ex: Enrolado em tubo de papelão"
+                  value={finishingType.replace(/^Outros:\s*/, '')}
+                  onChange={e => setFinishingType('Outros: ' + e.target.value)}
                 />
-                <button type="button"
-                  disabled={!customFinishingType.trim()}
-                  onClick={() => {
-                    if (customFinishingType.trim()) { setFinishingType(customFinishingType.trim()); setCustomFinishingType('') }
-                  }}
-                  className="btn-secondary px-3 py-2 text-xs">
-                  <Plus size={13} />
-                </button>
-              </div>
-              {finishingType && !['Sem acabamento','Entrega enrolado','Entrega dobrado','Montado','Instalado','Aplicado','Embalado','Kit'].includes(finishingType) && (
-                <div className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border border-primary bg-primary text-white w-fit">
-                  {finishingType}
-                  <button type="button" onClick={() => setFinishingType('')} className="ml-1 opacity-75 hover:opacity-100"><X size={11} /></button>
-                </div>
               )}
             </div>
 

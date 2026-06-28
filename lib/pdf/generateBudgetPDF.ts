@@ -121,6 +121,9 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
         const fins = (item.finishings ?? []).filter(Boolean)
         const finT = item.finishing_type ?? ''
         const obs  = item.technical_notes ?? ''
+        const finTHTML = finT.startsWith('Outros: ')
+          ? `Outros: <span style="font-style:italic;">${X(finT.slice(8))}</span>`
+          : X(finT)
         return `
         <tr style="background:${bg};page-break-inside:avoid;">
           <td style="padding:11px 10px;border-bottom:1px solid #ede9e3;color:#aaa;font-size:11px;text-align:center;width:28px;vertical-align:top;">${idx+1}</td>
@@ -129,7 +132,7 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
             ${desc ? `<div style="font-size:11px;color:#9a8a7a;margin-top:3px;line-height:1.5;">${X(desc)}</div>` : ''}
             ${dim ? `<div style="font-size:10.5px;color:#6b7280;margin-top:4px;">📐 ${X(dim)}</div>` : ''}
             ${fins.length > 0 ? `<div style="font-size:10.5px;color:#6b7280;margin-top:3px;">✂ ${fins.map(X).join(' · ')}</div>` : ''}
-            ${finT ? `<div style="font-size:10.5px;color:#6b7280;margin-top:2px;">📦 ${X(finT)}</div>` : ''}
+            ${finT ? `<div style="font-size:10.5px;color:#6b7280;margin-top:2px;">📦 Finalização: ${finTHTML}</div>` : ''}
             ${obs ? `<div style="font-size:10px;color:#9a8a7a;margin-top:3px;font-style:italic;">ℹ ${X(obs)}</div>` : ''}
           </td>
           <td style="padding:11px 10px;border-bottom:1px solid #ede9e3;text-align:center;font-size:12.5px;color:#333;width:52px;vertical-align:top;">${qty}</td>
