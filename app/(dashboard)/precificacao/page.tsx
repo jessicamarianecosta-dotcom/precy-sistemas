@@ -10,6 +10,7 @@ import {
   Save, CheckCircle, Loader2, AlertTriangle,
   ShoppingBag, Hammer, ChevronRight,
   ArrowRight, Info, Tag, Layers, FileText,
+  Scissors, Trash2, Edit2, BookOpen,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { CategorySelect } from '@/components/ui/CategorySelect'
@@ -19,6 +20,30 @@ import { useSubscription } from '@/hooks/useSubscription'
 
 /* ─────────────────────────── Types ─── */
 type ProductType = 'produced' | 'resale' | 'meter_product'
+type FinishingCalcType = 'fixed' | 'percent' | 'per_m2' | 'per_unit' | 'per_meter'
+
+interface FinishingItem {
+  id:           string
+  name:         string
+  calc_type:    FinishingCalcType
+  value:        number
+  quantity?:    number
+  from_catalog?: string
+}
+
+const CALC_TYPES: { value: FinishingCalcType; label: string; hint: string }[] = [
+  { value: 'fixed',     label: 'Valor fixo',      hint: 'R$ único' },
+  { value: 'percent',   label: 'Percentual',       hint: '% do material' },
+  { value: 'per_m2',    label: 'Por m²',           hint: 'R$/m²' },
+  { value: 'per_meter', label: 'Por metro linear', hint: 'R$/m' },
+  { value: 'per_unit',  label: 'Por unidade',      hint: 'R$/un' },
+]
+
+type FinishingModal =
+  | null
+  | { mode: 'picker' }
+  | { mode: 'edit'; item: FinishingItem; isNew: boolean }
+  | { mode: 'new_catalog'; draft: { name: string; calc_type: FinishingCalcType; default_value: number; category: string } }
 
 interface InventoryItem {
   id: string
@@ -43,6 +68,28 @@ interface MaterialLine {
 
 /* ─────────────────────────── Helpers ─── */
 /* fmt importado de @/lib/utils/format (função global de moeda) */
+
+function computeFinishingSubtotal(item: FinishingItem, area: number, materialCost: number): number {
+  switch (item.calc_type) {
+    case 'fixed':     return item.value
+    case 'percent':   return materialCost * item.value / 100
+    case 'per_m2':    return area * item.value
+    case 'per_unit':
+    case 'per_meter': return (item.quantity ?? 1) * item.value
+    default:          return item.value
+  }
+}
+
+function finishingLabel(item: FinishingItem, area: number, materialCost: number): string {
+  switch (item.calc_type) {
+    case 'fixed':     return 'R$ fixo'
+    case 'percent':   return `${item.value}% do material`
+    case 'per_m2':    return `${area.toFixed(4).replace('.', ',')} m² × R$${item.value}`
+    case 'per_unit':  return `${item.quantity ?? 1} un × R$${item.value}`
+    case 'per_meter': return `${item.quantity ?? 1} m × R$${item.value}`
+    default:          return ''
+  }
+}
 
 /* ─────────────────────────── Slider ─── */
 function MarginSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
@@ -112,7 +159,8 @@ function PrecificacaoPage() {
   const [mHeight,          setMHeight]          = useState<number>(0)
   const [mUnit,            setMUnit]            = useState<'cm'|'m'>('cm')
   const [pricePerM2,       setPricePerM2]       = useState<number>(0)
-  const [finishingCost,    setFinishingCost]    = useState<number>(0)
+  const [finishingItems,   setFinishingItems]   = useState<FinishingItem[]>([])
+  const [finishingModal,   setFinishingModal]   = useState<FinishingModal>(null)
   const [extraCosts, setExtraCosts] = useState<
     {
       id: string
@@ -214,7 +262,9 @@ function PrecificacaoPage() {
       if (p.height)          setMHeight(Number(p.height))
       if (p.measurement_unit) setMUnit(p.measurement_unit as 'cm' | 'm')
       if (p.price_per_m2)    setPricePerM2(Number(p.price_per_m2))
-      if (p.finishing_cost)  setFinishingCost(Number(p.finishing_cost))
+      if (Array.isArray(p.finishing_items) && p.finishing_items.length > 0) {
+        setFinishingItems(p.finishing_items as FinishingItem[])
+      }
     }
     // Specs técnicas
     if (Array.isArray(p.finishings))  setFinishings(p.finishings)
@@ -242,6 +292,27 @@ function PrecificacaoPage() {
         .eq('company_id', companyId!)
         .order('name')
       return (data as InventoryItem[]) ?? []
+    },
+  })
+
+  const { data: finishingCatalog } = useQuery<{ id: string; name: string; category: string | null; calc_type: string; default_value: number }[]>({
+    queryKey: ['finishing-catalog', companyId],
+    enabled:  !!companyId,
+    queryFn:  async () => {
+      const { data } = await (supabase.from('finishing_catalog') as any)
+        .select('id, name, category, calc_type, default_value')
+        .eq('company_id', companyId!).eq('is_active', true).order('name')
+      return data ?? []
+    },
+  })
+
+  const addCatalogItemMutation = useMutation({
+    mutationFn: async (draft: { name: string; calc_type: string; default_value: number; category: string }) => {
+      await (supabase.from('finishing_catalog') as any).insert([{ company_id: companyId, ...draft }])
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['finishing-catalog', companyId] })
+      setFinishingModal(null)
     },
   })
 
@@ -315,7 +386,7 @@ function PrecificacaoPage() {
   const baseCost     = productType === 'produced'
     ? materialCost + laborCost + extraCost
     : productType === 'meter_product'
-      ? mMaterialCost + finishingCost + laborCost + extraCost
+      ? mMaterialCost + finishingItems.reduce((s, i) => s + computeFinishingSubtotal(i, mAreaM2, mMaterialCost), 0) + laborCost + extraCost
       : purchaseCost + extraCost
 
   const idealPrice   = baseCost > 0 ? baseCost * (1 + markup / 100) : 0
@@ -418,7 +489,8 @@ function PrecificacaoPage() {
         ...(productType === 'meter_product' ? {
           width: mWidth, height: mHeight, measurement_unit: mUnit,
           area: mAreaM2,
-          price_per_m2: pricePerM2, finishing_cost: finishingCost,
+          price_per_m2: pricePerM2,
+          finishing_items: finishingItems.map(i => ({ ...i, subtotal: computeFinishingSubtotal(i, mAreaM2, mMaterialCost) })),
         } : {}),
         finishings:      finishings,
         finishing_type:  finishingType || null,
@@ -512,6 +584,7 @@ function PrecificacaoPage() {
         setFinishings([])
         setFinishingType('')
         setTechnicalNotes('')
+        setFinishingItems([])
       }
     },
 
@@ -914,18 +987,63 @@ function PrecificacaoPage() {
                   )}
                 </div>
 
-                {/* Custo de acabamento */}
+                {/* Acabamentos e Processos */}
                 <div>
-                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
-                    Acabamento / corte / laminação (R$)
-                  </label>
-                  <input type="number" min={0} step={0.01} className="input"
-                    placeholder="0,00"
-                    value={finishingCost || ''}
-                    onChange={e => setFinishingCost(parseFloat(e.target.value) || 0)} />
-                  <p className="mt-1 text-xs text-text-muted dark:text-stone-500">
-                    Corte, acabamento, ilhós, laminação, enrolamento, etc.
-                  </p>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium text-text-primary dark:text-stone-200 flex items-center gap-1.5">
+                      <Scissors size={14} className="text-warning"/> Acabamentos e Processos
+                    </label>
+                    <div className="flex gap-1.5">
+                      <button type="button"
+                        onClick={() => setFinishingModal({ mode: 'new_catalog', draft: { name: '', calc_type: 'fixed', default_value: 0, category: '' } })}
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg border border-border dark:border-stone-700 text-[11px] text-text-muted hover:border-primary/50 hover:text-primary transition-colors">
+                        <BookOpen size={11}/> Novo no catálogo
+                      </button>
+                      <button type="button"
+                        onClick={() => setFinishingModal({ mode: 'picker' })}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-warning/10 border border-warning/30 text-[11px] font-medium text-warning-dark dark:text-warning hover:bg-warning/20 transition-colors">
+                        <Plus size={11}/> Adicionar
+                      </button>
+                    </div>
+                  </div>
+
+                  {finishingItems.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {finishingItems.map(item => {
+                        const sub = computeFinishingSubtotal(item, mAreaM2, mMaterialCost)
+                        const lbl = finishingLabel(item, mAreaM2, mMaterialCost)
+                        return (
+                          <div key={item.id} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-warning/5 border border-warning/20">
+                            <Scissors size={12} className="text-warning flex-shrink-0"/>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-text-primary dark:text-stone-200 leading-snug">{item.name}</p>
+                              <p className="text-[10px] text-text-muted dark:text-stone-500">{lbl}</p>
+                            </div>
+                            <span className="text-xs font-bold text-warning-dark dark:text-warning">{fmt(sub)}</span>
+                            <button type="button" onClick={() => setFinishingModal({ mode: 'edit', item, isNew: false })}
+                              className="p-1 rounded-lg hover:bg-warning/20 text-text-muted hover:text-warning transition-colors">
+                              <Edit2 size={11}/>
+                            </button>
+                            <button type="button" onClick={() => setFinishingItems(prev => prev.filter(i => i.id !== item.id))}
+                              className="p-1 rounded-lg hover:bg-error/10 text-text-muted hover:text-error transition-colors">
+                              <Trash2 size={11}/>
+                            </button>
+                          </div>
+                        )
+                      })}
+                      <div className="flex justify-between items-center pt-1.5 px-1">
+                        <span className="text-[11px] text-text-muted">Total acabamentos</span>
+                        <span className="text-sm font-bold text-warning-dark dark:text-warning">
+                          {fmt(finishingItems.reduce((s, i) => s + computeFinishingSubtotal(i, mAreaM2, mMaterialCost), 0))}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setFinishingModal({ mode: 'picker' })}
+                      className="w-full py-3 border-2 border-dashed border-warning/30 rounded-xl text-[11px] text-text-muted hover:border-warning/60 hover:text-warning transition-colors flex items-center justify-center gap-1.5">
+                      <Plus size={12}/> Laminação, corte, ilhós, dobra…
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -1242,9 +1360,12 @@ function PrecificacaoPage() {
                   {mMaterialCost > 0 && (
                     <Row label={`Material (${mAreaM2.toFixed(4)}m² × ${fmt(pricePerM2)}/m²)`} value={mMaterialCost} color="bg-info-light text-info-dark" />
                   )}
-                  {finishingCost > 0 && (
-                    <Row label="Acabamento / corte" value={finishingCost} color="bg-warning-light text-warning-dark" />
-                  )}
+                  {finishingItems.map(item => {
+                    const sub = computeFinishingSubtotal(item, mAreaM2, mMaterialCost)
+                    return sub > 0 ? (
+                      <Row key={item.id} label={item.name} value={sub} color="bg-warning-light text-warning-dark" />
+                    ) : null
+                  })}
                   {laborCost > 0 && (
                     <Row label={`Mão de obra (${productionHours}h × ${fmt(hourlyRate)})`} value={laborCost} color="bg-warning-light text-warning-dark" />
                   )}
@@ -1482,6 +1603,199 @@ function PrecificacaoPage() {
           </div>
         </div>
       )}
+
+      {/* ══ MODAIS DE ACABAMENTOS ══════════════════════════════════════════ */}
+
+      {/* Picker: lista do catálogo */}
+      {finishingModal?.mode === 'picker' && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setFinishingModal(null)}/>
+          <div className="relative bg-white dark:bg-surface-dark w-full sm:max-w-sm rounded-2xl shadow-modal animate-scaleIn overflow-hidden">
+            <div className="p-4 border-b border-border dark:border-border-dark flex items-center justify-between">
+              <h3 className="text-sm font-bold text-text-primary dark:text-stone-100 flex items-center gap-2"><Scissors size={14} className="text-warning"/> Adicionar acabamento</h3>
+              <button onClick={() => setFinishingModal(null)} className="p-1.5 rounded-xl hover:bg-primary-50 text-text-muted"><X size={15}/></button>
+            </div>
+            <div className="max-h-72 overflow-y-auto divide-y divide-border dark:divide-stone-800">
+              {(finishingCatalog ?? []).length === 0 && (
+                <p className="text-xs text-text-muted text-center py-6">Nenhum acabamento no catálogo.<br/>Crie um abaixo.</p>
+              )}
+              {(finishingCatalog ?? []).map(cat => (
+                <button key={cat.id} type="button"
+                  onClick={() => setFinishingModal({ mode: 'edit', isNew: true, item: {
+                    id: crypto.randomUUID(), name: cat.name,
+                    calc_type: cat.calc_type as FinishingCalcType,
+                    value: cat.default_value, from_catalog: cat.id
+                  }})}
+                  className="w-full text-left px-4 py-3 hover:bg-primary-50/50 dark:hover:bg-primary/10 transition-colors flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-text-primary dark:text-stone-100">{cat.name}</p>
+                    {cat.category && <p className="text-[10px] text-text-muted">{cat.category}</p>}
+                  </div>
+                  <span className="text-[11px] text-text-muted">{CALC_TYPES.find(t => t.value === cat.calc_type)?.hint}</span>
+                </button>
+              ))}
+            </div>
+            <div className="p-3 border-t border-border dark:border-border-dark space-y-2">
+              <button type="button"
+                onClick={() => setFinishingModal({ mode: 'edit', isNew: true, item: { id: crypto.randomUUID(), name: '', calc_type: 'fixed', value: 0 } })}
+                className="w-full py-2.5 rounded-xl border-2 border-dashed border-border dark:border-stone-700 text-[12px] text-text-muted hover:border-primary/50 hover:text-primary transition-colors flex items-center justify-center gap-1.5">
+                <Plus size={12}/> Outro acabamento (uso único)
+              </button>
+              <button type="button"
+                onClick={() => setFinishingModal({ mode: 'new_catalog', draft: { name: '', calc_type: 'fixed', default_value: 0, category: '' } })}
+                className="w-full py-2.5 rounded-xl bg-primary/5 border border-primary/20 text-[12px] font-medium text-primary hover:bg-primary/10 transition-colors flex items-center justify-center gap-1.5">
+                <BookOpen size={12}/> Criar no catálogo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Editor: ajustar item antes de adicionar / editar existente */}
+      {finishingModal?.mode === 'edit' && (()=>{
+        const { item, isNew } = finishingModal
+        const sub = computeFinishingSubtotal(item, mAreaM2, mMaterialCost)
+        const needsQty = item.calc_type === 'per_unit' || item.calc_type === 'per_meter'
+        function save(){
+          if(!item.name.trim()) return
+          if(isNew){
+            setFinishingItems(prev => [...prev, item])
+          } else {
+            setFinishingItems(prev => prev.map(i => i.id === item.id ? item : i))
+          }
+          setFinishingModal(null)
+        }
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setFinishingModal(null)}/>
+            <div className="relative bg-white dark:bg-surface-dark w-full sm:max-w-sm rounded-2xl shadow-modal animate-scaleIn overflow-hidden">
+              <div className="p-4 border-b border-border dark:border-border-dark flex items-center justify-between">
+                <h3 className="text-sm font-bold text-text-primary dark:text-stone-100">{isNew ? 'Novo acabamento' : 'Editar acabamento'}</h3>
+                <button onClick={() => setFinishingModal(null)} className="p-1.5 rounded-xl hover:bg-primary-50 text-text-muted"><X size={15}/></button>
+              </div>
+              <div className="p-4 space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Nome</label>
+                  <input className="input text-sm" placeholder="Ex: Laminação Brilho"
+                    value={item.name}
+                    onChange={e => setFinishingModal({ mode: 'edit', isNew, item: { ...item, name: e.target.value } })}/>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Tipo de cálculo</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {CALC_TYPES.map(t => (
+                      <button key={t.value} type="button"
+                        onClick={() => setFinishingModal({ mode: 'edit', isNew, item: { ...item, calc_type: t.value } })}
+                        className={clsx('py-2 px-2 rounded-xl text-[11px] font-medium border transition-all text-left',
+                          item.calc_type === t.value
+                            ? 'border-primary bg-primary text-white'
+                            : 'border-border dark:border-stone-700 text-text-secondary dark:text-stone-400 hover:border-primary/50')}>
+                        <span className="block font-semibold">{t.label}</span>
+                        <span className="block text-[10px] opacity-70">{t.hint}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={clsx('grid gap-2', needsQty ? 'grid-cols-2' : 'grid-cols-1')}>
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">
+                      {item.calc_type === 'percent' ? 'Percentual (%)' : 'Valor (R$)'}
+                    </label>
+                    <input type="number" min={0} step={0.01} className="input text-sm"
+                      placeholder={item.calc_type === 'percent' ? 'Ex: 15' : 'Ex: 5,20'}
+                      value={item.value || ''}
+                      onChange={e => setFinishingModal({ mode: 'edit', isNew, item: { ...item, value: parseFloat(e.target.value) || 0 } })}/>
+                  </div>
+                  {needsQty && (
+                    <div>
+                      <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">
+                        {item.calc_type === 'per_meter' ? 'Metros' : 'Quantidade'}
+                      </label>
+                      <input type="number" min={1} step={1} className="input text-sm"
+                        placeholder="Ex: 10"
+                        value={item.quantity ?? ''}
+                        onChange={e => setFinishingModal({ mode: 'edit', isNew, item: { ...item, quantity: parseInt(e.target.value) || 1 } })}/>
+                    </div>
+                  )}
+                </div>
+                {item.value > 0 && mAreaM2 > 0 && (
+                  <div className="px-3 py-2 rounded-xl bg-warning/10 border border-warning/20 flex justify-between items-center">
+                    <span className="text-[11px] text-text-muted">{finishingLabel(item, mAreaM2, mMaterialCost)}</span>
+                    <span className="text-sm font-bold text-warning-dark dark:text-warning">{fmt(sub)}</span>
+                  </div>
+                )}
+              </div>
+              <div className="p-4 flex gap-3 border-t border-border dark:border-border-dark">
+                <button onClick={() => setFinishingModal(null)} className="btn-secondary flex-1">Cancelar</button>
+                <button onClick={save} disabled={!item.name.trim()} className="btn-primary flex-1 disabled:opacity-50">Salvar</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Novo item no catálogo permanente */}
+      {finishingModal?.mode === 'new_catalog' && (()=>{
+        const { draft } = finishingModal
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setFinishingModal(null)}/>
+            <div className="relative bg-white dark:bg-surface-dark w-full sm:max-w-sm rounded-2xl shadow-modal animate-scaleIn overflow-hidden">
+              <div className="p-4 border-b border-border dark:border-border-dark flex items-center justify-between">
+                <h3 className="text-sm font-bold text-text-primary dark:text-stone-100 flex items-center gap-2"><BookOpen size={14} className="text-primary"/> Novo acabamento no catálogo</h3>
+                <button onClick={() => setFinishingModal(null)} className="p-1.5 rounded-xl hover:bg-primary-50 text-text-muted"><X size={15}/></button>
+              </div>
+              <div className="p-4 space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Nome *</label>
+                  <input className="input text-sm" placeholder="Ex: Laminação Soft Touch"
+                    value={draft.name}
+                    onChange={e => setFinishingModal({ mode: 'new_catalog', draft: { ...draft, name: e.target.value } })}/>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Categoria</label>
+                  <input className="input text-sm" placeholder="Ex: Laminação, Corte, Montagem…"
+                    value={draft.category}
+                    onChange={e => setFinishingModal({ mode: 'new_catalog', draft: { ...draft, category: e.target.value } })}/>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Tipo de cálculo</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {CALC_TYPES.map(t => (
+                      <button key={t.value} type="button"
+                        onClick={() => setFinishingModal({ mode: 'new_catalog', draft: { ...draft, calc_type: t.value } })}
+                        className={clsx('py-2 px-2 rounded-xl text-[11px] font-medium border transition-all text-left',
+                          draft.calc_type === t.value
+                            ? 'border-primary bg-primary text-white'
+                            : 'border-border dark:border-stone-700 text-text-secondary dark:text-stone-400 hover:border-primary/50')}>
+                        <span className="block font-semibold">{t.label}</span>
+                        <span className="block text-[10px] opacity-70">{t.hint}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Valor padrão</label>
+                  <input type="number" min={0} step={0.01} className="input text-sm" placeholder="0,00"
+                    value={draft.default_value || ''}
+                    onChange={e => setFinishingModal({ mode: 'new_catalog', draft: { ...draft, default_value: parseFloat(e.target.value) || 0 } })}/>
+                </div>
+              </div>
+              <div className="p-4 flex gap-3 border-t border-border dark:border-border-dark">
+                <button onClick={() => setFinishingModal({ mode: 'picker' })} className="btn-secondary flex-1">Voltar</button>
+                <button
+                  disabled={!draft.name.trim() || addCatalogItemMutation.isPending}
+                  onClick={() => addCatalogItemMutation.mutate({ name: draft.name, calc_type: draft.calc_type, default_value: draft.default_value, category: draft.category })}
+                  className="btn-primary flex-1 disabled:opacity-50 flex items-center justify-center gap-2">
+                  {addCatalogItemMutation.isPending && <Loader2 size={13} className="animate-spin"/>}
+                  Salvar no catálogo
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
     </div>
   )
 }

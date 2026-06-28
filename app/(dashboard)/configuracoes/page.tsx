@@ -8,7 +8,7 @@ import {
   Building2, DollarSign, CreditCard, Trash2, Plus,
   CheckCircle, Loader2, LogOut, Key, Upload, Instagram,
   Phone, MapPin, Hash, Clock, TrendingUp, Zap, Star,
-  AlertCircle,
+  AlertCircle, Scissors, Edit2, X,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { formatCurrency } from '@/lib/utils/format'
@@ -20,7 +20,20 @@ import { useRouter } from 'next/navigation'
 import { useSubscription } from '@/hooks/useSubscription'
 
 /* ─────────────────────────── Types & Schemas ─── */
-type Tab = 'empresa' | 'financeiro' | 'conta'
+type Tab = 'empresa' | 'financeiro' | 'acabamentos' | 'conta'
+type FinishingCalcType = 'fixed' | 'percent' | 'per_m2' | 'per_unit' | 'per_meter'
+const CALC_TYPES_CFG: { value: FinishingCalcType; label: string; hint: string }[] = [
+  { value: 'fixed',     label: 'Valor fixo',      hint: 'R$ único' },
+  { value: 'percent',   label: 'Percentual',       hint: '% do material' },
+  { value: 'per_m2',    label: 'Por m²',           hint: 'R$/m²' },
+  { value: 'per_meter', label: 'Por metro linear', hint: 'R$/m' },
+  { value: 'per_unit',  label: 'Por unidade',      hint: 'R$/un' },
+]
+interface FinishingCatalogItem {
+  id: string; name: string; category: string | null
+  calc_type: FinishingCalcType; default_value: number
+  notes: string | null; is_active: boolean
+}
 
 const companySchema = z.object({
   name:                 z.string().min(2, 'Nome obrigatório'),
@@ -111,6 +124,10 @@ export default function ConfiguracoesPage() {
   const [savingRoutine,  setSavingRoutine] = useState(false)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
 
+  /* ── Acabamentos ── */
+  const [editingFinishing, setEditingFinishing] = useState<Partial<FinishingCatalogItem> | null>(null)
+  const [showFinishingForm, setShowFinishingForm] = useState(false)
+
   /* Rotina — estado local, populado do Supabase no carregamento */
   const [daysPerWeek,   setDaysPerWeek]   = useState(5)
   const [hoursPerDay,   setHoursPerDay]   = useState(8)
@@ -161,6 +178,44 @@ export default function ConfiguracoesPage() {
         .select('*').eq('company_id', companyId!).order('created_at')
       return data ?? []
     },
+  })
+
+  const { data: finishingCatalog, refetch: refetchCatalog } = useQuery<FinishingCatalogItem[]>({
+    queryKey: ['finishing-catalog-cfg', companyId],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const { data } = await (supabase.from('finishing_catalog') as any)
+        .select('*').eq('company_id', companyId!).order('name')
+      return data ?? []
+    },
+  })
+
+  const saveFinishing = useMutation({
+    mutationFn: async (item: Partial<FinishingCatalogItem>) => {
+      if (item.id) {
+        await (supabase.from('finishing_catalog') as any)
+          .update({ name: item.name, category: item.category, calc_type: item.calc_type, default_value: item.default_value, notes: item.notes, is_active: item.is_active })
+          .eq('id', item.id)
+      } else {
+        await (supabase.from('finishing_catalog') as any)
+          .insert([{ company_id: companyId, name: item.name, category: item.category, calc_type: item.calc_type, default_value: item.default_value, notes: item.notes }])
+      }
+    },
+    onSuccess: () => { refetchCatalog(); setShowFinishingForm(false); setEditingFinishing(null) },
+  })
+
+  const deleteFinishing = useMutation({
+    mutationFn: async (id: string) => {
+      await (supabase.from('finishing_catalog') as any).delete().eq('id', id)
+    },
+    onSuccess: () => refetchCatalog(),
+  })
+
+  const toggleFinishingActive = useMutation({
+    mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
+      await (supabase.from('finishing_catalog') as any).update({ is_active }).eq('id', id)
+    },
+    onSuccess: () => refetchCatalog(),
   })
 
   /* ─── Forms ─── */
@@ -448,9 +503,10 @@ export default function ConfiguracoesPage() {
 
   /* ─── Tab config ─── */
   const tabs = [
-    { id: 'empresa'    as Tab, label: 'Empresa',      icon: Building2  },
-    { id: 'financeiro' as Tab, label: 'Custos Fixos', icon: DollarSign },
-    { id: 'conta'      as Tab, label: 'Conta & Plano',icon: CreditCard },
+    { id: 'empresa'     as Tab, label: 'Empresa',      icon: Building2  },
+    { id: 'financeiro'  as Tab, label: 'Custos Fixos', icon: DollarSign },
+    { id: 'acabamentos' as Tab, label: 'Acabamentos',  icon: Scissors   },
+    { id: 'conta'       as Tab, label: 'Conta & Plano',icon: CreditCard },
   ]
 
   /* ══════════════════════════════════════════════ */
@@ -900,6 +956,133 @@ export default function ConfiguracoesPage() {
                       <span className="text-sm font-bold text-primary">{fmt(costPerHour)}/h</span>
                     </div>
                   </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ══ TAB: ACABAMENTOS ══════════════════════════════════ */}
+        {tab === 'acabamentos' && (
+          <div className="space-y-4">
+            <div className="card">
+              <div className="flex items-center justify-between mb-4 pb-4 border-b border-border dark:border-border-dark">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-warning-light"><Scissors size={18} className="text-warning-dark"/></div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Catálogo de Acabamentos</h3>
+                    <p className="text-xs text-text-muted dark:text-stone-400 mt-0.5">Acabamentos disponíveis em todas as precificações</p>
+                  </div>
+                </div>
+                <button type="button"
+                  onClick={() => { setEditingFinishing({ calc_type: 'fixed', default_value: 0, is_active: true }); setShowFinishingForm(true) }}
+                  className="btn-primary flex items-center gap-1.5 text-sm">
+                  <Plus size={14}/> Novo
+                </button>
+              </div>
+
+              {/* Form inline */}
+              {showFinishingForm && editingFinishing && (
+                <div className="mb-4 p-4 rounded-xl bg-primary-50/50 dark:bg-primary/5 border border-primary/20 space-y-3">
+                  <h4 className="text-xs font-bold text-primary uppercase tracking-wider">{editingFinishing.id ? 'Editar acabamento' : 'Novo acabamento'}</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Nome *</label>
+                      <input className="input text-sm" placeholder="Ex: Laminação Soft Touch"
+                        value={editingFinishing.name ?? ''}
+                        onChange={e => setEditingFinishing(p => ({ ...p!, name: e.target.value }))}/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Categoria</label>
+                      <input className="input text-sm" placeholder="Ex: Laminação, Corte…"
+                        value={editingFinishing.category ?? ''}
+                        onChange={e => setEditingFinishing(p => ({ ...p!, category: e.target.value }))}/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Valor padrão (R$)</label>
+                      <input type="number" min={0} step={0.01} className="input text-sm" placeholder="0,00"
+                        value={editingFinishing.default_value ?? ''}
+                        onChange={e => setEditingFinishing(p => ({ ...p!, default_value: parseFloat(e.target.value) || 0 }))}/>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Tipo de cálculo</label>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {CALC_TYPES_CFG.map(t => (
+                          <button key={t.value} type="button"
+                            onClick={() => setEditingFinishing(p => ({ ...p!, calc_type: t.value }))}
+                            className={clsx('py-1.5 px-2 rounded-xl text-[11px] font-medium border transition-all text-left',
+                              editingFinishing.calc_type === t.value
+                                ? 'border-primary bg-primary text-white'
+                                : 'border-border dark:border-stone-700 text-text-secondary dark:text-stone-400 hover:border-primary/50')}>
+                            <span className="block">{t.label}</span>
+                            <span className="block opacity-60 text-[9px]">{t.hint}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Observações</label>
+                      <input className="input text-sm" placeholder="Opcional"
+                        value={editingFinishing.notes ?? ''}
+                        onChange={e => setEditingFinishing(p => ({ ...p!, notes: e.target.value }))}/>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button type="button" onClick={() => { setShowFinishingForm(false); setEditingFinishing(null) }} className="btn-secondary flex-1 text-sm">Cancelar</button>
+                    <button type="button"
+                      disabled={!editingFinishing.name?.trim() || saveFinishing.isPending}
+                      onClick={() => saveFinishing.mutate(editingFinishing)}
+                      className="btn-primary flex-1 text-sm disabled:opacity-50 flex items-center justify-center gap-1.5">
+                      {saveFinishing.isPending && <Loader2 size={13} className="animate-spin"/>}
+                      {editingFinishing.id ? 'Atualizar' : 'Criar'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Lista */}
+              {(finishingCatalog ?? []).length === 0 && !showFinishingForm ? (
+                <div className="text-center py-8">
+                  <Scissors size={32} className="text-border mx-auto mb-2"/>
+                  <p className="text-sm text-text-muted">Nenhum acabamento cadastrado</p>
+                  <p className="text-xs text-text-muted mt-1">Clique em "Novo" para começar</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {(finishingCatalog ?? []).map(item => (
+                    <div key={item.id} className={clsx('flex items-center gap-3 p-3 rounded-xl border transition-all',
+                      item.is_active ? 'border-border dark:border-stone-700 bg-white dark:bg-surface-dark' : 'border-dashed border-border dark:border-stone-800 opacity-50')}>
+                      <div className="p-1.5 rounded-lg bg-warning/10 flex-shrink-0">
+                        <Scissors size={12} className="text-warning"/>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{item.name}</p>
+                        <p className="text-[10px] text-text-muted">
+                          {item.category && <span className="mr-2">{item.category}</span>}
+                          {CALC_TYPES_CFG.find(t => t.value === item.calc_type)?.label}
+                          {item.default_value > 0 && ` · R$ ${item.default_value.toFixed(2).replace('.', ',')}`}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button type="button"
+                          onClick={() => toggleFinishingActive.mutate({ id: item.id, is_active: !item.is_active })}
+                          className={clsx('text-[10px] font-medium px-2 py-0.5 rounded-full border transition-all',
+                            item.is_active ? 'border-success/40 text-success bg-success/10' : 'border-border text-text-muted')}>
+                          {item.is_active ? 'Ativo' : 'Inativo'}
+                        </button>
+                        <button type="button"
+                          onClick={() => { setEditingFinishing(item); setShowFinishingForm(true) }}
+                          className="p-1.5 rounded-lg hover:bg-primary-50 text-text-muted hover:text-primary transition-colors">
+                          <Edit2 size={12}/>
+                        </button>
+                        <button type="button"
+                          onClick={() => deleteFinishing.mutate(item.id)}
+                          className="p-1.5 rounded-lg hover:bg-error-light text-text-muted hover:text-error transition-colors">
+                          <Trash2 size={12}/>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
