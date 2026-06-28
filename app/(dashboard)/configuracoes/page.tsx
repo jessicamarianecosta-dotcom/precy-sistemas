@@ -1100,7 +1100,7 @@ export default function ConfiguracoesPage() {
               <SectionTitle icon={CreditCard} title="Meu Plano" subtitle="Status da sua assinatura" />
               <div className="flex items-start justify-between mb-5">
                 <div>
-                  <div className="flex items-center gap-2 mb-2">
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <span className={clsx(
                       'inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full',
                       planName === 'pro' ? 'bg-primary text-white' : 'bg-primary-50 dark:bg-primary/10 text-primary'
@@ -1115,6 +1115,11 @@ export default function ConfiguracoesPage() {
                     )}>
                       {planStatus === 'active' ? '✅ Ativo' : planStatus === 'trial' ? `🎁 Trial — ${trialDaysLeft} dias` : '❌ Expirado'}
                     </span>
+                    {sub?.isDeveloper && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 border border-stone-300 dark:border-stone-600">
+                        🛠 Modo Desenvolvedor
+                      </span>
+                    )}
                   </div>
                   {planStatus === 'trial' && trialEndsAt && (
                     <p className="text-xs text-text-muted dark:text-stone-400">

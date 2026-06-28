@@ -80,9 +80,12 @@ export async function middleware(req: NextRequest) {
   /* ── Buscar plano da empresa (companies usa company_id do usuário) ── */
   const { data: company } = await supabase
     .from('companies')
-    .select('current_plan, subscription_status, trial_end, current_period_end, grace_period_end')
+    .select('current_plan, subscription_status, trial_end, current_period_end, grace_period_end, role')
     .eq('user_id', session.user.id)
     .single()
+
+  /* ── Desenvolvedor: ignora todas as restrições de assinatura ── */
+  if (company?.role === 'developer') return res
 
   const plan   = (company?.current_plan        ?? 'basic')   as string
   const status = (company?.subscription_status ?? 'trialing') as string
@@ -104,8 +107,6 @@ export async function middleware(req: NextRequest) {
 
   /* ── Aviso de past_due na toolbar (header) ── */
   if (status === 'past_due') {
-    // Não bloqueia ainda — dentro da tolerância
-    // Adicionar header para o frontend mostrar banner
     res.headers.set('x-subscription-warning', 'past_due')
   }
 

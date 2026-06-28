@@ -15,49 +15,63 @@ export interface SubscriptionData {
   isTrial:             boolean
   isPro:               boolean
   isExpired:           boolean
+  isDeveloper:         boolean
   limits:              typeof PLAN_LIMITS.basic
 }
 
 export function useSubscription() {
-  const supabase    = createClient()
+  const supabase      = createClient()
   const { companyId } = useCompanyId()
 
   return useQuery<SubscriptionData>({
     queryKey: ['subscription', companyId],
     enabled: !!companyId,
-    staleTime: 5 * 60 * 1000, // 5 min
+    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await (supabase.from('companies') as any)
-        .select('current_plan, subscription_status, trial_end, current_period_end, stripe_customer_id, stripe_subscription_id')
+        .select('current_plan, subscription_status, trial_end, current_period_end, stripe_customer_id, stripe_subscription_id, role')
         .eq('id', companyId!)
         .single()
 
       if (error || !data) {
-        // Fallback: considerar como basic em trial
         return {
           plan: 'basic', status: 'trialing', trialEnd: null, periodEnd: null,
           stripeCustomerId: null, stripeSubscriptionId: null,
           isActive: true, isTrial: true, isPro: false, isExpired: false,
+          isDeveloper: false,
           limits: PLAN_LIMITS.basic,
+        }
+      }
+
+      // Desenvolvedor: ignora completamente as regras de assinatura
+      const isDeveloper = data.role === 'developer'
+      if (isDeveloper) {
+        return {
+          plan: 'pro', status: 'active', trialEnd: null, periodEnd: null,
+          stripeCustomerId:     data.stripe_customer_id     ?? null,
+          stripeSubscriptionId: data.stripe_subscription_id ?? null,
+          isActive: true, isTrial: false, isPro: true, isExpired: false,
+          isDeveloper: true,
+          limits: PLAN_LIMITS.pro ?? PLAN_LIMITS.basic,
         }
       }
 
       const plan      = (data.current_plan ?? 'basic') as 'basic' | 'pro'
       const status    = data.subscription_status ?? 'trialing'
-      const isActive  = ['active','trialing'].includes(status)
+      const isActive  = ['active', 'trialing'].includes(status)
       const isTrial   = status === 'trialing'
-      // Trial ativo = acesso PRO; trial expirado = basic
       const trialActive = status === 'trialing' && !!data.trial_end && new Date() < new Date(data.trial_end)
       const isPro     = (plan === 'pro' && isActive) || trialActive
-      const isExpired = ['canceled','past_due','expired'].includes(status)
+      const isExpired = ['canceled', 'past_due', 'expired'].includes(status)
 
       return {
         plan, status,
-        trialEnd:             data.trial_end ?? null,
-        periodEnd:            data.current_period_end ?? null,
-        stripeCustomerId:     data.stripe_customer_id ?? null,
+        trialEnd:             data.trial_end             ?? null,
+        periodEnd:            data.current_period_end    ?? null,
+        stripeCustomerId:     data.stripe_customer_id    ?? null,
         stripeSubscriptionId: data.stripe_subscription_id ?? null,
         isActive, isTrial, isPro, isExpired,
+        isDeveloper: false,
         limits: PLAN_LIMITS[plan] ?? PLAN_LIMITS.basic,
       }
     },
