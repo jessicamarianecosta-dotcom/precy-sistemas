@@ -635,23 +635,38 @@ export default function ProdutosPage() {
                     const u = vp?.measurement_unit ?? 'm'
                     if (!w || !h) return null
                     const block = getDimBlock(w, h, u, Number(vp?.area) || null)
+                    const wFmt = block.wM.toFixed(4).replace('.', ',')
+                    const hFmt = block.hM.toFixed(4).replace('.', ',')
                     return (
-                      <div className="space-y-1.5">
-                        <div>
-                          <p className="text-[10px] font-semibold text-info/60 uppercase tracking-wider">Dimensões</p>
-                          <p className="text-base font-bold text-info-dark dark:text-info">{block.original}</p>
+                      <div className="rounded-xl border border-info/20 overflow-hidden">
+                        <div className="flex items-center justify-between px-3 py-2.5">
+                          <div>
+                            <p className="text-[10px] font-semibold text-info/50 uppercase tracking-wider mb-0.5">Dimensões</p>
+                            <p className="text-base font-bold text-info-dark dark:text-info">{block.original}</p>
+                          </div>
+                          {block.areaValue > 0 && (
+                            <div className="text-right">
+                              <p className="text-[10px] font-semibold text-info/50 uppercase tracking-wider mb-0.5">Área</p>
+                              <p className="text-sm font-bold text-info-dark dark:text-info">{block.area} m²</p>
+                            </div>
+                          )}
                         </div>
                         {block.meters && (
-                          <div>
-                            <p className="text-[10px] font-semibold text-info/60 uppercase tracking-wider">Conversão para metros</p>
-                            <p className="text-xs text-info-dark/70 dark:text-info/70">{block.meters}</p>
-                          </div>
-                        )}
-                        {block.areaValue > 0 && (
-                          <div>
-                            <p className="text-[10px] font-semibold text-info/60 uppercase tracking-wider">Área calculada</p>
-                            <p className="text-sm font-bold text-info-dark dark:text-info">{block.area} m²</p>
-                          </div>
+                          <details className="border-t border-info/15">
+                            <summary className="px-3 py-1.5 text-[11px] text-info/60 cursor-pointer select-none hover:text-info transition-colors list-none flex items-center gap-1">
+                              <span className="text-[9px]">▶</span> Ver detalhes do cálculo
+                            </summary>
+                            <div className="px-3 pb-2.5 space-y-1.5 bg-info/5">
+                              <div>
+                                <p className="text-[10px] font-semibold text-info/50 uppercase tracking-wider">Conversão para metros</p>
+                                <p className="text-xs text-info-dark/70 dark:text-info/70">{block.meters}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-semibold text-info/50 uppercase tracking-wider">Fórmula</p>
+                                <p className="text-xs text-info-dark/60 dark:text-info/60">{wFmt} × {hFmt} = <span className="font-semibold text-info-dark dark:text-info">{block.area} m²</span></p>
+                              </div>
+                            </div>
+                          </details>
                         )}
                       </div>
                     )

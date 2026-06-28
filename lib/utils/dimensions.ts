@@ -34,9 +34,12 @@ function fmtOrig(v: number): string {
   return v % 1 === 0 ? String(v) : v.toFixed(2).replace('.', ',')
 }
 
-/** Valor em metros: sempre 2 casas decimais (ex: 1,00 / 0,30). */
+/**
+ * Valor em metros com 4 casas decimais.
+ * 4 casas garantem que valores pequenos como 0,003 nunca apareçam como 0,00.
+ */
 function fmtM(v: number): string {
-  return v.toFixed(2).replace('.', ',')
+  return v.toFixed(4).replace('.', ',')
 }
 
 /**
@@ -80,9 +83,11 @@ export function getDimBlock(
     : wM * hM
 
   return {
-    original:  formatDimDisplay(width, height, unit),          // "100 cm × 30 cm"
-    meters:    unit === 'm' ? null : formatDimMeters(width, height, unit), // "1,00 m × 0,30 m" (null se já em metros)
-    area:      formatAreaM2(area),                             // "0,3000"
+    original:  formatDimDisplay(width, height, unit),
+    meters:    unit === 'm' ? null : formatDimMeters(width, height, unit),
+    wM,
+    hM,
+    area:      formatAreaM2(area),
     areaValue: area,
   }
 }

@@ -18,7 +18,7 @@ import {
   ChevronLeft, User, Package, CreditCard, Truck,
   Eye, Search, Edit3, Edit2, Minus, Info, ShoppingBag, ExternalLink, Copy,
 } from 'lucide-react'
-import { calculateAreaM2, formatAreaM2, formatDimDisplay, getDimBlock, getDimWarning } from '@/lib/utils/dimensions'
+import { calculateAreaM2, formatAreaM2, formatDimDisplay, getDimBlock } from '@/lib/utils/dimensions'
 
 interface BudgetItem {
   id: string; type: 'product'|'service'|'manual'; name: string
@@ -1124,32 +1124,40 @@ export default function OrcamentosPage() {
                 {editItem.width&&editItem.height&&(editItem.width>0)&&(editItem.height>0)&&(()=>{
                   const u=editItem.measurement_unit??'m'
                   const block=getDimBlock(editItem.width,editItem.height,u,editItem.area)
-                  const warning=getDimWarning(editItem.width,editItem.height,u)
+                  const wFmt=block.wM.toFixed(4).replace('.',',')
+                  const hFmt=block.hM.toFixed(4).replace('.',',')
                   return(
-                    <>
-                      <div className="mt-2 px-3 py-2.5 rounded-xl bg-primary-50/60 dark:bg-primary/10 border border-primary/20 space-y-1.5">
+                    <div className="mt-2 rounded-xl bg-primary-50/60 dark:bg-primary/10 border border-primary/20 overflow-hidden">
+                      {/* Principal: dimensões e área */}
+                      <div className="px-3 py-2.5 flex items-center justify-between">
                         <div>
-                          <p className="text-[10px] font-semibold text-primary/60 uppercase tracking-wider">Dimensões</p>
+                          <p className="text-[10px] font-semibold text-primary/50 uppercase tracking-wider mb-0.5">Dimensões informadas</p>
                           <p className="text-sm font-bold text-primary">{block.original}</p>
                         </div>
-                        {block.meters&&(
-                          <div>
-                            <p className="text-[10px] font-semibold text-primary/60 uppercase tracking-wider">Conversão para metros</p>
-                            <p className="text-xs text-primary/80">{block.meters}</p>
-                          </div>
-                        )}
-                        <div>
-                          <p className="text-[10px] font-semibold text-primary/60 uppercase tracking-wider">Área calculada</p>
+                        <div className="text-right">
+                          <p className="text-[10px] font-semibold text-primary/50 uppercase tracking-wider mb-0.5">Área</p>
                           <p className="text-base font-bold text-primary">{block.area} m²</p>
                         </div>
                       </div>
-                      {warning&&(
-                        <div className="mt-1.5 px-3 py-2 rounded-xl bg-warning-light dark:bg-warning/10 border border-warning/30 flex gap-2 items-start">
-                          <span className="text-warning text-sm mt-0.5">⚠</span>
-                          <p className="text-[11px] text-warning-dark dark:text-warning leading-snug">{warning}</p>
-                        </div>
+                      {/* Detalhes expandíveis */}
+                      {block.meters&&(
+                        <details className="border-t border-primary/10">
+                          <summary className="px-3 py-1.5 text-[11px] text-primary/60 cursor-pointer select-none hover:text-primary transition-colors list-none flex items-center gap-1">
+                            <span className="text-[9px]">▶</span> Ver detalhes do cálculo
+                          </summary>
+                          <div className="px-3 pb-2.5 space-y-1.5 bg-primary/5">
+                            <div>
+                              <p className="text-[10px] font-semibold text-primary/50 uppercase tracking-wider">Conversão para metros</p>
+                              <p className="text-xs text-primary/80">{block.meters}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-semibold text-primary/50 uppercase tracking-wider">Fórmula</p>
+                              <p className="text-xs text-primary/70">{wFmt} × {hFmt} = <span className="font-semibold text-primary">{block.area} m²</span></p>
+                            </div>
+                          </div>
+                        </details>
                       )}
-                    </>
+                    </div>
                   )
                 })()}
               </div>
