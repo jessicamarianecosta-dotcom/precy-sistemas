@@ -298,11 +298,27 @@ export default function OrcamentosPage() {
         .eq('budget_id',b.id)
 
       // Enriquecer itens: usar nome do produto se item não tem nome próprio
-      const enrichedItems=(bi??[]).map((item:any)=>({
+      let enrichedItems=(bi??[]).map((item:any)=>({
         ...item,
         name: item.name || item.products?.name || 'Item',
         description: item.description || item.products?.description || '',
       }))
+
+      // Fallback para orçamento livre: sem itens mas com valor total definido
+      if(enrichedItems.length===0){
+        const tot=Number((fullBudget??b).total)||0
+        const sub=Number((fullBudget??b).subtotal)||tot
+        const desc=String((fullBudget??b).notes||'').trim()||'Serviço conforme proposta'
+        if(tot>0){
+          enrichedItems=[{
+            name: desc,
+            description: '',
+            quantity: 1,
+            unit_price: sub,
+            subtotal: sub,
+          }]
+        }
+      }
 
       await generateBudgetPDF({
         budget: fullBudget??b,

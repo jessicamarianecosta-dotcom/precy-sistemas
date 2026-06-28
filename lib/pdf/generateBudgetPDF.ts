@@ -92,10 +92,20 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
     ? `<img src="${logoUrl}" alt="${coName}" style="max-height:60px;max-width:160px;object-fit:contain;display:block;">`
     : `<div style="width:54px;height:54px;background:${primary};border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:24px;font-weight:700;">${String(co.name??'P').charAt(0).toUpperCase()}</div>`
 
-  /* ── Itens ── */
-  const rowsHTML = items.length === 0
+  /* ── Itens — fallback para orçamento livre ── */
+  const effectiveItems = items.length === 0 && bTot > 0
+    ? [{
+        name: bNotes || 'Serviço conforme proposta',
+        description: '',
+        quantity: 1,
+        unit_price: bSub || bTot,
+        subtotal: bSub || bTot,
+      }]
+    : items
+
+  const rowsHTML = effectiveItems.length === 0
     ? `<tr><td colspan="5" style="text-align:center;padding:28px;color:#bbb;font-size:12px;font-style:italic;">Nenhum item cadastrado</td></tr>`
-    : items.map((item,idx) => {
+    : effectiveItems.map((item,idx) => {
         const nm   = X(item.name ?? item.material_name ?? item.product_name ?? 'Item')
         const desc = X(item.description ?? '')
         const qty  = Number(item.quantity) || 1
