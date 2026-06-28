@@ -23,6 +23,35 @@ import { CategorySelect } from '@/components/ui/CategorySelect'
 import { formatCurrency } from '@/lib/utils/format'
 
 /* ─── Types ─── */
+type FinishingCalcType = 'fixed' | 'percent' | 'per_m2' | 'per_unit' | 'per_meter'
+interface FinishingItem {
+  id: string
+  name: string
+  calc_type: FinishingCalcType
+  value: number
+  quantity?: number
+  subtotal?: number
+}
+
+const CALC_TYPE_LABELS: Record<FinishingCalcType, string> = {
+  fixed:     'Valor fixo',
+  percent:   'Percentual',
+  per_m2:    'Por m²',
+  per_meter: 'Por metro linear',
+  per_unit:  'Por unidade',
+}
+
+function computeFinishingSubtotal(item: FinishingItem, area: number, materialCost: number): number {
+  switch (item.calc_type) {
+    case 'fixed':    return item.value
+    case 'percent':  return materialCost * item.value / 100
+    case 'per_m2':   return area * item.value
+    case 'per_unit':
+    case 'per_meter': return (item.quantity ?? 1) * item.value
+    default:         return item.value
+  }
+}
+
 interface Product {
   id:                    string
   company_id:            string
@@ -47,6 +76,7 @@ interface Product {
   area?:             number | null
   measurement_unit?: string | null
   finishings?:       string[] | null
+  finishing_items?:  FinishingItem[] | null
   finishing_type?:   string | null
   technical_notes?:  string | null
 }
@@ -675,18 +705,71 @@ export default function ProdutosPage() {
               )}
 
               {/* ── S8: Acabamentos ── */}
-              {Array.isArray(vp?.finishings) && (vp?.finishings ?? []).length > 0 && (
-                <FichaSection icon={Tag} title="Acabamentos"
-                  color="text-warning" bg="bg-warning-light dark:bg-warning/10">
-                  <div className="flex flex-wrap gap-1.5">
-                    {(vp!.finishings as string[]).map((f: string) => (
-                      <span key={f} className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-warning-light dark:bg-warning/15 text-warning-dark dark:text-warning border border-warning/30">
-                        <span className="text-warning-dark dark:text-warning opacity-70">✓</span> {f}
-                      </span>
-                    ))}
-                  </div>
-                </FichaSection>
-              )}
+              {(() => {
+                const structuredItems = Array.isArray(vp?.finishing_items) ? (vp!.finishing_items as FinishingItem[]) : []
+                const legacyItems = Array.isArray(vp?.finishings) ? (vp!.finishings as string[]) : []
+                const areaM2 = safeNum(vp?.area)
+                const matCost = vpTotalMats > 0 ? vpTotalMats : safeNum(vp?.material_cost)
+
+                if (structuredItems.length === 0 && legacyItems.length === 0) return null
+                return (
+                  <FichaSection icon={Tag} title="Acabamentos"
+                    color="text-warning" bg="bg-warning-light dark:bg-warning/10">
+                    {structuredItems.length > 0 ? (
+                      <div className="space-y-2">
+                        {structuredItems.map(item => {
+                          const subtotal = item.subtotal != null
+                            ? item.subtotal
+                            : computeFinishingSubtotal(item, areaM2, matCost)
+                          const configuredLabel = (() => {
+                            switch (item.calc_type) {
+                              case 'fixed':    return `R$ ${item.value.toFixed(2).replace('.', ',')}`
+                              case 'percent':  return `${item.value}% do material`
+                              case 'per_m2':   return `R$ ${item.value.toFixed(2).replace('.', ',')} / m²`
+                              case 'per_meter': return `R$ ${item.value.toFixed(2).replace('.', ',')} / m × ${item.quantity ?? 1}`
+                              case 'per_unit': return `R$ ${item.value.toFixed(2).replace('.', ',')} × ${item.quantity ?? 1} un`
+                              default:         return `R$ ${item.value.toFixed(2).replace('.', ',')}`
+                            }
+                          })()
+                          return (
+                            <div key={item.id}
+                              className="rounded-xl border border-warning/20 bg-warning-light/30 dark:bg-warning/5 overflow-hidden">
+                              <div className="flex items-center justify-between px-3 py-2">
+                                <div className="min-w-0">
+                                  <p className="text-xs font-semibold text-warning-dark dark:text-warning leading-snug">{item.name}</p>
+                                  <p className="text-[10px] text-text-muted dark:text-stone-500 mt-0.5">
+                                    {CALC_TYPE_LABELS[item.calc_type]} · {configuredLabel}
+                                  </p>
+                                </div>
+                                <span className="text-sm font-bold text-warning-dark dark:text-warning ml-3 flex-shrink-0">{fmt(subtotal)}</span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                        {structuredItems.length > 1 && (
+                          <div className="flex items-center justify-between px-1 pt-1 border-t border-warning/20">
+                            <span className="text-xs font-semibold text-text-primary dark:text-stone-100">Total acabamentos</span>
+                            <span className="text-sm font-bold text-warning-dark dark:text-warning">
+                              {fmt(structuredItems.reduce((s, i) => {
+                                const sub = i.subtotal != null ? i.subtotal : computeFinishingSubtotal(i, areaM2, matCost)
+                                return s + sub
+                              }, 0))}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {legacyItems.map((f: string) => (
+                          <span key={f} className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-warning-light dark:bg-warning/15 text-warning-dark dark:text-warning border border-warning/30">
+                            <span className="opacity-70">✓</span> {f}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </FichaSection>
+                )
+              })()}
 
               {/* ── S9: Finalização ── */}
               {vp?.finishing_type && (
@@ -718,6 +801,43 @@ export default function ProdutosPage() {
                   </p>
                 </FichaSection>
               )}
+
+              {/* ── S11: Resumo de custos ── */}
+              {(() => {
+                const structuredItems = Array.isArray(vp?.finishing_items) ? (vp!.finishing_items as FinishingItem[]) : []
+                const areaM2 = safeNum(vp?.area)
+                const matCost = vpTotalMats > 0 ? vpTotalMats : safeNum(vp?.material_cost)
+                const finishingTotal = structuredItems.reduce((s, i) => {
+                  const sub = i.subtotal != null ? i.subtotal : computeFinishingSubtotal(i, areaM2, matCost)
+                  return s + sub
+                }, 0)
+                // Only show if there are finishing items (adds info beyond the existing S5)
+                if (structuredItems.length === 0) return null
+                const rows = [
+                  { label: 'Materiais',    value: matCost,       color: 'text-info-dark dark:text-info' },
+                  { label: 'Acabamentos',  value: finishingTotal, color: 'text-warning-dark dark:text-warning' },
+                  vpLaborCost > 0 && { label: 'Mão de obra',   value: vpLaborCost,  color: 'text-warning-dark dark:text-warning' },
+                  vpExtraCost > 0 && { label: 'Custos extras', value: vpExtraCost,  color: 'text-error-dark dark:text-error' },
+                ].filter(Boolean) as { label: string; value: number; color: string }[]
+                const total = rows.reduce((s, r) => s + r.value, 0)
+                return (
+                  <FichaSection icon={DollarSign} title="Resumo de custos"
+                    color="text-success" bg="bg-success-light dark:bg-success/10">
+                    <div className="space-y-1.5">
+                      {rows.map(r => (
+                        <div key={r.label} className="flex items-center justify-between py-0.5">
+                          <span className="text-xs text-text-secondary dark:text-stone-400">{r.label}</span>
+                          <span className={`text-xs font-medium ${r.color}`}>{fmt(r.value)}</span>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between pt-2 border-t border-border dark:border-border-dark">
+                        <span className="text-xs font-bold text-text-primary dark:text-stone-100">Custo total</span>
+                        <span className="text-sm font-bold text-success-dark dark:text-success">{fmt(total)}</span>
+                      </div>
+                    </div>
+                  </FichaSection>
+                )
+              })()}
 
             </div>
 
