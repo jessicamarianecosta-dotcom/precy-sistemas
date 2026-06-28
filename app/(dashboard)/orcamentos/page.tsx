@@ -18,6 +18,7 @@ import {
   ChevronLeft, User, Package, CreditCard, Truck,
   Eye, Search, Edit3, Edit2, Minus, Info, ShoppingBag, ExternalLink, Copy,
 } from 'lucide-react'
+import { calculateAreaM2, formatAreaM2 } from '@/lib/utils/dimensions'
 
 interface BudgetItem {
   id: string; type: 'product'|'service'|'manual'; name: string
@@ -1077,7 +1078,8 @@ export default function OrcamentosPage() {
                       onChange={e=>{
                         const w=parseFloat(e.target.value)||undefined
                         const h=editItem.height
-                        const a=w&&h?w*h:undefined
+                        const u=editItem.measurement_unit??'m'
+                        const a=w&&h?calculateAreaM2(w,h,u):undefined
                         setEditItem(p=>p?{...p,width:w,area:a}:null)
                       }}/>
                   </div>
@@ -1089,18 +1091,28 @@ export default function OrcamentosPage() {
                       onChange={e=>{
                         const h=parseFloat(e.target.value)||undefined
                         const w=editItem.width
-                        const a=w&&h?w*h:undefined
+                        const u=editItem.measurement_unit??'m'
+                        const a=w&&h?calculateAreaM2(w,h,u):undefined
                         setEditItem(p=>p?{...p,height:h,area:a}:null)
                       }}/>
                   </div>
                 </div>
                 {editItem.width&&editItem.height&&(editItem.width>0)&&(editItem.height>0)&&(
-                  <p className="mt-1 text-xs text-primary font-medium">Área: {((editItem.width??0)*(editItem.height??0)).toFixed(4)} m²</p>
+                  <p className="mt-1 text-xs text-primary font-medium">
+                    Área: {formatAreaM2(calculateAreaM2(editItem.width,editItem.height,editItem.measurement_unit??'m'))} m²
+                  </p>
                 )}
                 <div className="mt-2">
                   <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Unidade</label>
-                  <select className="input text-sm" value={editItem.measurement_unit??'m'} onChange={e=>setEditItem(p=>p?{...p,measurement_unit:e.target.value}:null)}>
-                    {['m','cm'].map(u=><option key={u} value={u}>{u}</option>)}
+                  <select className="input text-sm" value={editItem.measurement_unit??'m'}
+                    onChange={e=>{
+                      const u=e.target.value
+                      const w=editItem.width
+                      const h=editItem.height
+                      const a=w&&h?calculateAreaM2(w,h,u):undefined
+                      setEditItem(p=>p?{...p,measurement_unit:u,area:a}:null)
+                    }}>
+                    {['mm','cm','m'].map(u=><option key={u} value={u}>{u}</option>)}
                   </select>
                 </div>
               </div>

@@ -416,6 +416,7 @@ function PrecificacaoPage() {
         purchase_cost:         productType === 'resale' ? purchaseCost : 0,
         ...(productType === 'meter_product' ? {
           width: mWidth, height: mHeight, measurement_unit: mUnit,
+          area: mAreaM2,
           price_per_m2: pricePerM2, finishing_cost: finishingCost,
         } : {}),
         finishings:      finishings,

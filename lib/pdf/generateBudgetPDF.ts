@@ -5,6 +5,7 @@
 
 import { formatCurrency } from '@/lib/utils/format'
 import { getBudgetItems } from '@/lib/pdf/getBudgetItems'
+import { calculateAreaM2, formatAreaM2 } from '@/lib/utils/dimensions'
 
 interface PDFParams {
   budget:  Record<string, unknown>
@@ -99,12 +100,14 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
   const fmtDim = (item: typeof effectiveItems[0]) => {
     const w = Number(item.width)
     const h = Number(item.height)
-    const a = Number(item.area) || (w && h ? w * h : 0)
     const u = item.measurement_unit ?? 'm'
     if (!w && !h) return ''
+    // Usar área salva; se ausente ou zero, calcular com conversão correta
+    const storedArea = Number(item.area)
+    const a = storedArea > 0 ? storedArea : (w > 0 && h > 0 ? calculateAreaM2(w, h, u) : 0)
     const fmt2 = (v: number) => v % 1 === 0 ? String(v) : v.toFixed(2).replace('.',',')
     let line = `${fmt2(w)} × ${fmt2(h)} ${u}`
-    if (a > 0) line += ` · Área: ${a.toFixed(4).replace('.',',')} m²`
+    if (a > 0) line += ` · Área: ${formatAreaM2(a)} m²`
     return line
   }
 

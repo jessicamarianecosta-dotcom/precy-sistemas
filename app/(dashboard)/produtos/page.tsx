@@ -12,6 +12,7 @@ import {
   Copy, ExternalLink, DollarSign, Clock, Layers,
   TrendingUp, ChevronRight, Tag, Zap, Ruler, FileText,
 } from 'lucide-react'
+import { calculateAreaM2, formatAreaM2 } from '@/lib/utils/dimensions'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -631,8 +632,11 @@ export default function ProdutosPage() {
                   {(() => {
                     const w = Number(vp?.width)
                     const h = Number(vp?.height)
-                    const a = Number(vp?.area) || (w && h ? w * h : 0)
                     const u = vp?.measurement_unit ?? 'm'
+                    // Usar área salva no banco; se ausente, calcular com conversão correta
+                    const a = Number(vp?.area) > 0
+                      ? Number(vp!.area)
+                      : (w > 0 && h > 0 ? calculateAreaM2(w, h, u) : 0)
                     const fmt2 = (v: number) => v % 1 === 0 ? String(v) : v.toFixed(2).replace('.', ',')
                     return (
                       <div className="space-y-1.5">
@@ -643,7 +647,7 @@ export default function ProdutosPage() {
                         </div>
                         {a > 0 && (
                           <p className="text-xs text-text-secondary dark:text-stone-400">
-                            Área: {a.toFixed(4).replace('.', ',')} m²
+                            Área: {formatAreaM2(a)} m²
                           </p>
                         )}
                       </div>
