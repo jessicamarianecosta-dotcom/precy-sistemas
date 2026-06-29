@@ -42,7 +42,6 @@ const CALC_TYPES: { value: FinishingCalcType; label: string; hint: string }[] = 
   { value: 'per_unit',  label: 'Por unidade',      hint: 'R$/un' },
 ]
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const PRICING_TYPES: { value: PricingType; label: string; sub: string; icon: any }[] = [
   { value: 'per_unit',        label: 'Por unidade',     sub: 'Canecas, camisetas…',       icon: Package   },
   { value: 'per_m2',          label: 'Por m²',          sub: 'Banners, lonas, ACM',       icon: Ruler     },
