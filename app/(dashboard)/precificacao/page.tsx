@@ -11,7 +11,9 @@ import {
   ShoppingBag, Hammer, ChevronRight,
   ArrowRight, Info, Tag, Layers, FileText,
   Scissors, Trash2, Edit2, BookOpen,
+  Scale, Droplets, Settings2,
 } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { clsx } from 'clsx'
 import { CategorySelect } from '@/components/ui/CategorySelect'
 import { formatCurrency as fmt } from '@/lib/utils/format'
@@ -20,6 +22,7 @@ import { useSubscription } from '@/hooks/useSubscription'
 
 /* ─────────────────────────── Types ─── */
 type ProductType = 'produced' | 'resale' | 'meter_product'
+type PricingType = 'per_unit' | 'per_m2' | 'per_linear_meter' | 'per_kg' | 'per_liter' | 'custom'
 type FinishingCalcType = 'fixed' | 'percent' | 'per_m2' | 'per_unit' | 'per_meter'
 
 interface FinishingItem {
@@ -37,6 +40,16 @@ const CALC_TYPES: { value: FinishingCalcType; label: string; hint: string }[] = 
   { value: 'per_m2',    label: 'Por m²',           hint: 'R$/m²' },
   { value: 'per_meter', label: 'Por metro linear', hint: 'R$/m' },
   { value: 'per_unit',  label: 'Por unidade',      hint: 'R$/un' },
+]
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const PRICING_TYPES: { value: PricingType; label: string; sub: string; icon: any }[] = [
+  { value: 'per_unit',        label: 'Por unidade',     sub: 'Canecas, camisetas…',       icon: Package   },
+  { value: 'per_m2',          label: 'Por m²',          sub: 'Banners, lonas, ACM',       icon: Ruler     },
+  { value: 'per_linear_meter', label: 'Metro linear',   sub: 'Cortinas, fitas, perfis',   icon: Ruler     },
+  { value: 'per_kg',          label: 'Por kg',          sub: 'Alimentos, matéria-prima',  icon: Scale     },
+  { value: 'per_liter',       label: 'Por litro',       sub: 'Tintas, produtos líquidos', icon: Droplets  },
+  { value: 'custom',          label: 'Personalizado',   sub: 'Mostrar todos os campos',   icon: Settings2 },
 ]
 
 type FinishingModal =
@@ -136,6 +149,26 @@ function MarginSlider({ value, onChange }: { value: number; onChange: (v: number
   )
 }
 
+/* ─────────────────────────── SectionSlide ─── */
+function SectionSlide({ show, children }: { show: boolean; children: React.ReactNode }) {
+  return (
+    <AnimatePresence initial={false}>
+      {show && (
+        <motion.div
+          key="slide"
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+          style={{ overflow: 'hidden' }}
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
 /* ═══════════════════════════════════════ PAGE ═══ */
 function PrecificacaoPage() {
   const supabase    = createClient()
@@ -148,6 +181,7 @@ function PrecificacaoPage() {
 
   /* ── form state ── */
   const [productType,      setProductType]      = useState<ProductType>('produced')
+  const [pricingType,      setPricingType]      = useState<PricingType>('per_unit')
   const [productName,      setProductName]      = useState('')
   const [category,         setCategory]         = useState('geral')
   const [unit,             setUnit]             = useState('un')
@@ -235,6 +269,13 @@ function PrecificacaoPage() {
     setProductionHours(Number(p.production_time_hours) || 1)
     setPurchaseCost(Number(p.purchase_cost) || 0)
     if (p.product_type) setProductType(p.product_type as ProductType)
+    if (p.pricing_type) {
+      setPricingType(p.pricing_type as PricingType)
+    } else if (p.product_type === 'meter_product') {
+      setPricingType('per_m2')
+    } else {
+      setPricingType('per_unit')
+    }
     // Custos extras: salvo em extra_costs JSONB ou reconstituído de extra_cost
     if (p.extra_costs && Array.isArray(p.extra_costs)) {
       setExtraCosts(p.extra_costs)
@@ -393,6 +434,8 @@ function PrecificacaoPage() {
   const profit       = idealPrice - baseCost
   const margin       = idealPrice > 0 ? (profit / idealPrice) * 100 : 0
 
+  const showPrintSections = pricingType === 'per_m2' || pricingType === 'per_linear_meter' || pricingType === 'custom'
+
   const scenarios = useMemo(() => [
     {
       label: 'Conservador',
@@ -495,6 +538,7 @@ function PrecificacaoPage() {
         finishings:      finishings,
         finishing_type:  finishingType || null,
         technical_notes: technicalNotes || null,
+        pricing_type:    pricingType,
         updated_at: new Date().toISOString(),
       }
 
@@ -585,6 +629,7 @@ function PrecificacaoPage() {
         setFinishingType('')
         setTechnicalNotes('')
         setFinishingItems([])
+        setPricingType('per_unit')
       }
     },
 
@@ -637,6 +682,55 @@ function PrecificacaoPage() {
 
           {/* ════════════════ COLUNA ESQUERDA — Calculadora ════════════════ */}
           <div className="space-y-3 sm:space-y-4">
+
+            {/* Tipo de precificação */}
+            <div className="card">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="p-2 rounded-xl bg-primary-50 dark:bg-primary/10">
+                  <Tag size={16} className="text-primary" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">Tipo de precificação</h2>
+                  <p className="text-xs text-text-muted dark:text-stone-400">Define os campos exibidos na calculadora</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {PRICING_TYPES.map(opt => {
+                  const Icon = opt.icon
+                  const active = pricingType === opt.value
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        setPricingType(opt.value)
+                        if (opt.value === 'per_m2' || opt.value === 'per_linear_meter') {
+                          setProductType('meter_product')
+                        } else if (opt.value !== 'custom' && productType === 'meter_product') {
+                          setProductType('produced')
+                        }
+                      }}
+                      className={clsx(
+                        'flex flex-col items-start gap-1.5 p-3 rounded-xl border-2 text-left transition-all duration-200',
+                        active
+                          ? 'border-primary bg-primary-50 dark:bg-primary/10'
+                          : 'border-border dark:border-border-dark hover:border-primary/40'
+                      )}
+                    >
+                      <div className={clsx('p-1.5 rounded-lg', active ? 'bg-primary text-white' : 'bg-primary-50 dark:bg-primary/10 text-primary')}>
+                        <Icon size={14} />
+                      </div>
+                      <div>
+                        <p className={clsx('text-xs font-semibold leading-snug', active ? 'text-primary' : 'text-text-primary dark:text-stone-100')}>
+                          {opt.label}
+                        </p>
+                        <p className="text-[10px] text-text-muted dark:text-stone-400 mt-0.5 leading-tight">{opt.sub}</p>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
 
             {/* Tipo de produto */}
             <div className="card">
@@ -1160,125 +1254,131 @@ function PrecificacaoPage() {
               </div>
             </div>
 
-            {/* ── Acabamentos (multi-select chips) ── */}
-            <div className="card space-y-3">
-              <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100 flex items-center gap-2">
-                <Layers size={14} className="text-primary" />
-                Acabamentos
-              </h3>
-              <p className="text-xs text-text-muted dark:text-stone-400 -mt-1">
-                Selecione um ou mais acabamentos aplicados neste produto
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {['Laminação Fosca','Laminação Brilho','Laminação Holográfica','Recorte eletrônico','Corte reto','Meio corte','Vinco','Dobra','Cantos arredondados','Ilhós','Bastão','Bainha','Verniz Localizado','Hot Stamping','Refile','Furação','Corte Especial'].map(opt => {
-                  const active = finishings.includes(opt)
-                  return (
-                    <button key={opt} type="button"
-                      onClick={() => setFinishings(prev => active ? prev.filter(f => f !== opt) : [...prev, opt])}
-                      className={clsx(
-                        'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
-                        active
-                          ? 'border-primary bg-primary text-white'
-                          : 'border-border dark:border-border-dark text-text-secondary dark:text-stone-400 hover:border-primary/50'
-                      )}>
-                      {opt}
-                    </button>
-                  )
-                })}
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  className="input flex-1 text-sm"
-                  placeholder="Outro acabamento..."
-                  value={customFinishing}
-                  onChange={e => setCustomFinishing(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && customFinishing.trim()) {
-                      const v = customFinishing.trim()
-                      if (!finishings.includes(v)) setFinishings(prev => [...prev, v])
-                      setCustomFinishing('')
-                    }
-                  }}
-                />
-                <button type="button"
-                  disabled={!customFinishing.trim()}
-                  onClick={() => {
-                    const v = customFinishing.trim()
-                    if (v && !finishings.includes(v)) setFinishings(prev => [...prev, v])
-                    setCustomFinishing('')
-                  }}
-                  className="btn-secondary px-3 py-2 text-xs">
-                  <Plus size={13} />
-                </button>
-              </div>
-              {finishings.filter(f => !['Laminação Fosca','Laminação Brilho','Laminação Holográfica','Recorte eletrônico','Corte reto','Meio corte','Vinco','Dobra','Cantos arredondados','Ilhós','Bastão','Bainha','Verniz Localizado','Hot Stamping','Refile','Furação','Corte Especial'].includes(f)).map(f => (
-                <div key={f} className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border border-primary bg-primary text-white w-fit">
-                  {f}
-                  <button type="button" onClick={() => setFinishings(prev => prev.filter(x => x !== f))} className="ml-1 opacity-75 hover:opacity-100"><X size={11} /></button>
-                </div>
-              ))}
-            </div>
+            <SectionSlide show={showPrintSections}>
+              <div className="space-y-3 sm:space-y-4">
 
-            {/* ── Finalização / Entrega (single-select chips) ── */}
-            <div className="card space-y-3">
-              <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100 flex items-center gap-2">
-                <Tag size={14} className="text-primary" />
-                Finalização / Entrega
-              </h3>
-              <div className="flex flex-wrap gap-2">
-                {[
-                  'Em cartela','Em folhas','Em bobina','Dobrado','Enrolado','Recortado',
-                  'Separado por kits','Embalado individualmente','Embalado em pacote',
-                  'Instalado','Aplicado','Com ilhós','Com bastão','Com bainha',
-                  'Sem finalização','Outros',
-                ].map(opt => {
-                  const isOthersSelected = finishingType.startsWith('Outros')
-                  const active = opt === 'Outros' ? isOthersSelected : finishingType === opt
-                  return (
-                    <button key={opt} type="button"
-                      onClick={() => {
-                        if (opt === 'Outros') {
-                          setFinishingType(isOthersSelected ? '' : 'Outros: ')
-                        } else {
-                          setFinishingType(active ? '' : opt)
+                {/* ── Acabamentos (multi-select chips) ── */}
+                <div className="card space-y-3">
+                  <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100 flex items-center gap-2">
+                    <Layers size={14} className="text-primary" />
+                    Acabamentos
+                  </h3>
+                  <p className="text-xs text-text-muted dark:text-stone-400 -mt-1">
+                    Selecione um ou mais acabamentos aplicados neste produto
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {['Laminação Fosca','Laminação Brilho','Laminação Holográfica','Recorte eletrônico','Corte reto','Meio corte','Vinco','Dobra','Cantos arredondados','Ilhós','Bastão','Bainha','Verniz Localizado','Hot Stamping','Refile','Furação','Corte Especial'].map(opt => {
+                      const active = finishings.includes(opt)
+                      return (
+                        <button key={opt} type="button"
+                          onClick={() => setFinishings(prev => active ? prev.filter(f => f !== opt) : [...prev, opt])}
+                          className={clsx(
+                            'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+                            active
+                              ? 'border-primary bg-primary text-white'
+                              : 'border-border dark:border-border-dark text-text-secondary dark:text-stone-400 hover:border-primary/50'
+                          )}>
+                          {opt}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      className="input flex-1 text-sm"
+                      placeholder="Outro acabamento..."
+                      value={customFinishing}
+                      onChange={e => setCustomFinishing(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && customFinishing.trim()) {
+                          const v = customFinishing.trim()
+                          if (!finishings.includes(v)) setFinishings(prev => [...prev, v])
+                          setCustomFinishing('')
                         }
                       }}
-                      className={clsx(
-                        'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
-                        active
-                          ? 'border-primary bg-primary text-white'
-                          : 'border-border dark:border-border-dark text-text-secondary dark:text-stone-400 hover:border-primary/50'
-                      )}>
-                      {opt}
+                    />
+                    <button type="button"
+                      disabled={!customFinishing.trim()}
+                      onClick={() => {
+                        const v = customFinishing.trim()
+                        if (v && !finishings.includes(v)) setFinishings(prev => [...prev, v])
+                        setCustomFinishing('')
+                      }}
+                      className="btn-secondary px-3 py-2 text-xs">
+                      <Plus size={13} />
                     </button>
-                  )
-                })}
-              </div>
-              {finishingType.startsWith('Outros') && (
-                <input
-                  type="text"
-                  className="input text-sm"
-                  placeholder="Descreva a finalização... ex: Enrolado em tubo de papelão"
-                  value={finishingType.replace(/^Outros:\s*/, '')}
-                  onChange={e => setFinishingType('Outros: ' + e.target.value)}
-                />
-              )}
-            </div>
+                  </div>
+                  {finishings.filter(f => !['Laminação Fosca','Laminação Brilho','Laminação Holográfica','Recorte eletrônico','Corte reto','Meio corte','Vinco','Dobra','Cantos arredondados','Ilhós','Bastão','Bainha','Verniz Localizado','Hot Stamping','Refile','Furação','Corte Especial'].includes(f)).map(f => (
+                    <div key={f} className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border border-primary bg-primary text-white w-fit">
+                      {f}
+                      <button type="button" onClick={() => setFinishings(prev => prev.filter(x => x !== f))} className="ml-1 opacity-75 hover:opacity-100"><X size={11} /></button>
+                    </div>
+                  ))}
+                </div>
 
-            {/* ── Observações Técnicas ── */}
-            <div className="card space-y-3">
-              <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100 flex items-center gap-2">
-                <FileText size={14} className="text-primary" />
-                Observações Técnicas
-              </h3>
-              <textarea
-                className="input min-h-[80px] resize-y text-sm"
-                placeholder="Ex: Impressão em alta resolução, sangria de 3mm, arquivo em CMYK..."
-                value={technicalNotes}
-                onChange={e => setTechnicalNotes(e.target.value)}
-              />
-            </div>
+                {/* ── Finalização / Entrega (single-select chips) ── */}
+                <div className="card space-y-3">
+                  <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100 flex items-center gap-2">
+                    <Tag size={14} className="text-primary" />
+                    Finalização / Entrega
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      'Em cartela','Em folhas','Em bobina','Dobrado','Enrolado','Recortado',
+                      'Separado por kits','Embalado individualmente','Embalado em pacote',
+                      'Instalado','Aplicado','Com ilhós','Com bastão','Com bainha',
+                      'Sem finalização','Outros',
+                    ].map(opt => {
+                      const isOthersSelected = finishingType.startsWith('Outros')
+                      const active = opt === 'Outros' ? isOthersSelected : finishingType === opt
+                      return (
+                        <button key={opt} type="button"
+                          onClick={() => {
+                            if (opt === 'Outros') {
+                              setFinishingType(isOthersSelected ? '' : 'Outros: ')
+                            } else {
+                              setFinishingType(active ? '' : opt)
+                            }
+                          }}
+                          className={clsx(
+                            'px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+                            active
+                              ? 'border-primary bg-primary text-white'
+                              : 'border-border dark:border-border-dark text-text-secondary dark:text-stone-400 hover:border-primary/50'
+                          )}>
+                          {opt}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {finishingType.startsWith('Outros') && (
+                    <input
+                      type="text"
+                      className="input text-sm"
+                      placeholder="Descreva a finalização... ex: Enrolado em tubo de papelão"
+                      value={finishingType.replace(/^Outros:\s*/, '')}
+                      onChange={e => setFinishingType('Outros: ' + e.target.value)}
+                    />
+                  )}
+                </div>
+
+                {/* ── Observações Técnicas ── */}
+                <div className="card space-y-3">
+                  <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100 flex items-center gap-2">
+                    <FileText size={14} className="text-primary" />
+                    Observações Técnicas
+                  </h3>
+                  <textarea
+                    className="input min-h-[80px] resize-y text-sm"
+                    placeholder="Ex: Impressão em alta resolução, sangria de 3mm, arquivo em CMYK..."
+                    value={technicalNotes}
+                    onChange={e => setTechnicalNotes(e.target.value)}
+                  />
+                </div>
+
+              </div>
+            </SectionSlide>
 
             {/* Slider margem */}
             <div className="card">
