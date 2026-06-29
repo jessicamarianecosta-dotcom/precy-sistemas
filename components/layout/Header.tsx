@@ -110,7 +110,7 @@ export function Header({ title, subtitle }: Props) {
 
             {showAlerts && (
               <div className={clsx(
-                'absolute right-0 mt-2 w-80 sm:w-96 max-h-[70vh] overflow-y-auto',
+                'absolute right-0 mt-2 w-[min(320px,calc(100vw-1rem))] sm:w-96 max-h-[70vh] overflow-y-auto',
                 'bg-white dark:bg-surface-dark border border-border dark:border-border-dark',
                 'rounded-2xl shadow-modal z-50 animate-scaleIn origin-top-right'
               )}>

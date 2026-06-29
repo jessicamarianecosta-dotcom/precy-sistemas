@@ -517,7 +517,7 @@ export default function ConfiguracoesPage() {
       <div className="p-4 sm:p-6 max-w-3xl mx-auto space-y-5">
 
         {/* ── Tabs ── */}
-        <div className="flex gap-1 bg-white dark:bg-surface-dark border border-border dark:border-border-dark rounded-2xl p-1.5 shadow-card">
+        <div className="flex gap-1 bg-white dark:bg-surface-dark border border-border dark:border-border-dark rounded-2xl p-1.5 shadow-card overflow-x-auto no-scrollbar">
           {tabs.map(t => {
             const Icon = t.icon
             const active = tab === t.id
@@ -526,15 +526,14 @@ export default function ConfiguracoesPage() {
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 className={clsx(
-                  'flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200',
+                  'flex-shrink-0 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 whitespace-nowrap',
                   active
                     ? 'bg-primary text-white shadow-btn'
                     : 'text-text-secondary dark:text-stone-400 hover:bg-primary-50 dark:hover:bg-white/5 hover:text-primary'
                 )}
               >
                 <Icon size={15} className="flex-shrink-0" />
-                <span className="hidden sm:inline">{t.label}</span>
-                <span className="sm:hidden">{t.label.split(' ')[0]}</span>
+                <span>{t.label}</span>
               </button>
             )
           })}

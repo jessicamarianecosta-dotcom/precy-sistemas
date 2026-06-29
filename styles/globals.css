@@ -94,6 +94,7 @@
     @apply hover:bg-primary-hover active:scale-[0.98];
     @apply transition-all duration-200;
     @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    white-space: nowrap;
   }
 
   .btn-secondary {
@@ -101,12 +102,14 @@
     @apply hover:bg-primary-50 active:scale-[0.98];
     @apply transition-all duration-200;
     @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    white-space: nowrap;
   }
 
   .btn-ghost {
     @apply bg-transparent text-text-secondary px-5 py-2.5 rounded-xl font-medium text-sm;
     @apply hover:bg-primary-50 hover:text-primary active:scale-[0.98];
     @apply transition-all duration-200;
+    white-space: nowrap;
   }
 
   /* Inputs */
@@ -208,7 +211,14 @@ html, body {
 /* Cards nunca vazam da viewport */
 .card {
   max-width: 100%;
-  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Botões nunca quebram texto independente do contexto */
+.btn-primary, .btn-secondary, .btn-ghost {
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  white-space: nowrap !important;
 }
 
 /* Modais responsivos */

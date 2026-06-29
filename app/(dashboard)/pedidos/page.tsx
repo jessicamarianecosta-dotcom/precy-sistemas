@@ -582,12 +582,12 @@ export default function PedidosPage() {
 
         {/* Toolbar */}
         <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-          <div className="relative">
+          <div className="relative flex-1 sm:max-w-xs">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
             <input
               type="text"
               placeholder="Buscar pedidos..."
-              className="input pl-9 w-64"
+              className="input pl-9 w-full"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -595,7 +595,7 @@ export default function PedidosPage() {
 
           <button
             onClick={() => { reset(); setEditingId(null); setShowModal(true) }}
-            className="btn-primary flex items-center gap-2"
+            className="btn-primary flex items-center gap-2 flex-shrink-0"
           >
             <Plus size={16} />
             Novo Pedido

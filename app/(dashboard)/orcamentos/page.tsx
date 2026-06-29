@@ -533,9 +533,9 @@ export default function OrcamentosPage() {
     <div className="page-enter">
       <Header title="Orçamentos" subtitle="Crie e envie orçamentos profissionais"/>
       <div className="p-3 sm:p-5 lg:p-6 space-y-4">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <p className="text-sm text-text-secondary dark:text-stone-400">{budgets?.length??0} orçamento{budgets?.length!==1?'s':''}</p>
-          <button onClick={openWizard} className="btn-primary flex items-center gap-2"><Plus size={16}/>Novo Orçamento</button>
+          <button onClick={openWizard} className="btn-primary flex items-center gap-2 flex-shrink-0"><Plus size={16}/>Novo Orçamento</button>
         </div>
 
         {/* ── Card informativo fiscal ── */}

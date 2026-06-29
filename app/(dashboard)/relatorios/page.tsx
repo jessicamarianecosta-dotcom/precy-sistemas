@@ -336,7 +336,7 @@ export default function RelatoriosPage() {
         </div>
 
         {/* ── Tabs de módulo ── */}
-        <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-hide">
+        <div className="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar">
           {TABS.map(({ key, label, icon: Icon }) => (
             <button key={key} onClick={() => setActiveTab(key as typeof activeTab)}
               className={clsx(

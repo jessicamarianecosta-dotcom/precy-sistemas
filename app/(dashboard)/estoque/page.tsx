@@ -435,9 +435,9 @@ export default function EstoquePage() {
 
         <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
 
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap flex-1 min-w-0">
 
-            <div className="relative">
+            <div className="relative flex-1 sm:flex-none">
               <Search
                 size={14}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
@@ -446,7 +446,7 @@ export default function EstoquePage() {
               <input
                 type="text"
                 placeholder="Buscar..."
-                className="input pl-9 w-52"
+                className="input pl-9 w-full sm:w-52"
                 value={search}
                 onChange={e =>
                   setSearch(e.target.value)
