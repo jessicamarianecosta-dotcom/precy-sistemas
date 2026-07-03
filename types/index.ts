@@ -56,9 +56,29 @@ export interface Order {
   id: string;
   company_id: string;
   customer_id: string;
+  order_number?: string;
+  service_name?: string;
   status: 'pending' | 'production' | 'ready' | 'delivered' | 'cancelled';
   total: number;
-  payment_status: 'pending' | 'paid' | 'overdue';
+  payment_status: 'pending' | 'partial' | 'paid' | 'overdue';
+  payment_method?: string;
+  paid_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Payment History Types (recebimentos do pedido)
+export interface PaymentHistoryEntry {
+  id: string;
+  order_id: string;
+  customer_id?: string | null;
+  company_id: string;
+  amount: number;
+  payment_date: string;
+  payment_method?: string | null;
+  observation?: string | null;
+  percentage?: number | null;
+  created_by?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -118,6 +138,11 @@ export interface Transaction {
   amount: number;
   description?: string;
   date: string;
+  status?: string;
+  client_name?: string;
+  order_id?: string | null;
+  payment_history_id?: string | null;
+  notes?: string;
   created_at: string;
   updated_at: string;
 }

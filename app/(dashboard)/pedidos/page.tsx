@@ -43,6 +43,9 @@ import {
   CheckCircle2,
   AlertCircle,
   PlusCircle,
+  Download,
+  Eye,
+  Percent,
 } from 'lucide-react'
 
 import { useForm } from 'react-hook-form'
@@ -129,7 +132,9 @@ type FormData = z.infer<typeof schema>
 ───────────────────────────────────────────── */
 
 const paymentSchema = z.object({
+  fill_type: z.enum(['amount', 'percentage']).default('amount'),
   amount: z.coerce.number().min(0.01, 'Informe um valor'),
+  percentage: z.coerce.number().min(0).optional(),
   payment_date: z.string().min(1, 'Informe a data'),
   payment_method: z.string().optional(),
   observation: z.string().optional(),
@@ -200,6 +205,21 @@ export default function PedidosPage() {
 
   /* Payment registration modal */
   const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null)
+  const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null)
+  const [viewingPaymentId, setViewingPaymentId] = useState<string | null>(null)
+  const [confirmDeletePaymentId, setConfirmDeletePaymentId] = useState<string | null>(null)
+  const [companyData, setCompanyData] = useState<Record<string, unknown> | null>(null)
+
+  useEffect(() => {
+    async function loadCompany() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const r: any = await supabase.from('companies').select('*').eq('user_id', user.id).single()
+      if (r?.data?.id) setCompanyData(r.data)
+    }
+    loadCompany()
+  }, [])
 
   /* ─────────────────────────────────────────────
      QUERIES
@@ -260,7 +280,65 @@ export default function PedidosPage() {
         payment_date: string
         payment_method: string | null
         observation: string | null
+        percentage: number | null
+        created_by: string | null
+        created_at: string
+        updated_at: string
       }>
+    },
+  })
+
+  /* Auditoria do recebimento em visualização (Ver detalhes) */
+  const { data: viewingPaymentAudit } = useQuery({
+    queryKey: ['payment_history_audit', viewingPaymentId],
+    enabled: !!viewingPaymentId,
+    queryFn: async () => {
+      const { data } = await (supabase.from('payment_history_audit') as any)
+        .select('*')
+        .eq('payment_history_id', viewingPaymentId!)
+        .order('created_at', { ascending: false })
+      return (data ?? []) as Array<{
+        id: string
+        action: 'create' | 'update' | 'delete'
+        old_amount: number | null
+        new_amount: number | null
+        old_payment_method: string | null
+        new_payment_method: string | null
+        old_payment_date: string | null
+        new_payment_date: string | null
+        old_observation: string | null
+        new_observation: string | null
+        performed_by: string | null
+        created_at: string
+      }>
+    },
+  })
+
+  /* Nomes de quem aparece no log de auditoria (pode incluir usuários não presentes no histórico atual) */
+  const { data: auditUserNames } = useQuery({
+    queryKey: ['audit-users', viewingPaymentId, (viewingPaymentAudit ?? []).map(a => a.performed_by).join(',')],
+    enabled: !!viewingPaymentAudit && viewingPaymentAudit.length > 0,
+    queryFn: async () => {
+      const ids = Array.from(new Set((viewingPaymentAudit ?? []).map(a => a.performed_by).filter(Boolean))) as string[]
+      if (ids.length === 0) return {} as Record<string, string>
+      const { data } = await (supabase.from('profiles') as any).select('id, name, email').in('id', ids)
+      const map: Record<string, string> = {}
+      ;(data ?? []).forEach((u: any) => { map[u.id] = u.name || u.email || 'Usuário' })
+      return map
+    },
+  })
+
+  /* Nomes de quem registrou cada recebimento */
+  const { data: paymentUserNames } = useQuery({
+    queryKey: ['payment-users', editingId, (paymentHistory ?? []).map(p => (p as any).created_by).join(',')],
+    enabled: !!paymentHistory && paymentHistory.length > 0,
+    queryFn: async () => {
+      const ids = Array.from(new Set((paymentHistory ?? []).map((p: any) => p.created_by).filter(Boolean)))
+      if (ids.length === 0) return {} as Record<string, string>
+      const { data } = await (supabase.from('profiles') as any).select('id, name, email').in('id', ids)
+      const map: Record<string, string> = {}
+      ;(data ?? []).forEach((u: any) => { map[u.id] = u.name || u.email || 'Usuário' })
+      return map
     },
   })
 
@@ -297,11 +375,15 @@ export default function PedidosPage() {
     register: registerPayment,
     handleSubmit: handleSubmitPayment,
     reset: resetPayment,
+    watch: watchPayment,
+    setValue: setPaymentValue,
     formState: { errors: paymentErrors },
   } = useForm<PaymentFormData>({
     resolver: zodResolver(paymentSchema),
     defaultValues: {
+      fill_type: 'amount',
       amount: 0,
+      percentage: 0,
       payment_date: new Date().toISOString().split('T')[0],
       payment_method: '',
       observation: '',
@@ -316,6 +398,30 @@ export default function PedidosPage() {
   }, [subtotal, discount, setValue])
 
   /* ─────────────────────────────────────────────
+     SINCRONIA VALOR ⇄ PORCENTAGEM (modal de recebimento)
+  ───────────────────────────────────────────── */
+
+  const paymentFillType = watchPayment('fill_type')
+  const paymentAmountField = watchPayment('amount')
+  const paymentPercentageField = watchPayment('percentage')
+
+  useEffect(() => {
+    if (paymentFillType !== 'amount') return
+    const total = Number(watch('total')) || 0
+    const pct = total > 0 ? (Number(paymentAmountField || 0) / total) * 100 : 0
+    setPaymentValue('percentage', Math.round(pct * 100) / 100, { shouldValidate: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentAmountField, paymentFillType])
+
+  useEffect(() => {
+    if (paymentFillType !== 'percentage') return
+    const total = Number(watch('total')) || 0
+    const amt = total > 0 ? (Number(paymentPercentageField || 0) / 100) * total : 0
+    setPaymentValue('amount', Math.round(amt * 100) / 100, { shouldValidate: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentPercentageField, paymentFillType])
+
+  /* ─────────────────────────────────────────────
      COMPUTED – resumo de pagamentos
   ───────────────────────────────────────────── */
 
@@ -323,6 +429,12 @@ export default function PedidosPage() {
   const totalReceived = (paymentHistory ?? []).reduce((s, p) => s + Number(p.amount), 0)
   const saldoRestante = Math.max(0, orderTotal - totalReceived)
   const pctRecebido = orderTotal > 0 ? Math.min(100, (totalReceived / orderTotal) * 100) : 0
+
+  /* Ao editar um recebimento, o teto disponível inclui o próprio valor atual dele */
+  const editingPaymentAmount = editingPaymentId
+    ? Number((paymentHistory ?? []).find(p => p.id === editingPaymentId)?.amount ?? 0)
+    : 0
+  const modalMaxAmount = saldoRestante + editingPaymentAmount
 
   /* ─────────────────────────────────────────────
      SAVE ORDER
@@ -381,6 +493,7 @@ export default function PedidosPage() {
       setShowModal(false)
       reset()
       setEditingId(null)
+      setEditingPaymentId(null)
       toast('success', editingId ? 'Pedido atualizado!' : 'Pedido criado!')
     },
 
@@ -388,6 +501,48 @@ export default function PedidosPage() {
       toast('error', `Erro: ${err.message}`)
     },
   })
+
+  /* ─────────────────────────────────────────────
+     HELPERS — recálculo de saldo/status/quitação
+  ───────────────────────────────────────────── */
+
+  /** Recalcula payment_status + paid_at do pedido a partir do SUM atual do payment_history. */
+  async function recalcOrderPaymentStatus(orderId: string, orderTotalValue: number, currentPaidAt: string | null) {
+    const { data: rows } = await (supabase.from('payment_history') as any)
+      .select('amount')
+      .eq('order_id', orderId)
+      .eq('company_id', companyId!)
+    const total = (rows ?? []).reduce((s: number, p: any) => s + Number(p.amount), 0)
+
+    let status: string
+    if (orderTotalValue > 0 && total >= orderTotalValue) status = 'paid'
+    else if (total > 0) status = 'partial'
+    else status = 'pending'
+
+    const isPaid = status === 'paid'
+    await (supabase.from('orders') as any)
+      .update({
+        payment_status: status,
+        paid_at: isPaid ? (currentPaidAt ?? new Date().toISOString()) : null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', orderId)
+
+    return status
+  }
+
+  /** Recalcula total_purchases do cliente somando apenas pedidos 100% pagos. */
+  async function recalcCustomerTotalPurchases(customerId: string) {
+    const { data: clientOrders } = await (supabase.from('orders') as any)
+      .select('total')
+      .eq('customer_id', customerId)
+      .eq('company_id', companyId!)
+      .eq('payment_status', 'paid')
+    const totalPurchases = (clientOrders ?? []).reduce((s: number, o: any) => s + Number(o.total), 0)
+    await (supabase.from('customers') as any)
+      .update({ total_purchases: totalPurchases, updated_at: new Date().toISOString() })
+      .eq('id', customerId)
+  }
 
   /* ─────────────────────────────────────────────
      REGISTRAR RECEBIMENTO
@@ -412,13 +567,16 @@ export default function PedidosPage() {
       const newTotal = alreadyReceived + amount
 
       if (newTotal > orderTotalValue) {
-        throw new Error(
-          `Valor ultrapassa o total do pedido. Máximo permitido: ${fmtGlobal(orderTotalValue - alreadyReceived)}`
-        )
+        const msg = paymentData.fill_type === 'percentage'
+          ? 'O percentual informado é maior que o saldo restante.'
+          : 'O valor informado é maior que o saldo restante.'
+        throw new Error(`${msg} Máximo permitido: ${fmtGlobal(orderTotalValue - alreadyReceived)}`)
       }
 
+      const percentage = orderTotalValue > 0 ? (amount / orderTotalValue) * 100 : 0
+
       /* 1. Inserir no payment_history — SEMPRE INSERT, nunca UPDATE */
-      const { error: phError } = await (supabase.from('payment_history') as any).insert([{
+      const { data: phData, error: phError } = await (supabase.from('payment_history') as any).insert([{
         order_id: editingId,
         customer_id: orderRecord.customer_id,
         company_id: companyId,
@@ -426,14 +584,16 @@ export default function PedidosPage() {
         payment_date: paymentData.payment_date,
         payment_method: paymentData.payment_method || null,
         observation: paymentData.observation || null,
+        percentage,
         created_by: (await supabase.auth.getUser()).data.user?.id,
-      }])
+      }]).select('id').single()
       if (phError) throw new Error(`Erro ao registrar recebimento: ${phError.message}`)
 
       /* 2. Inserir lançamento INDIVIDUAL no financeiro — nunca atualizar anterior */
       const { error: ftError } = await (supabase.from('financial_transactions') as any).insert([{
         company_id: companyId,
         order_id: editingId,
+        payment_history_id: phData?.id ?? null,
         type: 'income',
         category: 'vendas',
         amount,
@@ -444,35 +604,93 @@ export default function PedidosPage() {
       }])
       if (ftError) throw new Error(`Erro ao lançar no financeiro: ${ftError.message}`)
 
-      /* 3. Recalcular payment_status a partir do SUM do payment_history */
-      let newPaymentStatus: string
-      if (newTotal >= orderTotalValue) {
-        newPaymentStatus = 'paid'
-      } else if (newTotal > 0) {
-        newPaymentStatus = 'partial'
-      } else {
-        newPaymentStatus = 'pending'
+      /* 3. Recalcular payment_status/paid_at a partir do SUM do payment_history */
+      const newPaymentStatus = await recalcOrderPaymentStatus(editingId, orderTotalValue, orderRecord.paid_at ?? null)
+
+      /* 4. Atualizar total_purchases do cliente */
+      if (orderRecord.customer_id) {
+        await recalcCustomerTotalPurchases(orderRecord.customer_id)
       }
 
-      /* Atualiza apenas payment_status — signal_amount não é mais fonte de verdade */
-      await (supabase.from('orders') as any)
+      return newPaymentStatus
+    },
+
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payment_history', editingId] })
+      queryClient.invalidateQueries({ queryKey: ['orders', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['transactions', companyId] })
+      setShowPaymentModal(false)
+      setEditingPaymentId(null)
+      resetPayment()
+      toast('success', 'Recebimento registrado!')
+    },
+
+    onError: (err: Error) => {
+      toast('error', `Erro: ${err.message}`)
+    },
+  })
+
+  /* ─────────────────────────────────────────────
+     EDITAR RECEBIMENTO
+  ───────────────────────────────────────────── */
+
+  const updatePaymentMutation = useMutation({
+    mutationFn: async (paymentData: PaymentFormData) => {
+      if (!editingId || !companyId || !editingPaymentId) throw new Error('Recebimento não encontrado')
+
+      const orderRecord = (orders ?? []).find((o: any) => o.id === editingId) as any
+      if (!orderRecord) throw new Error('Pedido não encontrado')
+
+      const amount = Number(paymentData.amount)
+      const orderTotalValue = Number(orderRecord.total)
+
+      /* Saldo já recebido, excluindo o próprio pagamento em edição */
+      const { data: existingHistory } = await (supabase.from('payment_history') as any)
+        .select('id, amount')
+        .eq('order_id', editingId)
+        .eq('company_id', companyId)
+      const alreadyReceived = (existingHistory ?? [])
+        .filter((p: any) => p.id !== editingPaymentId)
+        .reduce((s: number, p: any) => s + Number(p.amount), 0)
+      const newTotal = alreadyReceived + amount
+
+      if (newTotal > orderTotalValue) {
+        const msg = paymentData.fill_type === 'percentage'
+          ? 'O percentual informado é maior que o saldo restante.'
+          : 'O valor informado é maior que o saldo restante.'
+        throw new Error(`${msg} Máximo permitido: ${fmtGlobal(orderTotalValue - alreadyReceived)}`)
+      }
+
+      const percentage = orderTotalValue > 0 ? (amount / orderTotalValue) * 100 : 0
+
+      /* 1. Atualizar payment_history */
+      const { error: phError } = await (supabase.from('payment_history') as any)
         .update({
-          payment_status: newPaymentStatus,
+          amount,
+          payment_date: paymentData.payment_date,
+          payment_method: paymentData.payment_method || null,
+          observation: paymentData.observation || null,
+          percentage,
+        })
+        .eq('id', editingPaymentId)
+      if (phError) throw new Error(`Erro ao editar recebimento: ${phError.message}`)
+
+      /* 2. Atualizar o lançamento vinculado no financeiro */
+      const { error: ftError } = await (supabase.from('financial_transactions') as any)
+        .update({
+          amount,
+          date: paymentData.payment_date,
+          description: `Recebimento — Pedido ${orderRecord.order_number || ''} · ${orderRecord.service_name || 'Serviço'}${paymentData.observation ? ' · ' + paymentData.observation : ''}`,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', editingId)
+        .eq('payment_history_id', editingPaymentId)
+      if (ftError) throw new Error(`Erro ao atualizar lançamento no financeiro: ${ftError.message}`)
 
-      /* 4. Atualizar total_purchases do cliente se 100% pago */
-      if (newPaymentStatus === 'paid' && orderRecord.customer_id) {
-        const { data: clientOrders } = await (supabase.from('orders') as any)
-          .select('total')
-          .eq('customer_id', orderRecord.customer_id)
-          .eq('company_id', companyId)
-          .eq('payment_status', 'paid')
-        const totalPurchases = (clientOrders ?? []).reduce((s: number, o: any) => s + Number(o.total), 0)
-        await (supabase.from('customers') as any)
-          .update({ total_purchases: totalPurchases, updated_at: new Date().toISOString() })
-          .eq('id', orderRecord.customer_id)
+      /* 3. Recalcular payment_status/paid_at e total_purchases */
+      await recalcOrderPaymentStatus(editingId, orderTotalValue, orderRecord.paid_at ?? null)
+      if (orderRecord.customer_id) {
+        await recalcCustomerTotalPurchases(orderRecord.customer_id)
       }
     },
 
@@ -482,8 +700,52 @@ export default function PedidosPage() {
       queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
       queryClient.invalidateQueries({ queryKey: ['transactions', companyId] })
       setShowPaymentModal(false)
+      setEditingPaymentId(null)
       resetPayment()
-      toast('success', 'Recebimento registrado!')
+      toast('success', 'Recebimento atualizado!')
+    },
+
+    onError: (err: Error) => {
+      toast('error', `Erro: ${err.message}`)
+    },
+  })
+
+  /* ─────────────────────────────────────────────
+     EXCLUIR RECEBIMENTO
+  ───────────────────────────────────────────── */
+
+  const deletePaymentMutation = useMutation({
+    mutationFn: async (paymentId: string) => {
+      if (!editingId || !companyId) throw new Error('Pedido não encontrado')
+
+      const orderRecord = (orders ?? []).find((o: any) => o.id === editingId) as any
+      if (!orderRecord) throw new Error('Pedido não encontrado')
+
+      /* 1. Remover o lançamento vinculado no financeiro */
+      const { error: ftError } = await (supabase.from('financial_transactions') as any)
+        .delete()
+        .eq('payment_history_id', paymentId)
+      if (ftError) throw new Error(`Erro ao remover lançamento do financeiro: ${ftError.message}`)
+
+      /* 2. Remover o recebimento */
+      const { error: phError } = await (supabase.from('payment_history') as any)
+        .delete()
+        .eq('id', paymentId)
+      if (phError) throw new Error(`Erro ao excluir recebimento: ${phError.message}`)
+
+      /* 3. Recalcular payment_status/paid_at e total_purchases */
+      await recalcOrderPaymentStatus(editingId, Number(orderRecord.total), orderRecord.paid_at ?? null)
+      if (orderRecord.customer_id) {
+        await recalcCustomerTotalPurchases(orderRecord.customer_id)
+      }
+    },
+
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payment_history', editingId] })
+      queryClient.invalidateQueries({ queryKey: ['orders', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['transactions', companyId] })
+      toast('success', 'Recebimento excluído!')
     },
 
     onError: (err: Error) => {
@@ -535,6 +797,7 @@ export default function PedidosPage() {
 
   function openOrder(order: Record<string, unknown>) {
     setEditingId(order.id as string)
+    setEditingPaymentId(null)
     const fields = [
       'customer_id', 'service_name', 'description', 'status',
       'subtotal', 'discount', 'total', 'notes',
@@ -546,6 +809,41 @@ export default function PedidosPage() {
       if (val !== undefined && val !== null) setValue(k as never, val as never)
     })
     setShowModal(true)
+  }
+
+  async function handleGeneratePDF(order: Record<string, unknown>) {
+    const orderId = order.id as string
+    setGeneratingPdfId(orderId)
+    try {
+      const { generateOrderPDF } = await import('@/lib/pdf/generateOrderPDF')
+
+      const { data: fullOrder } = await (supabase.from('orders') as any)
+        .select('*, customers(id, name, email, phone, city, state, cpf_cnpj, address)')
+        .eq('id', orderId)
+        .single()
+
+      const productId = (fullOrder ?? order).product_id as string | undefined
+      const { data: productData } = productId
+        ? await (supabase.from('products') as any).select('name, description').eq('id', productId).single()
+        : { data: null }
+
+      const { data: payments } = await (supabase.from('payment_history') as any)
+        .select('*')
+        .eq('order_id', orderId)
+        .order('payment_date', { ascending: true })
+
+      await generateOrderPDF({
+        order: fullOrder ?? order,
+        product: productData,
+        payments: payments ?? [],
+        company: companyData,
+      })
+    } catch (err) {
+      console.error('[pdf]', err)
+      toast('error', 'Erro ao gerar PDF.')
+    } finally {
+      setGeneratingPdfId(null)
+    }
   }
 
   function handleDrop(e: React.DragEvent, newStatus: string) {
@@ -594,7 +892,7 @@ export default function PedidosPage() {
           </div>
 
           <button
-            onClick={() => { reset(); setEditingId(null); setShowModal(true) }}
+            onClick={() => { reset(); setEditingId(null); setEditingPaymentId(null); setShowModal(true) }}
             className="btn-primary flex items-center gap-2 flex-shrink-0"
           >
             <Plus size={16} />
@@ -837,6 +1135,14 @@ export default function PedidosPage() {
                             </div>
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button
+                                onClick={(e) => { e.stopPropagation(); handleGeneratePDF(order) }}
+                                disabled={generatingPdfId === order.id}
+                                className="p-1 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"
+                                title="Gerar PDF"
+                              >
+                                {generatingPdfId === order.id ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                              </button>
+                              <button
                                 onClick={(e) => { e.stopPropagation(); openOrder(order) }}
                                 className="p-1 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"
                                 title="Editar pedido"
@@ -935,12 +1241,29 @@ export default function PedidosPage() {
                   </p>
                 )}
               </div>
-              <button
-                onClick={() => { setShowModal(false); reset(); setEditingId(null); setShowProductPicker(false) }}
-                className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted"
-              >
-                <X size={16} />
-              </button>
+              <div className="flex items-center gap-1">
+                {editingId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const orderRecord = (orders ?? []).find((o: any) => o.id === editingId)
+                      if (orderRecord) handleGeneratePDF(orderRecord)
+                    }}
+                    disabled={generatingPdfId === editingId}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 bg-primary-50 dark:bg-primary/10 px-3 py-1.5 rounded-xl transition-colors"
+                    title="Gerar PDF do pedido"
+                  >
+                    {generatingPdfId === editingId ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                    PDF
+                  </button>
+                )}
+                <button
+                  onClick={() => { setShowModal(false); reset(); setEditingId(null); setEditingPaymentId(null); setShowProductPicker(false) }}
+                  className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
 
             {/* Body scrollable */}
@@ -1146,7 +1469,7 @@ export default function PedidosPage() {
                         </h3>
                         <button
                           type="button"
-                          onClick={() => setShowPaymentModal(true)}
+                          onClick={() => { setEditingPaymentId(null); resetPayment({ fill_type: 'amount', amount: 0, percentage: 0, payment_date: new Date().toISOString().split('T')[0], payment_method: '', observation: '' }); setShowPaymentModal(true) }}
                           className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 bg-primary-50 dark:bg-primary/10 px-3 py-1.5 rounded-xl transition-colors"
                         >
                           <PlusCircle size={13} />
@@ -1186,10 +1509,10 @@ export default function PedidosPage() {
                       </div>
 
                       {/* Status badge automático */}
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {pctRecebido >= 100 ? (
                           <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2.5 py-1 rounded-full">
-                            <CheckCircle2 size={11} /> Pago
+                            <CheckCircle2 size={11} /> Recebido
                           </span>
                         ) : pctRecebido > 0 ? (
                           <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-2.5 py-1 rounded-full">
@@ -1197,12 +1520,20 @@ export default function PedidosPage() {
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-xs font-semibold text-stone-500 dark:text-stone-400 bg-stone-100 dark:bg-stone-800 px-2.5 py-1 rounded-full">
-                            <Clock size={11} /> Não recebido
+                            <Clock size={11} /> Não pago
                           </span>
                         )}
+                        {(() => {
+                          const paidAt = (orders ?? []).find((o: any) => o.id === editingId)?.paid_at
+                          return pctRecebido >= 100 && paidAt ? (
+                            <span className="text-[10px] text-text-muted">
+                              Quitado em {format(parseISO(paidAt), 'dd/MM/yyyy', { locale: ptBR })}
+                            </span>
+                          ) : null
+                        })()}
                       </div>
 
-                      {/* Lista de pagamentos */}
+                      {/* Tabela de recebimentos */}
                       {historyLoading ? (
                         <div className="flex items-center justify-center py-4">
                           <Loader2 size={16} className="animate-spin text-text-muted" />
@@ -1214,40 +1545,88 @@ export default function PedidosPage() {
                           <p className="text-[10px] text-text-muted/70 mt-0.5">Clique em &quot;Registrar Recebimento&quot; para adicionar.</p>
                         </div>
                       ) : (
-                        <div className="space-y-0 rounded-xl border border-border dark:border-border-dark overflow-hidden">
-                          {(paymentHistory ?? []).map((p, idx) => (
-                            <div
-                              key={p.id}
-                              className={clsx(
-                                'flex items-center justify-between gap-3 px-4 py-3',
-                                idx !== 0 && 'border-t border-border dark:border-border-dark'
-                              )}
-                            >
-                              <div className="flex items-center gap-3 min-w-0">
-                                <div className="w-8 h-8 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
-                                  <CheckCircle2 size={14} className="text-green-600 dark:text-green-400" />
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-xs font-semibold text-text-primary dark:text-stone-100">
+                        <div className="rounded-xl border border-border dark:border-border-dark overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="bg-stone-50 dark:bg-stone-800/50 text-[10px] uppercase tracking-wide text-text-muted">
+                                <th className="text-left font-semibold px-3 py-2">Data</th>
+                                <th className="text-left font-semibold px-3 py-2">Forma</th>
+                                <th className="text-right font-semibold px-3 py-2">Valor</th>
+                                <th className="text-right font-semibold px-3 py-2">%</th>
+                                <th className="text-left font-semibold px-3 py-2">Observação</th>
+                                <th className="text-left font-semibold px-3 py-2">Usuário</th>
+                                <th className="text-right font-semibold px-3 py-2">Ações</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(paymentHistory ?? []).map((p, idx) => {
+                                const pct = p.percentage != null ? Number(p.percentage) : (orderTotal > 0 ? (Number(p.amount) / orderTotal) * 100 : 0)
+                                return (
+                                <tr
+                                  key={p.id}
+                                  className={clsx(idx !== 0 && 'border-t border-border dark:border-border-dark')}
+                                >
+                                  <td className="px-3 py-2.5 whitespace-nowrap font-medium text-text-primary dark:text-stone-100">
                                     {format(parseISO(p.payment_date), 'dd/MM/yyyy', { locale: ptBR })}
-                                    {p.payment_method && (
-                                      <span className="ml-1.5 text-[10px] font-normal text-text-muted">
-                                        · {formatMethod(p.payment_method)}
-                                      </span>
-                                    )}
-                                  </p>
-                                  {p.observation && (
-                                    <p className="text-[11px] text-text-muted dark:text-stone-500 truncate">
-                                      {p.observation}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                              <span className="text-sm font-bold text-green-700 dark:text-green-400 flex-shrink-0">
-                                {fmtGlobal(Number(p.amount))}
-                              </span>
-                            </div>
-                          ))}
+                                  </td>
+                                  <td className="px-3 py-2.5 whitespace-nowrap text-text-muted">
+                                    {p.payment_method ? formatMethod(p.payment_method) : '—'}
+                                  </td>
+                                  <td className="px-3 py-2.5 whitespace-nowrap text-right font-bold text-green-700 dark:text-green-400">
+                                    {fmtGlobal(Number(p.amount))}
+                                  </td>
+                                  <td className="px-3 py-2.5 whitespace-nowrap text-right text-text-muted">
+                                    {pct.toFixed(2).replace('.', ',')}%
+                                  </td>
+                                  <td className="px-3 py-2.5 text-text-muted dark:text-stone-500 max-w-[160px] truncate" title={p.observation ?? ''}>
+                                    {p.observation || '—'}
+                                  </td>
+                                  <td className="px-3 py-2.5 whitespace-nowrap text-text-muted">
+                                    {(p.created_by && paymentUserNames?.[p.created_by]) || '—'}
+                                  </td>
+                                  <td className="px-3 py-2.5 whitespace-nowrap text-right">
+                                    <div className="flex items-center justify-end gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => setViewingPaymentId(p.id)}
+                                        className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors"
+                                        title="Ver detalhes"
+                                      >
+                                        <Eye size={12} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingPaymentId(p.id)
+                                          resetPayment({
+                                            fill_type: 'amount',
+                                            amount: Number(p.amount),
+                                            percentage: Math.round(pct * 100) / 100,
+                                            payment_date: p.payment_date,
+                                            payment_method: p.payment_method ?? '',
+                                            observation: p.observation ?? '',
+                                          })
+                                          setShowPaymentModal(true)
+                                        }}
+                                        className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors"
+                                        title="Editar recebimento"
+                                      >
+                                        <Edit2 size={12} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmDeletePaymentId(p.id)}
+                                        className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"
+                                        title="Excluir recebimento"
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )})}
+                            </tbody>
+                          </table>
                         </div>
                       )}
                     </section>
@@ -1267,7 +1646,7 @@ export default function PedidosPage() {
               <div className="flex flex-col sm:flex-row gap-3 p-4 sm:p-5 border-t border-border dark:border-border-dark bg-white dark:bg-surface-dark sticky bottom-0">
                 <button
                   type="button"
-                  onClick={() => { setShowModal(false); reset(); setEditingId(null) }}
+                  onClick={() => { setShowModal(false); reset(); setEditingId(null); setEditingPaymentId(null) }}
                   className="btn-secondary flex-1"
                 >
                   Cancelar
@@ -1294,7 +1673,7 @@ export default function PedidosPage() {
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4">
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowPaymentModal(false); resetPayment() }}
+            onClick={() => { setShowPaymentModal(false); setEditingPaymentId(null); resetPayment() }}
           />
 
           <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm animate-scaleIn overflow-hidden">
@@ -1306,12 +1685,14 @@ export default function PedidosPage() {
                   <DollarSign size={16} className="text-green-600 dark:text-green-400" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">Registrar Recebimento</h2>
-                  <p className="text-[11px] text-text-muted">Saldo restante: {fmtGlobal(saldoRestante)}</p>
+                  <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">
+                    {editingPaymentId ? 'Editar Recebimento' : 'Registrar Recebimento'}
+                  </h2>
+                  <p className="text-[11px] text-text-muted">Saldo restante: {fmtGlobal(modalMaxAmount)}</p>
                 </div>
               </div>
               <button
-                onClick={() => { setShowPaymentModal(false); resetPayment() }}
+                onClick={() => { setShowPaymentModal(false); setEditingPaymentId(null); resetPayment() }}
                 className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted"
               >
                 <X size={15} />
@@ -1319,23 +1700,85 @@ export default function PedidosPage() {
             </div>
 
             {/* Body */}
-            <form onSubmit={handleSubmitPayment(d => registerPaymentMutation.mutate(d))} className="p-4 sm:p-5 space-y-4">
+            <form
+              onSubmit={handleSubmitPayment(d => {
+                if (editingPaymentId) updatePaymentMutation.mutate(d)
+                else registerPaymentMutation.mutate(d)
+              })}
+              className="p-4 sm:p-5 space-y-4"
+            >
 
               <div>
                 <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
-                  Valor recebido (R$) *
+                  Tipo de preenchimento
                 </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  max={saldoRestante}
-                  className="input text-lg font-semibold"
-                  placeholder="0,00"
-                  {...registerPayment('amount')}
-                />
-                {paymentErrors.amount && <p className="mt-1 text-xs text-error">{paymentErrors.amount.message}</p>}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentValue('fill_type', 'amount')}
+                    className={clsx(
+                      'flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold border transition-colors',
+                      paymentFillType === 'amount'
+                        ? 'bg-primary text-white border-primary'
+                        : 'bg-transparent text-text-muted border-border dark:border-border-dark hover:border-primary/40'
+                    )}
+                  >
+                    <DollarSign size={13} /> Valor (R$)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentValue('fill_type', 'percentage')}
+                    className={clsx(
+                      'flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold border transition-colors',
+                      paymentFillType === 'percentage'
+                        ? 'bg-primary text-white border-primary'
+                        : 'bg-transparent text-text-muted border-border dark:border-border-dark hover:border-primary/40'
+                    )}
+                  >
+                    <Percent size={13} /> Porcentagem (%)
+                  </button>
+                </div>
               </div>
+
+              {paymentFillType === 'amount' ? (
+                <div>
+                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
+                    Valor recebido (R$) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={modalMaxAmount}
+                    className="input text-lg font-semibold"
+                    placeholder="0,00"
+                    {...registerPayment('amount')}
+                  />
+                  {paymentErrors.amount && <p className="mt-1 text-xs text-error">{paymentErrors.amount.message}</p>}
+                  <p className="mt-1 text-[11px] text-text-muted">
+                    Equivalente a {Number(paymentPercentageField || 0).toFixed(2).replace('.', ',')}% do pedido
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
+                    Percentual recebido (%) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={orderTotal > 0 ? Math.round((modalMaxAmount / orderTotal) * 10000) / 100 : 0}
+                    className="input text-lg font-semibold"
+                    placeholder="0,00"
+                    {...registerPayment('percentage')}
+                  />
+                  {paymentErrors.amount && <p className="mt-1 text-xs text-error">{paymentErrors.amount.message}</p>}
+                  <p className="mt-1 text-[11px] text-text-muted">
+                    Equivalente a {fmtGlobal(Number(paymentAmountField || 0))}
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Data *</label>
@@ -1362,7 +1805,7 @@ export default function PedidosPage() {
                 <input
                   type="text"
                   className="input"
-                  placeholder="Ex: Entrada, Parcela 2, Pagamento final..."
+                  placeholder="Ex: Entrada, Pagamento da arte, Pagamento final, Saldo..."
                   {...registerPayment('observation')}
                 />
               </div>
@@ -1371,21 +1814,206 @@ export default function PedidosPage() {
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => { setShowPaymentModal(false); resetPayment() }}
+                  onClick={() => { setShowPaymentModal(false); setEditingPaymentId(null); resetPayment() }}
                   className="btn-secondary flex-1"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  disabled={registerPaymentMutation.isPending}
+                  disabled={registerPaymentMutation.isPending || updatePaymentMutation.isPending}
                   className="btn-primary flex-1 flex items-center justify-center gap-2"
                 >
-                  {registerPaymentMutation.isPending && <Loader2 size={14} className="animate-spin" />}
-                  {registerPaymentMutation.isPending ? 'Registrando...' : 'Registrar'}
+                  {(registerPaymentMutation.isPending || updatePaymentMutation.isPending) && <Loader2 size={14} className="animate-spin" />}
+                  {editingPaymentId
+                    ? (updatePaymentMutation.isPending ? 'Salvando...' : 'Salvar alterações')
+                    : (registerPaymentMutation.isPending ? 'Registrando...' : 'Registrar')}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════
+          MODAL VER DETALHES DO RECEBIMENTO
+      ══════════════════════════════════ */}
+
+      {viewingPaymentId && (() => {
+        const vp = (paymentHistory ?? []).find(p => p.id === viewingPaymentId)
+        if (!vp) return null
+        const vpPct = vp.percentage != null ? Number(vp.percentage) : (orderTotal > 0 ? (Number(vp.amount) / orderTotal) * 100 : 0)
+        const responsibleName = (vp.created_by && paymentUserNames?.[vp.created_by]) || '—'
+        const wasEdited = vp.updated_at && vp.created_at && vp.updated_at !== vp.created_at
+
+        const ACTION_LABELS: Record<string, string> = { create: 'Criado', update: 'Editado', delete: 'Excluído' }
+
+        return (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4">
+            <div
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setViewingPaymentId(null)}
+            />
+            <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-md animate-scaleIn overflow-hidden max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border dark:border-border-dark flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-primary-50 dark:bg-primary/10 flex items-center justify-center">
+                    <Eye size={16} className="text-primary" />
+                  </div>
+                  <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">Detalhes do Recebimento</h2>
+                </div>
+                <button
+                  onClick={() => setViewingPaymentId(null)}
+                  className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+
+              <div className="p-4 sm:p-5 space-y-4 overflow-y-auto">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200/50 dark:border-green-800/30 p-3">
+                    <p className="text-[10px] text-text-muted uppercase tracking-wide mb-1">Valor</p>
+                    <p className="text-sm font-bold text-green-700 dark:text-green-400">{fmtGlobal(Number(vp.amount))}</p>
+                  </div>
+                  <div className="rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20 p-3">
+                    <p className="text-[10px] text-text-muted uppercase tracking-wide mb-1">Porcentagem</p>
+                    <p className="text-sm font-bold text-primary">{vpPct.toFixed(2).replace('.', ',')}%</p>
+                  </div>
+                </div>
+
+                <dl className="space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <dt className="text-text-muted">Forma de pagamento</dt>
+                    <dd className="font-medium text-text-primary dark:text-stone-100">{vp.payment_method ? formatMethod(vp.payment_method) : '—'}</dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt className="text-text-muted">Data</dt>
+                    <dd className="font-medium text-text-primary dark:text-stone-100">{format(parseISO(vp.payment_date), 'dd/MM/yyyy', { locale: ptBR })}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-text-muted flex-shrink-0">Observação</dt>
+                    <dd className="font-medium text-text-primary dark:text-stone-100 text-right">{vp.observation || '—'}</dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt className="text-text-muted">Usuário responsável</dt>
+                    <dd className="font-medium text-text-primary dark:text-stone-100">{responsibleName}</dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt className="text-text-muted">Data de criação</dt>
+                    <dd className="font-medium text-text-primary dark:text-stone-100">
+                      {vp.created_at ? format(parseISO(vp.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR }) : '—'}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt className="text-text-muted">Última alteração</dt>
+                    <dd className="font-medium text-text-primary dark:text-stone-100">
+                      {wasEdited ? format(parseISO(vp.updated_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR }) : '—'}
+                    </dd>
+                  </div>
+                </dl>
+
+                <div className="h-px bg-border dark:bg-border-dark" />
+
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2 mb-2">
+                    <History size={12} /> Histórico de Alterações (Auditoria)
+                  </h3>
+                  {(viewingPaymentAudit ?? []).length === 0 ? (
+                    <p className="text-[11px] text-text-muted">Nenhum registro de auditoria encontrado.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {(viewingPaymentAudit ?? []).map(a => (
+                        <div key={a.id} className="rounded-xl border border-border dark:border-border-dark p-2.5 text-[11px]">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-semibold text-text-primary dark:text-stone-100">{ACTION_LABELS[a.action] ?? a.action}</span>
+                            <span className="text-text-muted">
+                              {format(parseISO(a.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                            </span>
+                          </div>
+                          <p className="text-text-muted">
+                            Por: {(a.performed_by && auditUserNames?.[a.performed_by]) || 'Usuário'}
+                          </p>
+                          {a.action === 'update' && (
+                            <p className="text-text-muted mt-0.5">
+                              Valor: {fmtGlobal(Number(a.old_amount ?? 0))} → {fmtGlobal(Number(a.new_amount ?? 0))}
+                              {a.old_payment_method !== a.new_payment_method && (
+                                <> · Forma: {formatMethod(a.old_payment_method) || '—'} → {formatMethod(a.new_payment_method) || '—'}</>
+                              )}
+                            </p>
+                          )}
+                          {a.action === 'create' && (
+                            <p className="text-text-muted mt-0.5">
+                              Valor inicial: {fmtGlobal(Number(a.new_amount ?? 0))}
+                            </p>
+                          )}
+                          {a.action === 'delete' && (
+                            <p className="text-text-muted mt-0.5">
+                              Valor excluído: {fmtGlobal(Number(a.old_amount ?? 0))}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-4 sm:p-5 border-t border-border dark:border-border-dark flex-shrink-0">
+                <button type="button" onClick={() => setViewingPaymentId(null)} className="btn-secondary w-full">
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ══════════════════════════════════
+          MODAL CONFIRMAR EXCLUSÃO DE RECEBIMENTO
+      ══════════════════════════════════ */}
+
+      {confirmDeletePaymentId && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setConfirmDeletePaymentId(null)}
+          />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm animate-scaleIn overflow-hidden p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-error-light flex items-center justify-center flex-shrink-0">
+                <Trash2 size={18} className="text-error" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">Excluir recebimento</h2>
+                <p className="text-xs text-text-muted mt-0.5">Tem certeza que deseja excluir este recebimento?</p>
+              </div>
+            </div>
+            <p className="text-[11px] text-text-muted mb-4">
+              A receita correspondente no Financeiro também será removida e o saldo do pedido será recalculado.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmDeletePaymentId(null)}
+                className="btn-secondary flex-1"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={deletePaymentMutation.isPending}
+                onClick={() => {
+                  const id = confirmDeletePaymentId
+                  setConfirmDeletePaymentId(null)
+                  if (id) deletePaymentMutation.mutate(id)
+                }}
+                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-error text-white text-sm font-semibold py-2.5 hover:bg-error/90 transition-colors"
+              >
+                {deletePaymentMutation.isPending && <Loader2 size={14} className="animate-spin" />}
+                Excluir recebimento
+              </button>
+            </div>
           </div>
         </div>
       )}
