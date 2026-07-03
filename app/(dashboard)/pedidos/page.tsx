@@ -150,6 +150,26 @@ function formatCurrency(v: number) {
   return fmtGlobal(v)
 }
 
+/** Converte texto digitado (aceita vírgula ou ponto como decimal) para número. */
+function parseDecimalPtBR(text: string): number {
+  if (!text) return 0
+  const n = parseFloat(text.replace(',', '.'))
+  return Number.isFinite(n) ? n : 0
+}
+
+/** Formata um número para exibição no padrão BR (vírgula decimal), sem separador de milhar. */
+function formatDecimalPtBR(n: number): string {
+  if (!Number.isFinite(n) || n === 0) return ''
+  return (Math.round(n * 100) / 100).toString().replace('.', ',')
+}
+
+/** Sanitiza a digitação: mantém apenas dígitos e uma única vírgula. */
+function sanitizeDecimalTyping(raw: string): string {
+  const onlyDigitsAndComma = raw.replace(/[^\d,]/g, '')
+  const [intPart, ...rest] = onlyDigitsAndComma.split(',')
+  return rest.length > 0 ? `${intPart},${rest.join('')}` : onlyDigitsAndComma
+}
+
 function formatMethod(m?: string | null) {
   if (!m) return ''
   const map: Record<string, string> = {
@@ -209,6 +229,10 @@ export default function PedidosPage() {
   const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null)
   const [viewingPaymentId, setViewingPaymentId] = useState<string | null>(null)
   const [confirmDeletePaymentId, setConfirmDeletePaymentId] = useState<string | null>(null)
+
+  /* Texto exibido nos campos de Valor/Porcentagem do modal de recebimento (aceita vírgula) */
+  const [amountDisplayText, setAmountDisplayText] = useState('')
+  const [percentageDisplayText, setPercentageDisplayText] = useState('')
   const [companyData, setCompanyData] = useState<Record<string, unknown> | null>(null)
 
   useEffect(() => {
@@ -399,27 +423,34 @@ export default function PedidosPage() {
 
   /* ─────────────────────────────────────────────
      SINCRONIA VALOR ⇄ PORCENTAGEM (modal de recebimento)
+     Cálculo direto no onChange do campo ativo — sem efeitos encadeados.
   ───────────────────────────────────────────── */
 
   const paymentFillType = watchPayment('fill_type')
-  const paymentAmountField = watchPayment('amount')
-  const paymentPercentageField = watchPayment('percentage')
 
-  useEffect(() => {
-    if (paymentFillType !== 'amount') return
+  function handleAmountInputChange(raw: string) {
+    const cleaned = sanitizeDecimalTyping(raw)
+    setAmountDisplayText(cleaned)
+    const amt = parseDecimalPtBR(cleaned)
+    setPaymentValue('amount', amt, { shouldValidate: true })
     const total = Number(watch('total')) || 0
-    const pct = total > 0 ? (Number(paymentAmountField || 0) / total) * 100 : 0
-    setPaymentValue('percentage', Math.round(pct * 100) / 100, { shouldValidate: false })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paymentAmountField, paymentFillType])
+    const pct = total > 0 ? (amt / total) * 100 : 0
+    const pctRounded = Math.round(pct * 100) / 100
+    setPaymentValue('percentage', pctRounded, { shouldValidate: false })
+    setPercentageDisplayText(formatDecimalPtBR(pctRounded))
+  }
 
-  useEffect(() => {
-    if (paymentFillType !== 'percentage') return
+  function handlePercentageInputChange(raw: string) {
+    const cleaned = sanitizeDecimalTyping(raw)
+    setPercentageDisplayText(cleaned)
+    const pct = parseDecimalPtBR(cleaned)
+    setPaymentValue('percentage', pct, { shouldValidate: true })
     const total = Number(watch('total')) || 0
-    const amt = total > 0 ? (Number(paymentPercentageField || 0) / 100) * total : 0
-    setPaymentValue('amount', Math.round(amt * 100) / 100, { shouldValidate: false })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paymentPercentageField, paymentFillType])
+    const amt = total > 0 ? (pct / 100) * total : 0
+    const amtRounded = Math.round(amt * 100) / 100
+    setPaymentValue('amount', amtRounded, { shouldValidate: false })
+    setAmountDisplayText(formatDecimalPtBR(amtRounded))
+  }
 
   /* ─────────────────────────────────────────────
      COMPUTED – resumo de pagamentos
@@ -568,7 +599,7 @@ export default function PedidosPage() {
 
       if (newTotal > orderTotalValue) {
         const msg = paymentData.fill_type === 'percentage'
-          ? 'O percentual informado é maior que o saldo restante.'
+          ? 'O percentual ultrapassa o saldo restante.'
           : 'O valor informado é maior que o saldo restante.'
         throw new Error(`${msg} Máximo permitido: ${fmtGlobal(orderTotalValue - alreadyReceived)}`)
       }
@@ -623,6 +654,8 @@ export default function PedidosPage() {
       setShowPaymentModal(false)
       setEditingPaymentId(null)
       resetPayment()
+      setAmountDisplayText('')
+      setPercentageDisplayText('')
       toast('success', 'Recebimento registrado!')
     },
 
@@ -657,7 +690,7 @@ export default function PedidosPage() {
 
       if (newTotal > orderTotalValue) {
         const msg = paymentData.fill_type === 'percentage'
-          ? 'O percentual informado é maior que o saldo restante.'
+          ? 'O percentual ultrapassa o saldo restante.'
           : 'O valor informado é maior que o saldo restante.'
         throw new Error(`${msg} Máximo permitido: ${fmtGlobal(orderTotalValue - alreadyReceived)}`)
       }
@@ -702,6 +735,8 @@ export default function PedidosPage() {
       setShowPaymentModal(false)
       setEditingPaymentId(null)
       resetPayment()
+      setAmountDisplayText('')
+      setPercentageDisplayText('')
       toast('success', 'Recebimento atualizado!')
     },
 
@@ -1469,7 +1504,13 @@ export default function PedidosPage() {
                         </h3>
                         <button
                           type="button"
-                          onClick={() => { setEditingPaymentId(null); resetPayment({ fill_type: 'amount', amount: 0, percentage: 0, payment_date: new Date().toISOString().split('T')[0], payment_method: '', observation: '' }); setShowPaymentModal(true) }}
+                          onClick={() => {
+                            setEditingPaymentId(null)
+                            resetPayment({ fill_type: 'amount', amount: 0, percentage: 0, payment_date: new Date().toISOString().split('T')[0], payment_method: '', observation: '' })
+                            setAmountDisplayText('')
+                            setPercentageDisplayText('')
+                            setShowPaymentModal(true)
+                          }}
                           className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 bg-primary-50 dark:bg-primary/10 px-3 py-1.5 rounded-xl transition-colors"
                         >
                           <PlusCircle size={13} />
@@ -1597,15 +1638,18 @@ export default function PedidosPage() {
                                       <button
                                         type="button"
                                         onClick={() => {
+                                          const editPct = Math.round(pct * 100) / 100
                                           setEditingPaymentId(p.id)
                                           resetPayment({
                                             fill_type: 'amount',
                                             amount: Number(p.amount),
-                                            percentage: Math.round(pct * 100) / 100,
+                                            percentage: editPct,
                                             payment_date: p.payment_date,
                                             payment_method: p.payment_method ?? '',
                                             observation: p.observation ?? '',
                                           })
+                                          setAmountDisplayText(formatDecimalPtBR(Number(p.amount)))
+                                          setPercentageDisplayText(formatDecimalPtBR(editPct))
                                           setShowPaymentModal(true)
                                         }}
                                         className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors"
@@ -1673,7 +1717,7 @@ export default function PedidosPage() {
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4">
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => { setShowPaymentModal(false); setEditingPaymentId(null); resetPayment() }}
+            onClick={() => { setShowPaymentModal(false); setEditingPaymentId(null); resetPayment(); setAmountDisplayText(''); setPercentageDisplayText('') }}
           />
 
           <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm animate-scaleIn overflow-hidden">
@@ -1692,7 +1736,7 @@ export default function PedidosPage() {
                 </div>
               </div>
               <button
-                onClick={() => { setShowPaymentModal(false); setEditingPaymentId(null); resetPayment() }}
+                onClick={() => { setShowPaymentModal(false); setEditingPaymentId(null); resetPayment(); setAmountDisplayText(''); setPercentageDisplayText('') }}
                 className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted"
               >
                 <X size={15} />
@@ -1746,17 +1790,17 @@ export default function PedidosPage() {
                     Valor recebido (R$) *
                   </label>
                   <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    max={modalMaxAmount}
+                    key="amount-input"
+                    type="text"
+                    inputMode="decimal"
                     className="input text-lg font-semibold"
                     placeholder="0,00"
-                    {...registerPayment('amount')}
+                    value={amountDisplayText}
+                    onChange={(e) => handleAmountInputChange(e.target.value)}
                   />
                   {paymentErrors.amount && <p className="mt-1 text-xs text-error">{paymentErrors.amount.message}</p>}
                   <p className="mt-1 text-[11px] text-text-muted">
-                    Equivalente a {Number(paymentPercentageField || 0).toFixed(2).replace('.', ',')}% do pedido
+                    Equivale a: {percentageDisplayText || '0'}% do pedido
                   </p>
                 </div>
               ) : (
@@ -1765,17 +1809,17 @@ export default function PedidosPage() {
                     Percentual recebido (%) *
                   </label>
                   <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    max={orderTotal > 0 ? Math.round((modalMaxAmount / orderTotal) * 10000) / 100 : 0}
+                    key="percentage-input"
+                    type="text"
+                    inputMode="decimal"
                     className="input text-lg font-semibold"
                     placeholder="0,00"
-                    {...registerPayment('percentage')}
+                    value={percentageDisplayText}
+                    onChange={(e) => handlePercentageInputChange(e.target.value)}
                   />
                   {paymentErrors.amount && <p className="mt-1 text-xs text-error">{paymentErrors.amount.message}</p>}
                   <p className="mt-1 text-[11px] text-text-muted">
-                    Equivalente a {fmtGlobal(Number(paymentAmountField || 0))}
+                    Equivale a: {fmtGlobal(parseDecimalPtBR(amountDisplayText))}
                   </p>
                 </div>
               )}
@@ -1814,7 +1858,7 @@ export default function PedidosPage() {
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => { setShowPaymentModal(false); setEditingPaymentId(null); resetPayment() }}
+                  onClick={() => { setShowPaymentModal(false); setEditingPaymentId(null); resetPayment(); setAmountDisplayText(''); setPercentageDisplayText('') }}
                   className="btn-secondary flex-1"
                 >
                   Cancelar
