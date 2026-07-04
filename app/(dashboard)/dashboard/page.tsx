@@ -204,6 +204,9 @@ export default function DashboardPage() {
   if ((data?.pendingBudgetsCount ?? 0) > 0) {
     alerts.push({ level: 'info', icon: FileText, label: 'Orçamentos aguardando resposta', count: data!.pendingBudgetsCount, href: '/orcamentos' })
   }
+  if ((data?.installmentsOverdueCount ?? 0) > 0) {
+    alerts.push({ level: 'error', icon: Clock, label: 'Parcelas em atraso', count: data!.installmentsOverdueCount, href: '/financeiro' })
+  }
 
   const alertBgClasses = {
     error:   'bg-error-light dark:bg-error/10 border-error/30',
@@ -436,6 +439,36 @@ export default function DashboardPage() {
                       </Link>
                     )
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* ─── PARCELAS A VENCER ─── */}
+            {((data?.installmentsDueTodayCount ?? 0) + (data?.installmentsDueWeekCount ?? 0) + (data?.installmentsDueMonthCount ?? 0) + (data?.installmentsOverdueCount ?? 0)) > 0 && (
+              <div className="card p-3 sm:p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Clock size={15} className="text-primary" />
+                  <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">Parcelas a vencer</h2>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {[
+                    { label: 'Hoje',      count: data?.installmentsDueTodayCount ?? 0, sum: data?.installmentsDueTodaySum ?? 0 },
+                    { label: 'Esta semana', count: data?.installmentsDueWeekCount ?? 0, sum: data?.installmentsDueWeekSum ?? 0 },
+                    { label: 'Este mês',  count: data?.installmentsDueMonthCount ?? 0, sum: data?.installmentsDueMonthSum ?? 0 },
+                    { label: 'Atrasadas', count: data?.installmentsOverdueCount ?? 0, sum: data?.installmentsOverdueSum ?? 0, danger: true },
+                  ].map(item => (
+                    <Link key={item.label} href="/financeiro"
+                      className={clsx('rounded-xl border p-3 transition-all hover:-translate-y-0.5',
+                        item.danger && item.count > 0
+                          ? 'bg-error-light dark:bg-error/10 border-error/30'
+                          : 'bg-stone-50 dark:bg-stone-800/50 border-border dark:border-border-dark')}>
+                      <p className="text-[10px] text-text-muted uppercase tracking-wide mb-1">{item.label}</p>
+                      <p className={clsx('text-sm font-bold', item.danger && item.count > 0 ? 'text-error dark:text-red-400' : 'text-text-primary dark:text-stone-100')}>
+                        {item.count}
+                      </p>
+                      <p className="text-[10px] text-text-muted mt-0.5">{formatCurrency(item.sum)}</p>
+                    </Link>
+                  ))}
                 </div>
               </div>
             )}

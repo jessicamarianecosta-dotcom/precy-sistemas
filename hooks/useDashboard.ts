@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import {
   startOfMonth, endOfMonth, subMonths,
-  format, startOfDay,
+  format, startOfDay, endOfWeek,
 } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
@@ -91,6 +91,13 @@ export function useDashboard(companyId: string | null) {
         .gte('date', sixMonthsAgo)
         .lte('date', monthEnd) as any
 
+      /* ── Parcelas/despesas a vencer (não pagas) ── */
+      const { data: pendingExpenses } = await supabase.from('financial_transactions')
+        .select('id, amount, due_date, date')
+        .eq('company_id', companyId)
+        .eq('type', 'expense')
+        .neq('status', 'paid') as any
+
       /* ── Totals ── */
       const revenue      = (incomes     as any[] ?? []).reduce((s, t) => s + Number(t.amount), 0)
       const expensesTotal= (expenses    as any[] ?? []).reduce((s, t) => s + Number(t.amount), 0)
@@ -132,6 +139,20 @@ export function useDashboard(companyId: string | null) {
         }
       })
 
+      /* ── Parcelas/despesas a vencer — usa due_date quando existir, senão cai para date ── */
+      const todayStr   = format(now, 'yyyy-MM-dd')
+      const weekEndStr = format(endOfWeek(now, { locale: ptBR }), 'yyyy-MM-dd')
+      const monthEndStr = format(endOfMonth(now), 'yyyy-MM-dd')
+      const effectiveDue = (t: any) => t.due_date || t.date
+
+      const pending = (pendingExpenses as any[] ?? [])
+      const dueToday   = pending.filter(t => effectiveDue(t) === todayStr)
+      const dueWeek    = pending.filter(t => effectiveDue(t) >= todayStr && effectiveDue(t) <= weekEndStr)
+      const dueMonth   = pending.filter(t => effectiveDue(t) >= todayStr && effectiveDue(t) <= monthEndStr)
+      const overdue    = pending.filter(t => effectiveDue(t) < todayStr)
+
+      const sumAmt = (rows: any[]) => rows.reduce((s, t) => s + Number(t.amount), 0)
+
       return {
         // metrics
         revenue,
@@ -143,6 +164,15 @@ export function useDashboard(companyId: string | null) {
         criticalStockCount: (criticalStock as any[] ?? []).length,
         overdueOrdersCount: (overdueOrdersData as any[] ?? []).length,
         pendingBudgetsCount: (pendingBudgets as any[] ?? []).length,
+        // parcelas/despesas a vencer
+        installmentsDueTodayCount: dueToday.length,
+        installmentsDueTodaySum:   sumAmt(dueToday),
+        installmentsDueWeekCount:  dueWeek.length,
+        installmentsDueWeekSum:    sumAmt(dueWeek),
+        installmentsDueMonthCount: dueMonth.length,
+        installmentsDueMonthSum:   sumAmt(dueMonth),
+        installmentsOverdueCount:  overdue.length,
+        installmentsOverdueSum:    sumAmt(overdue),
         // lists
         criticalStock: criticalStock ?? [],
         latestOrders:  latestOrders  ?? [],

@@ -14,9 +14,9 @@ import {
   DollarSign, ArrowUpRight, ArrowDownRight, Search,
   Filter, Edit3, CheckCircle, Clock, AlertTriangle,
   Calendar, Tag, User, ShoppingCart, FileText,
-  Eye, Wallet, HandCoins,
+  Eye, Wallet, HandCoins, Layers, RefreshCw, CreditCard,
 } from 'lucide-react'
-import { format, startOfMonth, endOfMonth, startOfWeek, isToday, parseISO, subMonths, addMonths, getDaysInMonth, getDay, isBefore, isAfter } from 'date-fns'
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isToday, parseISO, subMonths, addMonths, getDaysInMonth, getDay, isBefore, isAfter } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { formatCurrency } from '@/lib/utils/format'
 import { nextDueFrom } from '@/lib/utils/recurring'
@@ -34,20 +34,52 @@ interface Transaction {
   order_id?:         string | null
   notes?:            string
   recurring_bill_id?: string | null
+  due_date?:          string | null
+  payment_date?:      string | null
+  payment_method?:    string | null
+  card_name?:         string | null
+  card_brand?:        string | null
+  card_last4?:        string | null
+  card_closing_day?:  number | null
+  card_due_day?:      number | null
+  expense_group_id?:  string | null
+  installment_number?: number | null
+  installments?:      number | null
 }
 
 type Period = 'all' | 'today' | 'week' | 'month' | 'last_month' | 'next_month' | 'custom'
 type TypeFilter = 'all' | 'income' | 'expense'
 
-type PaymentMethod = 'pix' | 'dinheiro' | 'cartao' | 'transferencia' | 'boleto' | 'outro'
+type PaymentMethod = 'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'transferencia' | 'boleto' | 'outro'
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
-  { value: 'pix',           label: 'Pix' },
-  { value: 'dinheiro',      label: 'Dinheiro' },
-  { value: 'cartao',        label: 'Cartão' },
-  { value: 'transferencia', label: 'Transferência' },
-  { value: 'boleto',        label: 'Boleto' },
-  { value: 'outro',         label: 'Outro' },
+  { value: 'pix',            label: 'Pix' },
+  { value: 'dinheiro',       label: 'Dinheiro' },
+  { value: 'cartao_credito', label: 'Cartão de Crédito' },
+  { value: 'cartao_debito',  label: 'Cartão de Débito' },
+  { value: 'transferencia',  label: 'Transferência' },
+  { value: 'boleto',         label: 'Boleto' },
+  { value: 'outro',          label: 'Outro' },
 ]
+
+const CARD_BRANDS = ['Visa', 'Mastercard', 'Elo', 'American Express', 'Hipercard', 'Outra']
+
+const INSTALLMENT_QUICK_OPTIONS = [2, 3, 6, 10, 12, 24]
+
+/** Gera a prévia das parcelas: valor dividido igualmente, ajuste de centavos na última. */
+function computeInstallmentPreview(total: number, count: number, firstDueISO: string) {
+  const n = Math.max(1, Math.floor(count) || 1)
+  const base = Math.floor((total / n) * 100) / 100
+  const firstDue = parseISO(firstDueISO || format(new Date(), 'yyyy-MM-dd'))
+  let allocated = 0
+  const rows: Array<{ amount: number; due_date: string }> = []
+  for (let i = 0; i < n; i++) {
+    const isLast = i === n - 1
+    const amount = isLast ? Math.round((total - allocated) * 100) / 100 : base
+    allocated += amount
+    rows.push({ amount, due_date: format(addMonths(firstDue, i), 'yyyy-MM-dd') })
+  }
+  return rows
+}
 
 /* ─── Categories ─── */
 const INCOME_CATS = [
@@ -113,6 +145,9 @@ export default function FinanceiroPage() {
   const [showModal,   setShowModal]  = useState(false)
   const [editTx,      setEditTx]     = useState<Transaction | null>(null)
   const [deleteId,    setDeleteId]   = useState<string | null>(null)
+  const [deleteScope, setDeleteScope] = useState<'one' | 'all'>('one')
+  const [groupViewId, setGroupViewId] = useState<string | null>(null)
+  const [recalculating, setRecalculating] = useState(false)
   const [saving,      setSaving]     = useState(false)
   const [viewTx,      setViewTx]     = useState<Transaction | null>(null)
   const [confirmTx,    setConfirmTx]    = useState<Transaction | null>(null)
@@ -131,6 +166,21 @@ export default function FinanceiroPage() {
   const [fStatus,   setFStatus]   = useState('received')
   const [fClient,   setFClient]   = useState('')
   const [fNotes,    setFNotes]    = useState('')
+
+  /* ── Form state: parcelamento (só para despesa nova) ── */
+  const [fPaymentMode,   setFPaymentMode]   = useState<'avista' | 'parcelado'>('avista')
+  const [fInstallments,  setFInstallments]  = useState(2)
+  const [installmentRows, setInstallmentRows] = useState<Array<{ amount: number; due_date: string }>>([])
+  const [fPaymentMethod, setFPaymentMethod] = useState<PaymentMethod | ''>('')
+  const [fCardName,       setFCardName]       = useState('')
+  const [fCardBrand,      setFCardBrand]      = useState('')
+  const [fCardLast4,      setFCardLast4]      = useState('')
+  const [fCardClosingDay, setFCardClosingDay] = useState('')
+  const [fCardDueDay,     setFCardDueDay]     = useState('')
+
+  function regenerateInstallmentPreview(total: number, count: number, firstDue: string) {
+    setInstallmentRows(computeInstallmentPreview(total, count, firstDue))
+  }
 
   /* ── Query ── */
   const { data: transactions, isLoading } = useQuery<Transaction[]>({
@@ -232,24 +282,75 @@ export default function FinanceiroPage() {
     setFType('income'); setFCat('pedidos'); setFAmount(''); setFDesc('')
     setFDate(format(new Date(), 'yyyy-MM-dd'))
     setFStatus('received'); setFClient(''); setFNotes('')
+    setFPaymentMode('avista'); setFInstallments(2); setInstallmentRows([])
+    setFPaymentMethod(''); setFCardName(''); setFCardBrand(''); setFCardLast4(''); setFCardClosingDay(''); setFCardDueDay('')
     setShowModal(true)
   }
 
   function openEdit(tx: Transaction) {
     setEditTx(tx)
     setFType(tx.type); setFCat(tx.category); setFAmount(String(tx.amount))
-    setFDesc(tx.description ?? ''); setFDate(tx.date)
+    setFDesc(tx.description ?? ''); setFDate(tx.due_date ?? tx.date)
     setFStatus(tx.status ?? (tx.type === 'income' ? 'received' : 'paid'))
     setFClient(tx.client_name ?? ''); setFNotes(tx.notes ?? '')
+    setFPaymentMode('avista'); setFInstallments(tx.installments ?? 2); setInstallmentRows([])
+    setFPaymentMethod((tx.payment_method as PaymentMethod) ?? '')
+    setFCardName(tx.card_name ?? ''); setFCardBrand(tx.card_brand ?? ''); setFCardLast4(tx.card_last4 ?? '')
+    setFCardClosingDay(tx.card_closing_day != null ? String(tx.card_closing_day) : '')
+    setFCardDueDay(tx.card_due_day != null ? String(tx.card_due_day) : '')
     setShowModal(true)
   }
+
+  /* Parcelado só é oferecido ao criar uma despesa nova (não ao editar um lançamento/parcela já existente) */
+  const isCreatingParceledExpense = !editTx && fType === 'expense' && fPaymentMode === 'parcelado'
+  const isEditingInstallment = !!editTx?.expense_group_id
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!companyId) throw new Error('Empresa não encontrada')
+      setSaving(true)
+
+      const cardFields = fPaymentMethod === 'cartao_credito' ? {
+        card_name: fCardName.trim() || null,
+        card_brand: fCardBrand || null,
+        card_last4: fCardLast4.trim() || null,
+        card_closing_day: fCardClosingDay ? Number(fCardClosingDay) : null,
+        card_due_day: fCardDueDay ? Number(fCardDueDay) : null,
+      } : {
+        card_name: null, card_brand: null, card_last4: null, card_closing_day: null, card_due_day: null,
+      }
+
+      if (isCreatingParceledExpense) {
+        const total = parseFloat(fAmount.replace(',', '.'))
+        if (!total || total <= 0) throw new Error('Valor inválido')
+        if (installmentRows.length < 1) throw new Error('Gere a prévia das parcelas antes de salvar')
+
+        const expenseGroupId = crypto.randomUUID()
+        const rows = installmentRows.map((row, i) => ({
+          company_id:  companyId,
+          type:        'expense',
+          category:    fCat,
+          amount:      row.amount,
+          description: fDesc.trim() || null,
+          date:        row.due_date,
+          due_date:    row.due_date,
+          payment_date: null,
+          status:      'to_pay',
+          client_name: fClient.trim() || null,
+          notes:       fNotes.trim() || null,
+          payment_method: fPaymentMethod || null,
+          ...cardFields,
+          expense_group_id: expenseGroupId,
+          installment_number: i + 1,
+          installments: installmentRows.length,
+        }))
+        const { error } = await (supabase.from('financial_transactions') as any).insert(rows).select()
+        if (error) throw error
+        return
+      }
+
       const amount = parseFloat(fAmount.replace(',', '.'))
       if (!amount || amount <= 0) throw new Error('Valor inválido')
-      setSaving(true)
       const payload = {
         company_id:  companyId,
         type:        fType,
@@ -257,9 +358,12 @@ export default function FinanceiroPage() {
         amount,
         description: fDesc.trim() || null,
         date:        fDate,
+        due_date:    fDate,
         status:      fStatus || null,
         client_name: fClient.trim() || null,
         notes:       fNotes.trim() || null,
+        payment_method: fPaymentMethod || null,
+        ...cardFields,
       }
       if (editTx?.id) {
         const { error } = await (supabase.from('financial_transactions') as any)
@@ -278,8 +382,7 @@ export default function FinanceiroPage() {
       }
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
-      qc.invalidateQueries({ queryKey: ['dashboard', companyId] })
+      invalidateFinancialQueries()
       toast('success', editTx ? 'Atualizado!' : 'Lançamento salvo!')
       setShowModal(false); setSaving(false)
     },
@@ -287,14 +390,18 @@ export default function FinanceiroPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await (supabase.from('financial_transactions') as any).delete().eq('id', id)
-      if (error) throw error
+    mutationFn: async ({ id, scope, groupId }: { id: string; scope: 'one' | 'all'; groupId?: string | null }) => {
+      if (scope === 'all' && groupId) {
+        const { error } = await (supabase.from('financial_transactions') as any).delete().eq('expense_group_id', groupId)
+        if (error) throw error
+      } else {
+        const { error } = await (supabase.from('financial_transactions') as any).delete().eq('id', id)
+        if (error) throw error
+      }
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
-      qc.invalidateQueries({ queryKey: ['dashboard', companyId] })
-      toast('success', 'Removido.'); setDeleteId(null)
+      invalidateFinancialQueries()
+      toast('success', 'Removido.'); setDeleteId(null); setDeleteScope('one')
     },
     onError: (err: Error) => toast('error', err.message),
   })
@@ -328,13 +435,15 @@ export default function FinanceiroPage() {
       if (!amount || amount <= 0) throw new Error('Valor inválido')
       setConfirming(true)
       const newStatus = confirmTx.type === 'income' ? 'received' : 'paid'
-      const methodLabel = PAYMENT_METHODS.find(m => m.value === confirmMethod)?.label ?? confirmMethod
-      const extraNote = `Forma de pagamento: ${methodLabel}${confirmNotes.trim() ? ` — ${confirmNotes.trim()}` : ''}`
-      const combinedNotes = confirmTx.notes ? `${confirmTx.notes}\n${extraNote}` : extraNote
+      const combinedNotes = confirmNotes.trim()
+        ? (confirmTx.notes ? `${confirmTx.notes}\n${confirmNotes.trim()}` : confirmNotes.trim())
+        : (confirmTx.notes ?? null)
       const payload: Record<string, unknown> = {
         amount,
         status: newStatus,
         date: confirmDate,
+        payment_date: confirmDate,
+        payment_method: confirmMethod,
         notes: combinedNotes,
         updated_at: new Date().toISOString(),
       }
@@ -374,6 +483,61 @@ export default function FinanceiroPage() {
   /* ── Category options for current type ── */
   const catOptions = fType === 'income' ? INCOME_CATS : EXPENSE_CATS
   const statusOptions = fType === 'income' ? STATUS_INCOME : STATUS_EXPENSE
+
+  /* ── Parcelas de uma compra parcelada (para o modal "Ver parcelas") ── */
+  const groupRows = useMemo(() => {
+    if (!groupViewId) return []
+    return (transactions ?? [])
+      .filter(t => t.expense_group_id === groupViewId)
+      .sort((a, b) => (a.installment_number ?? 0) - (b.installment_number ?? 0))
+  }, [transactions, groupViewId])
+
+  const groupSummary = useMemo(() => {
+    const total = groupRows.reduce((s, t) => s + Number(t.amount), 0)
+    const paidRows = groupRows.filter(t => t.status === 'paid')
+    const totalPaid = paidRows.reduce((s, t) => s + Number(t.amount), 0)
+    return {
+      total,
+      count: groupRows.length,
+      paidCount: paidRows.length,
+      pendingCount: groupRows.length - paidRows.length,
+      totalPaid,
+      balance: total - totalPaid,
+    }
+  }, [groupRows])
+
+  /* ── Recalcular as demais parcelas não pagas do grupo, preservando a soma delas ── */
+  const recalcMutation = useMutation({
+    mutationFn: async () => {
+      if (!editTx?.expense_group_id) throw new Error('Parcela não pertence a um grupo')
+      setRecalculating(true)
+      const { data: siblings, error } = await (supabase.from('financial_transactions') as any)
+        .select('id, amount, status')
+        .eq('expense_group_id', editTx.expense_group_id)
+        .neq('id', editTx.id)
+        .neq('status', 'paid')
+      if (error) throw error
+      const rows = (siblings ?? []) as Array<{ id: string; amount: number }>
+      if (rows.length === 0) return
+      const siblingsSum = rows.reduce((s, r) => s + Number(r.amount), 0)
+      const base = Math.floor((siblingsSum / rows.length) * 100) / 100
+      let allocated = 0
+      await Promise.all(rows.map((r, i) => {
+        const isLast = i === rows.length - 1
+        const amount = isLast ? Math.round((siblingsSum - allocated) * 100) / 100 : base
+        allocated += amount
+        return (supabase.from('financial_transactions') as any)
+          .update({ amount, updated_at: new Date().toISOString() })
+          .eq('id', r.id)
+      }))
+    },
+    onSuccess: () => {
+      invalidateFinancialQueries()
+      toast('success', 'Parcelas restantes recalculadas!')
+      setRecalculating(false)
+    },
+    onError: (err: Error) => { toast('error', err.message); setRecalculating(false) },
+  })
 
   return (
     <div className="page-enter">
@@ -732,6 +896,9 @@ export default function FinanceiroPage() {
                           </div>
                           <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">
                             {t.description || (t.type === 'income' ? 'Receita' : 'Despesa')}
+                            {t.installment_number && (
+                              <span className="ml-1.5 text-[10px] font-normal text-text-muted">· {t.installment_number}/{t.installments}</span>
+                            )}
                           </p>
                           <div className="flex items-center gap-3 mt-0.5">
                             <span className="text-xs text-text-muted">
@@ -758,6 +925,10 @@ export default function FinanceiroPage() {
                         {t.type === 'expense' && ['to_pay','due'].includes(t.status ?? '') && (
                           <button onClick={() => openConfirm(t)} title="Pagar"
                             className="p-1.5 rounded-lg text-error dark:text-red-400 hover:bg-error-light dark:hover:bg-error/10 transition-colors"><Wallet size={13}/></button>
+                        )}
+                        {t.expense_group_id && (
+                          <button onClick={() => setGroupViewId(t.expense_group_id!)} title="Ver parcelas"
+                            className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Layers size={13}/></button>
                         )}
                         <button onClick={() => setViewTx(t)} title="Visualizar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Eye size={13}/></button>
                         <button onClick={() => openEdit(t)} title="Editar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>
@@ -791,6 +962,9 @@ export default function FinanceiroPage() {
                           <td className="p-4 max-w-[220px]">
                             <p className="text-sm font-medium text-text-primary dark:text-stone-100 leading-snug break-words">
                               {t.description || (t.type === 'income' ? 'Receita' : 'Despesa')}
+                              {t.installment_number && (
+                                <span className="ml-1.5 text-[10px] font-normal text-text-muted">· {t.installment_number}/{t.installments}</span>
+                              )}
                             </p>
                             {t.order_id && (
                               <span className="text-[10px] text-text-muted flex items-center gap-0.5 mt-0.5">
@@ -836,6 +1010,9 @@ export default function FinanceiroPage() {
                                   className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold text-error dark:text-red-400 hover:bg-error-light dark:hover:bg-error/10 transition-colors">
                                   <Wallet size={13}/> Pagar
                                 </button>
+                              )}
+                              {t.expense_group_id && (
+                                <button onClick={() => setGroupViewId(t.expense_group_id!)} title="Ver parcelas" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Layers size={13}/></button>
                               )}
                               <button onClick={() => setViewTx(t)} title="Visualizar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Eye size={13}/></button>
                               <button onClick={() => openEdit(t)} title="Editar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>
@@ -900,35 +1077,181 @@ export default function FinanceiroPage() {
                 </div>
               </div>
 
+              {/* Pagamento: À vista / Parcelado (só ao criar uma despesa nova) */}
+              {fType === 'expense' && !editTx && (
+                <div>
+                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Pagamento</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([['avista','À vista'],['parcelado','Parcelado']] as const).map(([val, label]) => (
+                      <button key={val} type="button"
+                        onClick={() => {
+                          setFPaymentMode(val)
+                          if (val === 'parcelado') {
+                            const total = parseFloat(fAmount.replace(',', '.')) || 0
+                            regenerateInstallmentPreview(total, fInstallments, fDate)
+                          } else {
+                            setInstallmentRows([])
+                          }
+                        }}
+                        className={clsx('py-2.5 rounded-xl border text-sm font-semibold transition-all',
+                          fPaymentMode === val ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary' : 'border-border dark:border-border-dark text-text-muted')}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Recalcular parcela (só ao editar uma parcela existente) */}
+              {isEditingInstallment && (
+                <div className="rounded-xl border border-primary/20 bg-primary-50 dark:bg-primary/10 p-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-text-primary dark:text-stone-100">
+                      Parcela {editTx?.installment_number}/{editTx?.installments}
+                    </p>
+                    <p className="text-[11px] text-text-muted">Recalcular redistribui a diferença entre as demais parcelas não pagas.</p>
+                  </div>
+                  <button type="button" onClick={() => recalcMutation.mutate()} disabled={recalculating}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-primary px-3 py-2 rounded-xl bg-white dark:bg-surface-dark border border-primary/30 whitespace-nowrap flex-shrink-0">
+                    {recalculating ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                    Recalcular parcelas restantes
+                  </button>
+                </div>
+              )}
+
               {/* Valor + Data */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Valor (R$) *</label>
+                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">
+                    {isCreatingParceledExpense ? 'Valor total (R$) *' : 'Valor (R$) *'}
+                  </label>
                   <input type="number" step="0.01" min="0" className="input"
-                    placeholder="0,00" value={fAmount} onChange={e => setFAmount(e.target.value)} autoFocus />
+                    placeholder="0,00" value={fAmount}
+                    onChange={e => {
+                      setFAmount(e.target.value)
+                      if (isCreatingParceledExpense) regenerateInstallmentPreview(parseFloat(e.target.value.replace(',', '.')) || 0, fInstallments, fDate)
+                    }}
+                    autoFocus />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Vencimento *</label>
-                  <input type="date" className="input" value={fDate} onChange={e => setFDate(e.target.value)} />
+                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">
+                    {isCreatingParceledExpense ? 'Primeiro vencimento *' : 'Vencimento *'}
+                  </label>
+                  <input type="date" className="input" value={fDate}
+                    onChange={e => {
+                      setFDate(e.target.value)
+                      if (isCreatingParceledExpense) regenerateInstallmentPreview(parseFloat(fAmount.replace(',', '.')) || 0, fInstallments, e.target.value)
+                    }} />
                 </div>
               </div>
 
-              {/* Status */}
-              <div>
-                <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Status</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {statusOptions.map(s => {
-                    const SIcon = s.icon
-                    return (
-                      <button key={s.value} type="button" onClick={() => setFStatus(s.value)}
-                        className={clsx('text-xs font-medium px-2.5 py-1 rounded-full border transition-all flex items-center gap-1',
-                          fStatus === s.value ? s.badge + ' border-transparent' : 'border-border dark:border-border-dark text-text-muted')}>
-                        <SIcon size={10} /> {s.label}
+              {/* Quantidade de parcelas + prévia */}
+              {isCreatingParceledExpense && (
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Quantidade de parcelas</label>
+                  <div className="flex flex-wrap gap-1.5 items-center">
+                    {INSTALLMENT_QUICK_OPTIONS.map(n => (
+                      <button key={n} type="button"
+                        onClick={() => {
+                          setFInstallments(n)
+                          regenerateInstallmentPreview(parseFloat(fAmount.replace(',', '.')) || 0, n, fDate)
+                        }}
+                        className={clsx('text-xs font-semibold px-3 py-1.5 rounded-full border transition-all',
+                          fInstallments === n ? 'bg-primary text-white border-primary' : 'border-border dark:border-border-dark text-text-muted')}>
+                        {n}x
                       </button>
-                    )
-                  })}
+                    ))}
+                    <input type="number" min="1" className="input w-20 text-sm py-1.5" placeholder="Outro"
+                      value={fInstallments}
+                      onChange={e => {
+                        const n = Math.max(1, Number(e.target.value) || 1)
+                        setFInstallments(n)
+                        regenerateInstallmentPreview(parseFloat(fAmount.replace(',', '.')) || 0, n, fDate)
+                      }} />
+                  </div>
+
+                  {installmentRows.length > 0 && (
+                    <div className="rounded-xl border border-border dark:border-border-dark divide-y divide-border dark:divide-border-dark overflow-hidden mt-2">
+                      {installmentRows.map((row, i) => (
+                        <div key={i} className="flex items-center gap-2 p-2.5">
+                          <span className="text-[11px] font-semibold text-text-muted w-10 flex-shrink-0">{i + 1}/{installmentRows.length}</span>
+                          <input type="date" className="input text-xs py-1.5 flex-1" value={row.due_date}
+                            onChange={e => setInstallmentRows(rows => rows.map((r, idx) => idx === i ? { ...r, due_date: e.target.value } : r))} />
+                          <input type="number" step="0.01" className="input text-xs py-1.5 w-28 flex-shrink-0" value={row.amount}
+                            onChange={e => setInstallmentRows(rows => rows.map((r, idx) => idx === i ? { ...r, amount: Number(e.target.value) || 0 } : r))} />
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between p-2.5 bg-stone-50 dark:bg-stone-800/50 text-xs">
+                        <span className="text-text-muted">Soma das parcelas</span>
+                        <span className={clsx('font-bold',
+                          Math.abs(installmentRows.reduce((s, r) => s + r.amount, 0) - (parseFloat(fAmount.replace(',', '.')) || 0)) < 0.01
+                            ? 'text-success-dark dark:text-green-400' : 'text-error dark:text-red-400')}>
+                          {fmt(installmentRows.reduce((s, r) => s + r.amount, 0))}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  <button type="button"
+                    onClick={() => regenerateInstallmentPreview(parseFloat(fAmount.replace(',', '.')) || 0, fInstallments, fDate)}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-primary">
+                    <RefreshCw size={12} /> Redistribuir parcelas igualmente
+                  </button>
+                </div>
+              )}
+
+              {/* Status */}
+              {!isCreatingParceledExpense && (
+                <div>
+                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Status</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {statusOptions.map(s => {
+                      const SIcon = s.icon
+                      return (
+                        <button key={s.value} type="button" onClick={() => setFStatus(s.value)}
+                          className={clsx('text-xs font-medium px-2.5 py-1 rounded-full border transition-all flex items-center gap-1',
+                            fStatus === s.value ? s.badge + ' border-transparent' : 'border-border dark:border-border-dark text-text-muted')}>
+                          <SIcon size={10} /> {s.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Forma de pagamento */}
+              <div>
+                <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Forma de pagamento</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {PAYMENT_METHODS.map(m => (
+                    <button key={m.value} type="button" onClick={() => setFPaymentMethod(m.value)}
+                      className={clsx('text-xs font-medium px-2.5 py-1 rounded-full border transition-all',
+                        fPaymentMethod === m.value ? 'bg-primary-50 text-primary dark:bg-primary/10 border-transparent' : 'border-border dark:border-border-dark text-text-muted')}>
+                      {m.label}
+                    </button>
+                  ))}
                 </div>
               </div>
+
+              {/* Dados do cartão de crédito */}
+              {fPaymentMethod === 'cartao_credito' && (
+                <div className="rounded-xl border border-border dark:border-border-dark p-3 space-y-2.5">
+                  <p className="text-xs font-semibold text-text-primary dark:text-stone-200 flex items-center gap-1.5">
+                    <CreditCard size={13} /> Dados do cartão
+                  </p>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <input className="input text-sm" placeholder="Nome do cartão" value={fCardName} onChange={e => setFCardName(e.target.value)} />
+                    <select className="input text-sm" value={fCardBrand} onChange={e => setFCardBrand(e.target.value)}>
+                      <option value="">Bandeira</option>
+                      {CARD_BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2.5">
+                    <input className="input text-sm" placeholder="Últimos 4 dígitos" maxLength={4} value={fCardLast4} onChange={e => setFCardLast4(e.target.value.replace(/\D/g, ''))} />
+                    <input type="number" min="1" max="31" className="input text-sm" placeholder="Fechamento" value={fCardClosingDay} onChange={e => setFCardClosingDay(e.target.value)} />
+                    <input type="number" min="1" max="31" className="input text-sm" placeholder="Vencimento" value={fCardDueDay} onChange={e => setFCardDueDay(e.target.value)} />
+                  </div>
+                </div>
+              )}
 
               {/* Descrição */}
               <div>
@@ -954,10 +1277,11 @@ export default function FinanceiroPage() {
 
             <div className="flex gap-3 p-4 sm:p-5 border-t border-border dark:border-border-dark flex-shrink-0">
               <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancelar</button>
-              <button onClick={() => saveMutation.mutate()} disabled={saving || !fAmount.trim() || !fDate}
+              <button onClick={() => saveMutation.mutate()}
+                disabled={saving || !fAmount.trim() || !fDate || (isCreatingParceledExpense && installmentRows.length === 0)}
                 className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50">
                 {saving && <Loader2 size={14} className="animate-spin"/>}
-                {saving ? 'Salvando...' : editTx ? 'Atualizar' : 'Salvar'}
+                {saving ? 'Salvando...' : editTx ? 'Atualizar' : isCreatingParceledExpense ? `Criar ${installmentRows.length} parcelas` : 'Salvar'}
               </button>
             </div>
           </div>
@@ -965,7 +1289,10 @@ export default function FinanceiroPage() {
       )}
 
       {/* ── Delete confirm ── */}
-      {deleteId && (
+      {deleteId && (() => {
+        const txDel = (transactions ?? []).find(t => t.id === deleteId)
+        const isGrouped = !!txDel?.expense_group_id
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setDeleteId(null)} />
           <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm p-6 text-center animate-scaleIn">
@@ -973,17 +1300,30 @@ export default function FinanceiroPage() {
               <Trash2 size={20} className="text-error" />
             </div>
             <h3 className="text-base font-semibold text-text-primary dark:text-stone-100 mb-2">Excluir lançamento?</h3>
-            <p className="text-sm text-text-secondary dark:text-stone-400 mb-6">Esta ação não pode ser desfeita.</p>
+            <p className="text-sm text-text-secondary dark:text-stone-400 mb-4">Esta ação não pode ser desfeita.</p>
+            {isGrouped && (
+              <div className="flex flex-col gap-2 mb-4 text-left">
+                {([['one', 'Apenas esta parcela'], ['all', 'Todas as parcelas da compra']] as const).map(([val, label]) => (
+                  <button key={val} type="button" onClick={() => setDeleteScope(val)}
+                    className={clsx('flex items-center gap-2 px-3 py-2 rounded-xl border text-sm transition-all',
+                      deleteScope === val ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary font-semibold' : 'border-border dark:border-border-dark text-text-muted')}>
+                    <span className={clsx('w-3.5 h-3.5 rounded-full border-2 flex-shrink-0', deleteScope === val ? 'border-primary bg-primary' : 'border-border dark:border-border-dark')} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="flex gap-3">
-              <button onClick={() => setDeleteId(null)} className="btn-secondary flex-1">Cancelar</button>
-              <button onClick={() => deleteMutation.mutate(deleteId)} disabled={deleteMutation.isPending}
+              <button onClick={() => { setDeleteId(null); setDeleteScope('one') }} className="btn-secondary flex-1">Cancelar</button>
+              <button onClick={() => deleteMutation.mutate({ id: deleteId, scope: deleteScope, groupId: txDel?.expense_group_id })} disabled={deleteMutation.isPending}
                 className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-error hover:opacity-90 disabled:opacity-50">
                 {deleteMutation.isPending && <Loader2 size={14} className="animate-spin"/>} Excluir
               </button>
             </div>
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* ══════════════════════════════════════════════
           MODAL CONFIRMAR RECEBIMENTO / PAGAMENTO
@@ -1115,6 +1455,83 @@ export default function FinanceiroPage() {
             <div className="flex gap-3 p-4 sm:p-5 border-t border-border dark:border-border-dark flex-shrink-0">
               <button onClick={() => setViewTx(null)} className="btn-secondary flex-1">Fechar</button>
               <button onClick={() => { setViewTx(null); openEdit(viewTx) }} className="btn-primary flex-1">Editar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════
+          MODAL VER PARCELAS (compra parcelada)
+      ══════════════════════════════════════════════ */}
+      {groupViewId && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setGroupViewId(null)} />
+          <div className="relative bg-white dark:bg-surface-dark w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-modal animate-scaleIn max-h-[92dvh] flex flex-col overflow-hidden">
+
+            <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border dark:border-border-dark flex-shrink-0">
+              <div>
+                <h2 className="text-base font-bold text-text-primary dark:text-stone-100 flex items-center gap-2">
+                  <Layers size={16} className="text-primary" /> {groupRows[0]?.description || 'Compra parcelada'}
+                </h2>
+                <p className="text-xs text-text-muted mt-0.5">{fmt(groupSummary.total)} em {groupSummary.count}x</p>
+              </div>
+              <button onClick={() => setGroupViewId(null)} className="p-1.5 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted"><X size={15}/></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-border dark:border-border-dark p-3">
+                  <p className="text-[10px] text-text-muted uppercase tracking-wide mb-1">Parcelas</p>
+                  <p className="text-sm font-bold text-text-primary dark:text-stone-100">{groupSummary.count}</p>
+                </div>
+                <div className="rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200/50 dark:border-green-800/30 p-3">
+                  <p className="text-[10px] text-text-muted uppercase tracking-wide mb-1">Pagas</p>
+                  <p className="text-sm font-bold text-green-700 dark:text-green-400">{groupSummary.paidCount}</p>
+                </div>
+                <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200/50 dark:border-amber-800/30 p-3">
+                  <p className="text-[10px] text-text-muted uppercase tracking-wide mb-1">Pendentes</p>
+                  <p className="text-sm font-bold text-amber-700 dark:text-amber-400">{groupSummary.pendingCount}</p>
+                </div>
+                <div className="rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20 p-3">
+                  <p className="text-[10px] text-text-muted uppercase tracking-wide mb-1">Saldo</p>
+                  <p className="text-sm font-bold text-primary">{fmt(groupSummary.balance)}</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between text-xs text-text-muted px-1">
+                <span>Total pago: <b className="text-text-primary dark:text-stone-200">{fmt(groupSummary.totalPaid)}</b></span>
+              </div>
+
+              <div className="rounded-xl border border-border dark:border-border-dark divide-y divide-border dark:divide-border-dark overflow-hidden">
+                {groupRows.map(row => (
+                  <div key={row.id} className="flex items-center gap-3 p-3">
+                    <div className="flex-shrink-0">
+                      {row.status === 'paid'
+                        ? <CheckCircle size={16} className="text-success-dark dark:text-green-400" />
+                        : <span className="block w-4 h-4 rounded-full border-2 border-border dark:border-border-dark" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-text-primary dark:text-stone-100">
+                        {row.installment_number}/{row.installments} · {format(parseISO(row.due_date ?? row.date), 'dd/MM/yyyy', { locale: ptBR })}
+                      </p>
+                      <p className="text-[11px] text-text-muted">{fmt(row.amount)}</p>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {['to_pay', 'due'].includes(row.status ?? '') && (
+                        <button onClick={() => { setGroupViewId(null); openConfirm(row) }} title="Pagar"
+                          className="p-1.5 rounded-lg text-error dark:text-red-400 hover:bg-error-light dark:hover:bg-error/10 transition-colors"><Wallet size={13}/></button>
+                      )}
+                      <button onClick={() => { setGroupViewId(null); openEdit(row) }} title="Editar"
+                        className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>
+                      <button onClick={() => { setGroupViewId(null); setDeleteId(row.id) }} title="Excluir"
+                        className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-4 sm:p-5 border-t border-border dark:border-border-dark flex-shrink-0">
+              <button onClick={() => setGroupViewId(null)} className="btn-secondary w-full">Fechar</button>
             </div>
           </div>
         </div>
