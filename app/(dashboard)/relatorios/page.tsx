@@ -96,6 +96,7 @@ export default function RelatoriosPage() {
   const [period, setPeriod] = useState<Period>('month')
   const [activeTab, setActiveTab] = useState<'financeiro'|'pedidos'|'clientes'|'produtos'|'estoque'|'orcamentos'>('financeiro')
   const [exporting, setExporting] = useState(false)
+  const [costCenterFilter, setCostCenterFilter] = useState<string>('all')
 
   /* ── Buscar dados da empresa para o PDF ── */
   const { data: companyData } = useQuery({
@@ -115,7 +116,7 @@ export default function RelatoriosPage() {
       generateReportPDF({
         tab: activeTab, period, start, end,
         company:   companyData,
-        finTx,
+        finTx: finTxFiltered,
         orders,
         customers,
         products,
@@ -144,11 +145,29 @@ export default function RelatoriosPage() {
     ...q, queryKey: ['rep-fin', companyId, start, end],
     queryFn: async () => {
       const { data } = await (supabase.from('financial_transactions') as any)
-        .select('type, category, amount, date, status')
+        .select('type, category, amount, date, status, cost_center_id')
         .eq('company_id', companyId!).gte('date', start).lte('date', end)
       return data ?? []
     },
   })
+
+  /* Centros de custo — carregados dinamicamente para o filtro */
+  const { data: costCenters = [] } = useQuery<any[]>({
+    ...q, queryKey: ['cost-centers', companyId],
+    queryFn: async () => {
+      const { data } = await (supabase.from('cost_centers') as any)
+        .select('id, name, icon')
+        .eq('company_id', companyId!)
+        .eq('is_active', true)
+        .order('is_default', { ascending: false })
+        .order('name')
+      return data ?? []
+    },
+  })
+
+  const finTxFiltered = useMemo(() => (
+    costCenterFilter === 'all' ? finTx : finTx.filter(t => t.cost_center_id === costCenterFilter)
+  ), [finTx, costCenterFilter])
 
   const { data: orders = [] } = useQuery<any[]>({
     ...q, queryKey: ['rep-orders', companyId, start, end],
@@ -205,7 +224,7 @@ export default function RelatoriosPage() {
 
   /* ── Computed ── */
   // Financeiro
-  const finRealized = finTx.filter(t => t.status === 'received' || t.status === 'paid')
+  const finRealized = finTxFiltered.filter(t => t.status === 'received' || t.status === 'paid')
   const totalInc    = finRealized.filter(t => t.type === 'income') .reduce((s,t) => s + Number(t.amount), 0)
   const totalExp    = finRealized.filter(t => t.type === 'expense').reduce((s,t) => s + Number(t.amount), 0)
   const balance     = totalInc - totalExp
@@ -214,7 +233,7 @@ export default function RelatoriosPage() {
   // Gráfico financeiro: receitas vs despesas por semana/dias
   const finChartData = useMemo(() => {
     const map: Record<string, { name: string; Receitas: number; Despesas: number }> = {}
-    finTx.forEach(t => {
+    finTxFiltered.forEach(t => {
       const key = t.date?.slice(0, 7) // yyyy-MM
       if (!key) return
       if (!map[key]) map[key] = { name: key.slice(5) + '/' + key.slice(2,4), Receitas: 0, Despesas: 0 }
@@ -224,15 +243,15 @@ export default function RelatoriosPage() {
       }
     })
     return Object.values(map).sort((a,b) => a.name.localeCompare(b.name))
-  }, [finTx])
+  }, [finTxFiltered])
 
   // Categorias de despesas
   const expByCat = useMemo(() => {
     const map: Record<string, number> = {}
-    finTx.filter(t => t.type === 'expense' && (t.status === 'paid' || t.status === 'received'))
+    finTxFiltered.filter(t => t.type === 'expense' && (t.status === 'paid' || t.status === 'received'))
       .forEach(t => { map[t.category] = (map[t.category] || 0) + Number(t.amount) })
     return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value)
-  }, [finTx])
+  }, [finTxFiltered])
 
   // Pedidos
   const ordersByStatus = useMemo(() => {
@@ -355,11 +374,23 @@ export default function RelatoriosPage() {
         ══════════════════════════════ */}
         {activeTab === 'financeiro' && (
           <div className="space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-end">
+              <select
+                className="input text-xs py-2 w-auto max-w-[200px]"
+                value={costCenterFilter}
+                onChange={e => setCostCenterFilter(e.target.value)}
+              >
+                <option value="all">Todos os centros de custo</option>
+                {costCenters.map((c: any) => (
+                  <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+                ))}
+              </select>
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <KPI label="Receitas"     value={fmt(totalInc)} icon={TrendingUp}   color="text-green-500" sub={`${finTx.filter(t=>t.type==='income'&&(t.status==='received'||t.status==='paid')).length} lançamentos`} />
-              <KPI label="Despesas"     value={fmt(totalExp)} icon={TrendingDown}  color="text-red-500"   sub={`${finTx.filter(t=>t.type==='expense'&&(t.status==='received'||t.status==='paid')).length} lançamentos`} />
+              <KPI label="Receitas"     value={fmt(totalInc)} icon={TrendingUp}   color="text-green-500" sub={`${finTxFiltered.filter(t=>t.type==='income'&&(t.status==='received'||t.status==='paid')).length} lançamentos`} />
+              <KPI label="Despesas"     value={fmt(totalExp)} icon={TrendingDown}  color="text-red-500"   sub={`${finTxFiltered.filter(t=>t.type==='expense'&&(t.status==='received'||t.status==='paid')).length} lançamentos`} />
               <KPI label="Saldo"        value={fmt(balance)}  icon={DollarSign}    color={balance>=0?'text-primary':'text-red-500'} sub={`Margem: ${margin.toFixed(1)}%`} />
-              <KPI label="Pendentes"    value={fmt(finTx.filter(t=>['pending','to_pay'].includes(t.status??'')).reduce((s,t)=>s+Number(t.amount),0))} icon={Clock} color="text-amber-500" sub={`${finTx.filter(t=>['pending','to_pay'].includes(t.status??'')).length} a liquidar`} />
+              <KPI label="Pendentes"    value={fmt(finTxFiltered.filter(t=>['pending','to_pay'].includes(t.status??'')).reduce((s,t)=>s+Number(t.amount),0))} icon={Clock} color="text-amber-500" sub={`${finTxFiltered.filter(t=>['pending','to_pay'].includes(t.status??'')).length} a liquidar`} />
             </div>
 
             {finChartData.length > 0 && (
@@ -405,7 +436,7 @@ export default function RelatoriosPage() {
               </div>
             )}
 
-            {finTx.length === 0 && (
+            {finTxFiltered.length === 0 && (
               <div className="card text-center py-12">
                 <DollarSign size={32} className="mx-auto text-text-muted opacity-30 mb-3" />
                 <p className="text-sm text-text-muted">Nenhuma transação no período</p>

@@ -45,6 +45,14 @@ interface Transaction {
   expense_group_id?:  string | null
   installment_number?: number | null
   installments?:      number | null
+  cost_center_id?:    string | null
+}
+
+interface CostCenter {
+  id:   string
+  name: string
+  color: string
+  icon:  string
 }
 
 type Period = 'all' | 'today' | 'week' | 'month' | 'last_month' | 'next_month' | 'custom'
@@ -141,6 +149,7 @@ export default function FinanceiroPage() {
   const [calViewDate, setCalViewDate] = useState(new Date())
   const [pickStep,    setPickStep]    = useState<'start'|'end'>('start')
   const [typeFilter,  setTypeFilter] = useState<TypeFilter>('all')
+  const [costCenterFilter, setCostCenterFilter] = useState<string>('all')
   const [search,      setSearch]     = useState('')
   const [showModal,   setShowModal]  = useState(false)
   const [editTx,      setEditTx]     = useState<Transaction | null>(null)
@@ -166,6 +175,7 @@ export default function FinanceiroPage() {
   const [fStatus,   setFStatus]   = useState('received')
   const [fClient,   setFClient]   = useState('')
   const [fNotes,    setFNotes]    = useState('')
+  const [fCostCenter, setFCostCenter] = useState('')
 
   /* ── Form state: parcelamento (só para despesa nova) ── */
   const [fPaymentMode,   setFPaymentMode]   = useState<'avista' | 'parcelado'>('avista')
@@ -196,6 +206,26 @@ export default function FinanceiroPage() {
     },
   })
 
+  /* ── Centros de custo (carregados dinamicamente — nunca lista fixa) ── */
+  const { data: costCenters } = useQuery<CostCenter[]>({
+    queryKey: ['cost-centers', companyId],
+    enabled:  !!companyId,
+    queryFn:  async () => {
+      const { data, error } = await (supabase.from('cost_centers') as any)
+        .select('id, name, color, icon')
+        .eq('company_id', companyId!)
+        .eq('is_active', true)
+        .order('is_default', { ascending: false })
+        .order('name')
+      if (error) throw error
+      return (data ?? []) as CostCenter[]
+    },
+  })
+
+  function getCostCenter(id?: string | null) {
+    return (costCenters ?? []).find(c => c.id === id)
+  }
+
   /* ── Filtered ── */
   const filtered = useMemo(() => {
     const now = new Date()
@@ -220,6 +250,7 @@ export default function FinanceiroPage() {
         }
       }
       if (typeFilter !== 'all' && t.type !== typeFilter) return false
+      if (costCenterFilter !== 'all' && t.cost_center_id !== costCenterFilter) return false
       if (search.trim()) {
         const q = search.toLowerCase()
         return (
@@ -231,7 +262,7 @@ export default function FinanceiroPage() {
       }
       return true
     })
-  }, [transactions, period, typeFilter, search, customStart, customEnd])
+  }, [transactions, period, typeFilter, costCenterFilter, search, customStart, customEnd])
 
   /* ── Computed stats ── */
   const stats = useMemo(() => {
@@ -276,12 +307,24 @@ export default function FinanceiroPage() {
     }
   }, [filtered, transactions])
 
+  /* ── Totais por Centro de Custo (despesas do período/filtro atual) ── */
+  const costCenterTotals = useMemo(() => {
+    const totals = new Map<string, number>()
+    filtered.filter(t => t.type === 'expense' && t.cost_center_id).forEach(t => {
+      totals.set(t.cost_center_id!, (totals.get(t.cost_center_id!) ?? 0) + Number(t.amount))
+    })
+    return (costCenters ?? [])
+      .map(c => ({ ...c, total: totals.get(c.id) ?? 0 }))
+      .filter(c => c.total > 0)
+      .sort((a, b) => b.total - a.total)
+  }, [filtered, costCenters])
+
   /* ── Mutations ── */
   function openNew() {
     setEditTx(null)
     setFType('income'); setFCat('pedidos'); setFAmount(''); setFDesc('')
     setFDate(format(new Date(), 'yyyy-MM-dd'))
-    setFStatus('received'); setFClient(''); setFNotes('')
+    setFStatus('received'); setFClient(''); setFNotes(''); setFCostCenter('')
     setFPaymentMode('avista'); setFInstallments(2); setInstallmentRows([])
     setFPaymentMethod(''); setFCardName(''); setFCardBrand(''); setFCardLast4(''); setFCardClosingDay(''); setFCardDueDay('')
     setShowModal(true)
@@ -292,7 +335,7 @@ export default function FinanceiroPage() {
     setFType(tx.type); setFCat(tx.category); setFAmount(String(tx.amount))
     setFDesc(tx.description ?? ''); setFDate(tx.due_date ?? tx.date)
     setFStatus(tx.status ?? (tx.type === 'income' ? 'received' : 'paid'))
-    setFClient(tx.client_name ?? ''); setFNotes(tx.notes ?? '')
+    setFClient(tx.client_name ?? ''); setFNotes(tx.notes ?? ''); setFCostCenter(tx.cost_center_id ?? '')
     setFPaymentMode('avista'); setFInstallments(tx.installments ?? 2); setInstallmentRows([])
     setFPaymentMethod((tx.payment_method as PaymentMethod) ?? '')
     setFCardName(tx.card_name ?? ''); setFCardBrand(tx.card_brand ?? ''); setFCardLast4(tx.card_last4 ?? '')
@@ -339,6 +382,7 @@ export default function FinanceiroPage() {
           client_name: fClient.trim() || null,
           notes:       fNotes.trim() || null,
           payment_method: fPaymentMethod || null,
+          cost_center_id: fCostCenter || null,
           ...cardFields,
           expense_group_id: expenseGroupId,
           installment_number: i + 1,
@@ -363,6 +407,7 @@ export default function FinanceiroPage() {
         client_name: fClient.trim() || null,
         notes:       fNotes.trim() || null,
         payment_method: fPaymentMethod || null,
+        cost_center_id: fCostCenter || null,
         ...cardFields,
       }
       if (editTx?.id) {
@@ -639,6 +684,22 @@ export default function FinanceiroPage() {
           </div>
         </div>
 
+        {/* ── POR CENTRO DE CUSTO ── */}
+        {costCenterTotals.length > 0 && (
+          <div className="card p-3 sm:p-4">
+            <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider mb-3">Despesas por Centro de Custo</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+              {costCenterTotals.map(c => (
+                <button key={c.id} type="button" onClick={() => setCostCenterFilter(c.id)}
+                  className="rounded-xl border border-border dark:border-border-dark p-3 text-left hover:border-primary/40 transition-colors">
+                  <p className="text-[11px] font-medium text-text-muted dark:text-stone-400 truncate">{c.icon} {c.name}</p>
+                  <p className="text-sm font-bold text-error dark:text-red-400 mt-0.5">{fmt(c.total)}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── TOOLBAR ── */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           {/* Search */}
@@ -861,6 +922,18 @@ export default function FinanceiroPage() {
             ))}
           </div>
 
+          {/* Centro de Custo filter */}
+          <select
+            className="input text-xs py-2 flex-shrink-0 w-auto max-w-[160px]"
+            value={costCenterFilter}
+            onChange={e => setCostCenterFilter(e.target.value)}
+          >
+            <option value="all">Todos os centros</option>
+            {(costCenters ?? []).map(c => (
+              <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+            ))}
+          </select>
+
           <button onClick={openNew} className="btn-primary flex items-center gap-1.5 text-sm px-4 flex-shrink-0">
             <Plus size={15} /> Novo lançamento
           </button>
@@ -882,6 +955,7 @@ export default function FinanceiroPage() {
                   const cat    = getCatInfo(t.category)
                   const status = getStatusInfo(t.type, t.status)
                   const SIcon  = status.icon
+                  const cc     = getCostCenter(t.cost_center_id)
                   return (
                     <div key={t.id} className="p-4">
                       <div className="flex items-start justify-between gap-3 mb-2">
@@ -890,6 +964,11 @@ export default function FinanceiroPage() {
                             <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full', cat?.color ?? 'bg-stone-100 text-stone-600')}>
                               {cat?.label ?? t.category}
                             </span>
+                            {cc && (
+                              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-text-muted dark:text-stone-400">
+                                {cc.icon} {cc.name}
+                              </span>
+                            )}
                             <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1', status.badge)}>
                               <SIcon size={9} /> {status.label}
                             </span>
@@ -944,7 +1023,7 @@ export default function FinanceiroPage() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-border dark:border-border-dark">
-                      {['Data','Descrição','Categoria','Status','Cliente','Valor','Ações'].map(h => (
+                      {['Data','Descrição','Categoria','Centro de Custo','Status','Cliente','Valor','Ações'].map(h => (
                         <th key={h} className="text-left text-[11px] font-semibold text-text-muted uppercase tracking-wider p-4 whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -954,6 +1033,7 @@ export default function FinanceiroPage() {
                       const cat    = getCatInfo(t.category)
                       const status = getStatusInfo(t.type, t.status)
                       const SIcon  = status.icon
+                      const cc     = getCostCenter(t.cost_center_id)
                       return (
                         <tr key={t.id} className="border-b border-border dark:border-border-dark last:border-0 hover:bg-primary-50/20 dark:hover:bg-white/[0.02] transition-colors group">
                           <td className="p-4 text-sm text-text-secondary dark:text-stone-300 whitespace-nowrap">
@@ -976,6 +1056,9 @@ export default function FinanceiroPage() {
                             <span className={clsx('text-[11px] font-semibold px-2 py-1 rounded-full whitespace-nowrap', cat?.color ?? 'bg-stone-100 text-stone-600')}>
                               {cat?.label ?? t.category}
                             </span>
+                          </td>
+                          <td className="p-4 text-sm text-text-secondary dark:text-stone-400 whitespace-nowrap">
+                            {cc ? <>{cc.icon} {cc.name}</> : '—'}
                           </td>
                           <td className="p-4">
                             <span className={clsx('text-[11px] font-semibold px-2 py-1 rounded-full flex items-center gap-1 w-fit whitespace-nowrap', status.badge)}>
@@ -1075,6 +1158,19 @@ export default function FinanceiroPage() {
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Centro de Custo */}
+              <div>
+                <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">
+                  Centro de Custo{fType === 'income' ? ' (opcional)' : ''}
+                </label>
+                <select className="input text-sm" value={fCostCenter} onChange={e => setFCostCenter(e.target.value)}>
+                  <option value="">Selecionar...</option>
+                  {(costCenters ?? []).map(c => (
+                    <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+                  ))}
+                </select>
               </div>
 
               {/* Pagamento: À vista / Parcelado (só ao criar uma despesa nova) */}
@@ -1415,12 +1511,18 @@ export default function FinanceiroPage() {
                 const cat    = getCatInfo(viewTx.category)
                 const status = getStatusInfo(viewTx.type, viewTx.status)
                 const SIcon  = status.icon
+                const cc     = getCostCenter(viewTx.cost_center_id)
                 return (
                   <>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className={clsx('text-[11px] font-semibold px-2.5 py-1 rounded-full', cat?.color ?? 'bg-stone-100 text-stone-600')}>
                         {cat?.label ?? viewTx.category}
                       </span>
+                      {cc && (
+                        <span className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-stone-100 dark:bg-stone-800 text-text-muted dark:text-stone-400">
+                          {cc.icon} {cc.name}
+                        </span>
+                      )}
                       <span className={clsx('text-[11px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1', status.badge)}>
                         <SIcon size={11} /> {status.label}
                       </span>
