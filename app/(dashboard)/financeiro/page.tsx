@@ -15,6 +15,7 @@ import {
   Filter, Edit3, CheckCircle, Clock, AlertTriangle,
   Calendar, Tag, User, ShoppingCart, FileText,
   Eye, Wallet, HandCoins, Layers, RefreshCw, CreditCard,
+  Truck, ChevronDown, UserCog,
 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isToday, parseISO, subMonths, addMonths, getDaysInMonth, getDay, isBefore, isAfter } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -46,6 +47,10 @@ interface Transaction {
   installment_number?: number | null
   installments?:      number | null
   cost_center_id?:    string | null
+  supplier_id?:        string | null
+  supplier_name?:       string | null
+  supplier_document?:  string | null
+  supplier_phone?:      string | null
 }
 
 interface CostCenter {
@@ -53,6 +58,16 @@ interface CostCenter {
   name: string
   color: string
   icon:  string
+}
+
+interface Supplier {
+  id:       string
+  name:     string
+  document?: string | null
+  phone?:    string | null
+  email?:    string | null
+  city?:     string | null
+  is_active: boolean
 }
 
 type Period = 'all' | 'today' | 'week' | 'month' | 'last_month' | 'next_month' | 'custom'
@@ -150,6 +165,7 @@ export default function FinanceiroPage() {
   const [pickStep,    setPickStep]    = useState<'start'|'end'>('start')
   const [typeFilter,  setTypeFilter] = useState<TypeFilter>('all')
   const [costCenterFilter, setCostCenterFilter] = useState<string>('all')
+  const [supplierFilter, setSupplierFilter] = useState<string>('all')
   const [search,      setSearch]     = useState('')
   const [showModal,   setShowModal]  = useState(false)
   const [editTx,      setEditTx]     = useState<Transaction | null>(null)
@@ -176,6 +192,69 @@ export default function FinanceiroPage() {
   const [fClient,   setFClient]   = useState('')
   const [fNotes,    setFNotes]    = useState('')
   const [fCostCenter, setFCostCenter] = useState('')
+
+  /* ── Form state: Fornecedor (despesa) ── */
+  const [fSupplierMode,     setFSupplierMode]     = useState<'cadastrado' | 'manual'>('cadastrado')
+  const [fSupplierId,       setFSupplierId]       = useState('')
+  const [fSupplierSearch,   setFSupplierSearch]   = useState('')
+  const [showSupplierPicker, setShowSupplierPicker] = useState(false)
+  const [fSupplierName,     setFSupplierName]     = useState('')
+  const [fSupplierDocument, setFSupplierDocument] = useState('')
+  const [fSupplierPhone,    setFSupplierPhone]    = useState('')
+  const [selectedSupplier,  setSelectedSupplier]  = useState<Supplier | null>(null)
+
+  /* ── "+ Novo fornecedor" (cadastro rápido) ── */
+  const [showNewSupplierModal, setShowNewSupplierModal] = useState(false)
+  const [nsName,     setNsName]     = useState('')
+  const [nsDocument, setNsDocument] = useState('')
+  const [nsPhone,    setNsPhone]    = useState('')
+  const [nsEmail,    setNsEmail]    = useState('')
+  const [nsCity,     setNsCity]     = useState('')
+
+  function resetSupplierForm() {
+    setFSupplierMode('cadastrado'); setFSupplierId(''); setFSupplierSearch('')
+    setShowSupplierPicker(false); setFSupplierName(''); setFSupplierDocument('')
+    setFSupplierPhone(''); setSelectedSupplier(null)
+  }
+
+  function selectSupplier(s: Supplier) {
+    setFSupplierId(s.id)
+    setFSupplierName(s.name)
+    setFSupplierDocument(s.document ?? '')
+    setFSupplierPhone(s.phone ?? '')
+    setFSupplierSearch(s.name)
+    setSelectedSupplier(s)
+    setShowSupplierPicker(false)
+  }
+
+  const newSupplierMutation = useMutation({
+    mutationFn: async () => {
+      if (!companyId) throw new Error('Empresa não encontrada')
+      if (!nsName.trim()) throw new Error('Informe o nome do fornecedor')
+      const { data, error } = await (supabase.from('suppliers') as any)
+        .insert([{
+          company_id: companyId,
+          name:  nsName.trim(),
+          document: nsDocument.trim() || null,
+          phone: nsPhone.trim() || null,
+          email: nsEmail.trim() || null,
+          city:  nsCity.trim() || null,
+          is_active: true,
+        }])
+        .select()
+        .single()
+      if (error) throw error
+      return data as Supplier
+    },
+    onSuccess: (newSupplier) => {
+      qc.invalidateQueries({ queryKey: ['suppliers', companyId] })
+      setFSupplierMode('cadastrado')
+      selectSupplier(newSupplier)
+      setShowNewSupplierModal(false)
+      toast('success', 'Fornecedor cadastrado!')
+    },
+    onError: (err: Error) => toast('error', err.message),
+  })
 
   /* ── Form state: parcelamento (só para despesa nova) ── */
   const [fPaymentMode,   setFPaymentMode]   = useState<'avista' | 'parcelado'>('avista')
@@ -226,6 +305,21 @@ export default function FinanceiroPage() {
     return (costCenters ?? []).find(c => c.id === id)
   }
 
+  /* ── Fornecedores (carregados dinamicamente — mesma query key do módulo Fornecedores) ── */
+  const { data: suppliers } = useQuery<Supplier[]>({
+    queryKey: ['suppliers', companyId],
+    enabled:  !!companyId,
+    queryFn:  async () => {
+      const { data, error } = await (supabase.from('suppliers') as any)
+        .select('id, name, document, phone, email, city, is_active')
+        .eq('company_id', companyId!)
+        .eq('is_active', true)
+        .order('name')
+      if (error) throw error
+      return (data ?? []) as Supplier[]
+    },
+  })
+
   /* ── Filtered ── */
   const filtered = useMemo(() => {
     const now = new Date()
@@ -251,18 +345,35 @@ export default function FinanceiroPage() {
       }
       if (typeFilter !== 'all' && t.type !== typeFilter) return false
       if (costCenterFilter !== 'all' && t.cost_center_id !== costCenterFilter) return false
+      if (supplierFilter !== 'all') {
+        if (supplierFilter.startsWith('id:')) {
+          if (t.supplier_id !== supplierFilter.slice(3)) return false
+        } else if (supplierFilter.startsWith('name:')) {
+          if (t.supplier_id || t.supplier_name !== supplierFilter.slice(5)) return false
+        }
+      }
       if (search.trim()) {
         const q = search.toLowerCase()
         return (
           (t.description ?? '').toLowerCase().includes(q) ||
           (t.category ?? '').toLowerCase().includes(q) ||
           (t.client_name ?? '').toLowerCase().includes(q) ||
+          (t.supplier_name ?? '').toLowerCase().includes(q) ||
           String(t.amount).includes(q)
         )
       }
       return true
     })
-  }, [transactions, period, typeFilter, costCenterFilter, search, customStart, customEnd])
+  }, [transactions, period, typeFilter, costCenterFilter, supplierFilter, search, customStart, customEnd])
+
+  /* Nomes de fornecedores informados manualmente (para o filtro) */
+  const manualSupplierNames = useMemo(() => {
+    const names = new Set<string>()
+    ;(transactions ?? []).forEach(t => {
+      if (!t.supplier_id && t.supplier_name) names.add(t.supplier_name)
+    })
+    return Array.from(names).sort()
+  }, [transactions])
 
   /* ── Computed stats ── */
   const stats = useMemo(() => {
@@ -327,6 +438,7 @@ export default function FinanceiroPage() {
     setFStatus('received'); setFClient(''); setFNotes(''); setFCostCenter('')
     setFPaymentMode('avista'); setFInstallments(2); setInstallmentRows([])
     setFPaymentMethod(''); setFCardName(''); setFCardBrand(''); setFCardLast4(''); setFCardClosingDay(''); setFCardDueDay('')
+    resetSupplierForm()
     setShowModal(true)
   }
 
@@ -341,6 +453,24 @@ export default function FinanceiroPage() {
     setFCardName(tx.card_name ?? ''); setFCardBrand(tx.card_brand ?? ''); setFCardLast4(tx.card_last4 ?? '')
     setFCardClosingDay(tx.card_closing_day != null ? String(tx.card_closing_day) : '')
     setFCardDueDay(tx.card_due_day != null ? String(tx.card_due_day) : '')
+    if (tx.supplier_id) {
+      setFSupplierMode('cadastrado')
+      setFSupplierId(tx.supplier_id)
+      setFSupplierSearch(tx.supplier_name ?? '')
+      const existing = (suppliers ?? []).find(s => s.id === tx.supplier_id)
+      setSelectedSupplier(existing ?? null)
+      setFSupplierName(tx.supplier_name ?? '')
+      setFSupplierDocument(tx.supplier_document ?? '')
+      setFSupplierPhone(tx.supplier_phone ?? '')
+    } else if (tx.supplier_name) {
+      setFSupplierMode('manual')
+      setFSupplierId(''); setSelectedSupplier(null); setFSupplierSearch('')
+      setFSupplierName(tx.supplier_name ?? '')
+      setFSupplierDocument(tx.supplier_document ?? '')
+      setFSupplierPhone(tx.supplier_phone ?? '')
+    } else {
+      resetSupplierForm()
+    }
     setShowModal(true)
   }
 
@@ -363,6 +493,15 @@ export default function FinanceiroPage() {
         card_name: null, card_brand: null, card_last4: null, card_closing_day: null, card_due_day: null,
       }
 
+      const supplierFields = fType === 'expense' ? {
+        supplier_id: fSupplierMode === 'cadastrado' && fSupplierId ? fSupplierId : null,
+        supplier_name: fSupplierName.trim() || null,
+        supplier_document: fSupplierDocument.trim() || null,
+        supplier_phone: fSupplierPhone.trim() || null,
+      } : {
+        supplier_id: null, supplier_name: null, supplier_document: null, supplier_phone: null,
+      }
+
       if (isCreatingParceledExpense) {
         const total = parseFloat(fAmount.replace(',', '.'))
         if (!total || total <= 0) throw new Error('Valor inválido')
@@ -379,11 +518,12 @@ export default function FinanceiroPage() {
           due_date:    row.due_date,
           payment_date: null,
           status:      'to_pay',
-          client_name: fClient.trim() || null,
+          client_name: null,
           notes:       fNotes.trim() || null,
           payment_method: fPaymentMethod || null,
           cost_center_id: fCostCenter || null,
           ...cardFields,
+          ...supplierFields,
           expense_group_id: expenseGroupId,
           installment_number: i + 1,
           installments: installmentRows.length,
@@ -404,11 +544,12 @@ export default function FinanceiroPage() {
         date:        fDate,
         due_date:    fDate,
         status:      fStatus || null,
-        client_name: fClient.trim() || null,
+        client_name: fType === 'income' ? (fClient.trim() || null) : null,
         notes:       fNotes.trim() || null,
         payment_method: fPaymentMethod || null,
         cost_center_id: fCostCenter || null,
         ...cardFields,
+        ...supplierFields,
       }
       if (editTx?.id) {
         const { error } = await (supabase.from('financial_transactions') as any)
@@ -934,6 +1075,29 @@ export default function FinanceiroPage() {
             ))}
           </select>
 
+          {/* Fornecedor filter */}
+          <select
+            className="input text-xs py-2 flex-shrink-0 w-auto max-w-[160px]"
+            value={supplierFilter}
+            onChange={e => setSupplierFilter(e.target.value)}
+          >
+            <option value="all">Todos os fornecedores</option>
+            {(suppliers ?? []).length > 0 && (
+              <optgroup label="Cadastrados">
+                {(suppliers ?? []).map(s => (
+                  <option key={s.id} value={`id:${s.id}`}>{s.name}</option>
+                ))}
+              </optgroup>
+            )}
+            {manualSupplierNames.length > 0 && (
+              <optgroup label="Informados manualmente">
+                {manualSupplierNames.map(name => (
+                  <option key={name} value={`name:${name}`}>{name}</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+
           <button onClick={openNew} className="btn-primary flex items-center gap-1.5 text-sm px-4 flex-shrink-0">
             <Plus size={15} /> Novo lançamento
           </button>
@@ -988,6 +1152,14 @@ export default function FinanceiroPage() {
                                 <User size={9} /> {t.client_name}
                               </span>
                             )}
+                            {t.supplier_name && (
+                              <span className="text-xs text-text-muted flex items-center gap-1">
+                                <Truck size={9} /> {t.supplier_name}
+                                {!t.supplier_id && (
+                                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800">Manual</span>
+                                )}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="text-right flex-shrink-0">
@@ -1023,7 +1195,7 @@ export default function FinanceiroPage() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-border dark:border-border-dark">
-                      {['Data','Descrição','Categoria','Centro de Custo','Status','Cliente','Valor','Ações'].map(h => (
+                      {['Data','Descrição','Categoria','Centro de Custo','Fornecedor','Status','Cliente','Valor','Ações'].map(h => (
                         <th key={h} className="text-left text-[11px] font-semibold text-text-muted uppercase tracking-wider p-4 whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -1059,6 +1231,16 @@ export default function FinanceiroPage() {
                           </td>
                           <td className="p-4 text-sm text-text-secondary dark:text-stone-400 whitespace-nowrap">
                             {cc ? <>{cc.icon} {cc.name}</> : '—'}
+                          </td>
+                          <td className="p-4 text-sm text-text-secondary dark:text-stone-400 whitespace-nowrap">
+                            {t.supplier_name ? (
+                              <span className="flex items-center gap-1.5">
+                                {t.supplier_name}
+                                {!t.supplier_id && (
+                                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-text-muted">Manual</span>
+                                )}
+                              </span>
+                            ) : '—'}
                           </td>
                           <td className="p-4">
                             <span className={clsx('text-[11px] font-semibold px-2 py-1 rounded-full flex items-center gap-1 w-fit whitespace-nowrap', status.badge)}>
@@ -1356,12 +1538,102 @@ export default function FinanceiroPage() {
                   value={fDesc} onChange={e => setFDesc(e.target.value)} />
               </div>
 
-              {/* Cliente */}
-              <div>
-                <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Cliente (opcional)</label>
-                <input className="input text-sm" placeholder="Nome do cliente"
-                  value={fClient} onChange={e => setFClient(e.target.value)} />
-              </div>
+              {/* Cliente (receita) / Fornecedor (despesa) */}
+              {fType === 'income' ? (
+                <div>
+                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Cliente (opcional)</label>
+                  <input className="input text-sm" placeholder="Nome do cliente"
+                    value={fClient} onChange={e => setFClient(e.target.value)} />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-text-primary dark:text-stone-200">Fornecedor</label>
+                    <button type="button"
+                      onClick={() => { setNsName(fSupplierSearch); setNsDocument(''); setNsPhone(''); setNsEmail(''); setNsCity(''); setShowNewSupplierModal(true) }}
+                      className="flex items-center gap-1 text-[11px] font-semibold text-primary hover:text-primary/80">
+                      <Plus size={11} /> Novo fornecedor
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {([['cadastrado', 'Selecionar cadastrado'], ['manual', 'Informar manualmente']] as const).map(([val, label]) => (
+                      <button key={val} type="button"
+                        onClick={() => setFSupplierMode(val)}
+                        className={clsx('py-2 rounded-xl border text-xs font-semibold transition-all',
+                          fSupplierMode === val ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary' : 'border-border dark:border-border-dark text-text-muted')}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {fSupplierMode === 'cadastrado' ? (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        className="input text-sm pr-8"
+                        placeholder="🔍 Digite para pesquisar..."
+                        value={fSupplierSearch}
+                        onFocus={() => setShowSupplierPicker(true)}
+                        onChange={e => {
+                          setFSupplierSearch(e.target.value)
+                          setShowSupplierPicker(true)
+                          if (fSupplierId) { setFSupplierId(''); setSelectedSupplier(null) }
+                        }}
+                        autoComplete="off"
+                      />
+                      <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
+
+                      {showSupplierPicker && (
+                        <>
+                          <div className="fixed inset-0 z-[15]" onClick={() => setShowSupplierPicker(false)} />
+                          <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-white dark:bg-surface-dark border border-border dark:border-border-dark rounded-xl shadow-modal max-h-48 overflow-y-auto">
+                            {(suppliers ?? [])
+                              .filter(s => fSupplierSearch === '' || s.name.toLowerCase().includes(fSupplierSearch.toLowerCase()))
+                              .slice(0, 8)
+                              .map(s => (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  className="w-full text-left px-3 py-2.5 hover:bg-primary-50 dark:hover:bg-primary/10 flex items-center justify-between gap-3 border-b border-border dark:border-border-dark last:border-0 transition-colors"
+                                  onClick={() => selectSupplier(s)}
+                                >
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{s.name}</p>
+                                    {s.city && <p className="text-[10px] text-text-muted">{s.city}</p>}
+                                  </div>
+                                  {s.phone && <span className="text-[11px] text-text-muted flex-shrink-0">{s.phone}</span>}
+                                </button>
+                              ))}
+                            {(suppliers ?? []).filter(s => fSupplierSearch === '' || s.name.toLowerCase().includes(fSupplierSearch.toLowerCase())).length === 0 && (
+                              <p className="text-xs text-text-muted text-center py-3">Nenhum fornecedor encontrado</p>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <input className="input text-sm sm:col-span-1" placeholder="Fornecedor"
+                        value={fSupplierName} onChange={e => setFSupplierName(e.target.value)} />
+                      <input className="input text-sm" placeholder="CNPJ (opcional)"
+                        value={fSupplierDocument} onChange={e => setFSupplierDocument(e.target.value)} />
+                      <input className="input text-sm" placeholder="Telefone (opcional)"
+                        value={fSupplierPhone} onChange={e => setFSupplierPhone(e.target.value)} />
+                    </div>
+                  )}
+
+                  {fSupplierMode === 'cadastrado' && selectedSupplier && (
+                    <div className="rounded-xl border border-border dark:border-border-dark p-2.5 text-[11px] text-text-muted space-y-0.5">
+                      <p><b className="text-text-primary dark:text-stone-100">{selectedSupplier.name}</b></p>
+                      {selectedSupplier.document && <p>CNPJ: {selectedSupplier.document}</p>}
+                      {selectedSupplier.phone && <p>Telefone: {selectedSupplier.phone}</p>}
+                      {selectedSupplier.email && <p>E-mail: {selectedSupplier.email}</p>}
+                      {selectedSupplier.city && <p>Cidade: {selectedSupplier.city}</p>}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Observações */}
               <div>
@@ -1539,8 +1811,17 @@ export default function FinanceiroPage() {
                         <p className="text-sm font-medium text-text-primary dark:text-stone-200">{format(parseISO(viewTx.date), 'dd/MM/yyyy', { locale: ptBR })}</p>
                       </div>
                       <div>
-                        <p className="text-[10px] text-text-muted uppercase tracking-wider">Cliente</p>
-                        <p className="text-sm font-medium text-text-primary dark:text-stone-200">{viewTx.client_name || '—'}</p>
+                        <p className="text-[10px] text-text-muted uppercase tracking-wider">{viewTx.type === 'income' ? 'Cliente' : 'Fornecedor'}</p>
+                        <p className="text-sm font-medium text-text-primary dark:text-stone-200">
+                          {viewTx.type === 'income'
+                            ? (viewTx.client_name || '—')
+                            : (viewTx.supplier_name
+                                ? <>{viewTx.supplier_name}{!viewTx.supplier_id && <span className="ml-1.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-text-muted">Manual</span>}</>
+                                : '—')}
+                        </p>
+                        {viewTx.type === 'expense' && viewTx.supplier_document && (
+                          <p className="text-[11px] text-text-muted mt-0.5">CNPJ: {viewTx.supplier_document}</p>
+                        )}
                       </div>
                     </div>
                     {viewTx.notes && (
@@ -1634,6 +1915,60 @@ export default function FinanceiroPage() {
 
             <div className="p-4 sm:p-5 border-t border-border dark:border-border-dark flex-shrink-0">
               <button onClick={() => setGroupViewId(null)} className="btn-secondary w-full">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════
+          MODAL "+ NOVO FORNECEDOR" (cadastro rápido)
+      ══════════════════════════════════════════════ */}
+      {showNewSupplierModal && (
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-3 sm:p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowNewSupplierModal(false)} />
+          <div className="relative bg-white dark:bg-surface-dark w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl shadow-modal animate-scaleIn overflow-hidden">
+
+            <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border dark:border-border-dark">
+              <h2 className="text-base font-bold text-text-primary dark:text-stone-100 flex items-center gap-2">
+                <Truck size={16} className="text-primary" /> Novo fornecedor
+              </h2>
+              <button onClick={() => setShowNewSupplierModal(false)} className="p-1.5 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted"><X size={15}/></button>
+            </div>
+
+            <div className="p-4 sm:p-5 space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Nome *</label>
+                <input className="input text-sm" placeholder="Nome do fornecedor" value={nsName} onChange={e => setNsName(e.target.value)} autoFocus />
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">CNPJ</label>
+                  <input className="input text-sm" placeholder="Opcional" value={nsDocument} onChange={e => setNsDocument(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Telefone</label>
+                  <input className="input text-sm" placeholder="Opcional" value={nsPhone} onChange={e => setNsPhone(e.target.value)} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">E-mail</label>
+                  <input className="input text-sm" placeholder="Opcional" value={nsEmail} onChange={e => setNsEmail(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-text-primary dark:text-stone-200 mb-1.5">Cidade</label>
+                  <input className="input text-sm" placeholder="Opcional" value={nsCity} onChange={e => setNsCity(e.target.value)} />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 p-4 sm:p-5 border-t border-border dark:border-border-dark">
+              <button onClick={() => setShowNewSupplierModal(false)} className="btn-secondary flex-1">Cancelar</button>
+              <button onClick={() => newSupplierMutation.mutate()} disabled={newSupplierMutation.isPending || !nsName.trim()}
+                className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50">
+                {newSupplierMutation.isPending && <Loader2 size={14} className="animate-spin" />}
+                {newSupplierMutation.isPending ? 'Salvando...' : 'Salvar fornecedor'}
+              </button>
             </div>
           </div>
         </div>
