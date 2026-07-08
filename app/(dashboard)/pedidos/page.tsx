@@ -46,6 +46,12 @@ import {
   Download,
   Eye,
   Percent,
+  UserPlus,
+  UserCheck,
+  Ruler,
+  Scissors,
+  Box,
+  ChevronUp,
 } from 'lucide-react'
 
 import { useForm } from 'react-hook-form'
@@ -110,12 +116,14 @@ const STATUS_COLUMNS_MOBILE = [
 ───────────────────────────────────────────── */
 
 const schema = z.object({
-  customer_id: z.string().min(1, 'Selecione um cliente'),
-  service_name: z.string().min(2, 'Informe o serviço'),
+  customer_id: z.string().min(1, 'Selecione ou cadastre um cliente'),
+  service_name: z.string().optional(),
   description: z.string().optional(),
   status: z.string().default('pending'),
   subtotal: z.coerce.number().min(0),
   discount: z.coerce.number().min(0).default(0),
+  delivery_fee: z.coerce.number().min(0).default(0),
+  additional_charges: z.coerce.number().min(0).default(0),
   total: z.coerce.number().min(0),
   notes: z.string().optional(),
   due_date: z.string().optional(),
@@ -126,6 +134,48 @@ const schema = z.object({
 })
 
 type FormData = z.infer<typeof schema>
+
+/* ─────────────────────────────────────────────
+   ITENS DO PEDIDO (carrinho)
+───────────────────────────────────────────── */
+
+interface OrderItem {
+  id: string
+  product_id?: string
+  name: string
+  description: string
+  quantity: number
+  unit_price: number
+  discount: number
+  discount_type: 'amount' | 'percentage'
+  subtotal: number
+  width?: number
+  height?: number
+  area?: number
+  measurement_unit?: string
+  finishings?: string[]
+  finishing_type?: string
+  technical_notes?: string
+}
+
+function uid() {
+  return Math.random().toString(36).slice(2, 10)
+}
+
+function computeItemSubtotal(item: Pick<OrderItem, 'quantity' | 'unit_price' | 'discount' | 'discount_type'>): number {
+  const gross = Number(item.quantity) * Number(item.unit_price)
+  const disc = item.discount_type === 'percentage'
+    ? gross * (Number(item.discount) / 100)
+    : Number(item.discount)
+  return Math.max(0, gross - disc)
+}
+
+const FINISHING_TYPE_OPTIONS = [
+  'Em cartela', 'Em folhas', 'Em bobina', 'Dobrado', 'Enrolado', 'Recortado',
+  'Separado por kits', 'Embalado individualmente', 'Embalado em pacote',
+  'Instalado', 'Aplicado', 'Com ilhós', 'Com bastão', 'Com bainha',
+  'Sem finalização', 'Outros',
+]
 
 /* ─────────────────────────────────────────────
    SCHEMA – PAYMENT HISTORY
@@ -219,7 +269,20 @@ export default function PedidosPage() {
     try { localStorage.setItem('precy_pedidos_mobile_view', v) } catch { /* ignore */ }
   }
 
-  /* Product picker */
+  /* Cliente: cadastrado x novo */
+  const [customerMode, setCustomerMode] = useState<'existing' | 'new'>('existing')
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false)
+  const [newCustomer, setNewCustomer] = useState({
+    name: '', phone: '', email: '', cpf_cnpj: '', address: '', city: '', notes: '',
+  })
+
+  /* Carrinho de itens do pedido */
+  const [items, setItems] = useState<OrderItem[]>([])
+  const [editingItem, setEditingItem] = useState<OrderItem | null>(null)
+  const [showItemTechDetails, setShowItemTechDetails] = useState(false)
+
+  /* Product picker (para adicionar itens ao carrinho) */
   const [productSearch, setProductSearch] = useState('')
   const [showProductPicker, setShowProductPicker] = useState(false)
 
@@ -268,7 +331,7 @@ export default function PedidosPage() {
     queryFn: async () => {
       const response: any = await supabase
         .from('customers')
-        .select('id, name')
+        .select('id, name, phone, email, cpf_cnpj, address, city, notes')
         .eq('company_id', companyId!)
         .order('name')
       return response?.data ?? []
@@ -280,7 +343,7 @@ export default function PedidosPage() {
     enabled: !!companyId,
     queryFn: async () => {
       const { data } = await (supabase.from('products') as any)
-        .select('id, name, final_price, category, description')
+        .select('id, name, final_price, category, description, unit, width, height, area, measurement_unit, finishings, finishing_type, technical_notes')
         .eq('company_id', companyId!)
         .eq('is_active', true)
         .order('name')
@@ -385,6 +448,8 @@ export default function PedidosPage() {
       status: 'pending',
       subtotal: 0,
       discount: 0,
+      delivery_fee: 0,
+      additional_charges: 0,
       total: 0,
       notes: '',
       due_date: '',
@@ -416,10 +481,19 @@ export default function PedidosPage() {
 
   const subtotal = watch('subtotal')
   const discount = watch('discount')
+  const deliveryFee = watch('delivery_fee')
+  const additionalCharges = watch('additional_charges')
+
+  /* Subtotal é sempre a soma dos itens do carrinho */
+  useEffect(() => {
+    const itemsSubtotal = items.reduce((s, i) => s + i.subtotal, 0)
+    setValue('subtotal', itemsSubtotal)
+  }, [items, setValue])
 
   useEffect(() => {
-    setValue('total', Math.max(0, Number(subtotal) - Number(discount)))
-  }, [subtotal, discount, setValue])
+    const t = Number(subtotal) - Number(discount) + Number(deliveryFee || 0) + Number(additionalCharges || 0)
+    setValue('total', Math.max(0, t))
+  }, [subtotal, discount, deliveryFee, additionalCharges, setValue])
 
   /* ─────────────────────────────────────────────
      SINCRONIA VALOR ⇄ PORCENTAGEM (modal de recebimento)
@@ -468,27 +542,165 @@ export default function PedidosPage() {
   const modalMaxAmount = saldoRestante + editingPaymentAmount
 
   /* ─────────────────────────────────────────────
+     CLIENTE — cadastrado x novo
+  ───────────────────────────────────────────── */
+
+  const createCustomerMutation = useMutation({
+    mutationFn: async () => {
+      if (!newCustomer.name.trim()) throw new Error('Informe o nome do cliente')
+      const { data, error } = await (supabase.from('customers') as any)
+        .insert([{
+          company_id: companyId!,
+          name: newCustomer.name.trim(),
+          phone: newCustomer.phone || null,
+          email: newCustomer.email || null,
+          cpf_cnpj: newCustomer.cpf_cnpj || null,
+          address: newCustomer.address || null,
+          city: newCustomer.city || null,
+          notes: newCustomer.notes || null,
+          total_purchases: 0,
+        }])
+        .select('id')
+        .single()
+      if (error) throw new Error(error.message)
+      return data.id as string
+    },
+    onSuccess: (newId) => {
+      queryClient.invalidateQueries({ queryKey: ['customers-select', companyId] })
+      setValue('customer_id', newId, { shouldValidate: true })
+      setCustomerMode('existing')
+      setCustomerSearch(newCustomer.name)
+      setNewCustomer({ name: '', phone: '', email: '', cpf_cnpj: '', address: '', city: '', notes: '' })
+      toast('success', 'Cliente cadastrado e selecionado!')
+    },
+    onError: (err: Error) => {
+      toast('error', `Erro ao cadastrar cliente: ${err.message}`)
+    },
+  })
+
+  const selectedCustomer = (customers ?? []).find((c: any) => c.id === watch('customer_id'))
+
+  /* ─────────────────────────────────────────────
+     ITENS DO PEDIDO — carrinho
+  ───────────────────────────────────────────── */
+
+  function addItemFromProduct(p: any) {
+    const unitPrice = Number(p.final_price) || 0
+    const item: OrderItem = {
+      id: uid(),
+      product_id: p.id,
+      name: p.name,
+      description: p.description || '',
+      quantity: 1,
+      unit_price: unitPrice,
+      discount: 0,
+      discount_type: 'amount',
+      subtotal: unitPrice,
+      width: p.width ?? undefined,
+      height: p.height ?? undefined,
+      area: p.area ?? undefined,
+      measurement_unit: p.measurement_unit ?? undefined,
+      finishings: Array.isArray(p.finishings) ? p.finishings : [],
+      finishing_type: p.finishing_type ?? undefined,
+      technical_notes: p.technical_notes ?? undefined,
+    }
+    setItems(prev => [...prev, item])
+    setShowProductPicker(false)
+    setProductSearch('')
+  }
+
+  function addManualItem() {
+    setShowItemTechDetails(false)
+    setEditingItem({
+      id: uid(),
+      name: '',
+      description: '',
+      quantity: 1,
+      unit_price: 0,
+      discount: 0,
+      discount_type: 'amount',
+      subtotal: 0,
+      finishings: [],
+    })
+    setShowProductPicker(false)
+  }
+
+  function openEditItem(item: OrderItem) {
+    setShowItemTechDetails(false)
+    setEditingItem({ ...item })
+  }
+
+  function saveEditItem(item: OrderItem) {
+    const updated = { ...item, subtotal: computeItemSubtotal(item) }
+    setItems(prev => {
+      const idx = prev.findIndex(i => i.id === item.id)
+      if (idx >= 0) { const n = [...prev]; n[idx] = updated; return n }
+      return [...prev, updated]
+    })
+    setEditingItem(null)
+  }
+
+  function removeItem(id: string) {
+    setItems(prev => prev.filter(i => i.id !== id))
+  }
+
+  /* ─────────────────────────────────────────────
      SAVE ORDER
   ───────────────────────────────────────────── */
 
   function buildOrderPayload(data: FormData) {
+    const firstItem = items[0]
+    const serviceName = firstItem
+      ? `${firstItem.name}${items.length > 1 ? ` +${items.length - 1} ${items.length === 2 ? 'item' : 'itens'}` : ''}`
+      : (data.service_name || '')
     return {
       customer_id: data.customer_id,
-      service_name: data.service_name || '',
-      description: data.description || null,
+      service_name: serviceName,
+      description: data.description || firstItem?.description || null,
       status: data.status || 'pending',
       payment_method: data.payment_method || null,
       subtotal: Number(data.subtotal) || 0,
       discount: Number(data.discount) || 0,
+      delivery_fee: Number(data.delivery_fee) || 0,
+      additional_charges: Number(data.additional_charges) || 0,
       total: Number(data.total) || 0,
       notes: data.notes || null,
       due_date: data.due_date || null,
       priority: data.priority || 'normal',
+      product_id: firstItem?.product_id || null,
     }
+  }
+
+  /** Grava (delete + insert) as linhas de order_items a partir do carrinho atual. */
+  async function persistOrderItems(orderId: string) {
+    await (supabase.from('order_items') as any).delete().eq('order_id', orderId)
+    if (items.length === 0) return
+    const rows = items.map(i => ({
+      order_id: orderId,
+      product_id: i.product_id || null,
+      name: i.name,
+      description: i.description || null,
+      quantity: i.quantity,
+      unit_price: i.unit_price,
+      discount: i.discount,
+      discount_type: i.discount_type,
+      subtotal: i.subtotal,
+      width: i.width ?? null,
+      height: i.height ?? null,
+      area: i.area ?? null,
+      measurement_unit: i.measurement_unit ?? null,
+      finishings: i.finishings ?? [],
+      finishing_type: i.finishing_type ?? null,
+      technical_notes: i.technical_notes ?? null,
+    }))
+    const { error } = await (supabase.from('order_items') as any).insert(rows)
+    if (error) throw new Error(`Erro ao salvar itens do pedido: ${error.message}`)
   }
 
   const saveMutation = useMutation({
     mutationFn: async (data: FormData) => {
+      if (items.length === 0) throw new Error('Adicione ao menos um produto ao pedido.')
+
       const payload = buildOrderPayload(data)
 
       if (!editingId && companyId && sub && !sub.isPro) {
@@ -506,16 +718,22 @@ export default function PedidosPage() {
         }
       }
 
+      let orderId = editingId
       if (editingId) {
         const { error } = await (supabase.from('orders') as any)
           .update({ ...payload, updated_at: new Date().toISOString() })
           .eq('id', editingId)
         if (error) throw new Error(error.message)
       } else {
-        const { error } = await (supabase.from('orders') as any)
+        const { data: created, error } = await (supabase.from('orders') as any)
           .insert([{ ...payload, company_id: companyId!, order_number: '' }])
+          .select('id')
+          .single()
         if (error) throw new Error(error.message)
+        orderId = created.id
       }
+
+      await persistOrderItems(orderId!)
     },
 
     onSuccess: () => {
@@ -525,6 +743,9 @@ export default function PedidosPage() {
       reset()
       setEditingId(null)
       setEditingPaymentId(null)
+      setItems([])
+      setCustomerMode('existing')
+      setCustomerSearch('')
       toast('success', editingId ? 'Pedido atualizado!' : 'Pedido criado!')
     },
 
@@ -830,12 +1051,27 @@ export default function PedidosPage() {
      OPEN ORDER
   ───────────────────────────────────────────── */
 
-  function openOrder(order: Record<string, unknown>) {
+  function resetOrderForm() {
+    reset()
+    setEditingId(null)
+    setEditingPaymentId(null)
+    setItems([])
+    setCustomerMode('existing')
+    setCustomerSearch('')
+    setShowCustomerPicker(false)
+    setNewCustomer({ name: '', phone: '', email: '', cpf_cnpj: '', address: '', city: '', notes: '' })
+    setShowProductPicker(false)
+    setEditingItem(null)
+  }
+
+  async function openOrder(order: Record<string, unknown>) {
     setEditingId(order.id as string)
     setEditingPaymentId(null)
+    setCustomerMode('existing')
+    setNewCustomer({ name: '', phone: '', email: '', cpf_cnpj: '', address: '', city: '', notes: '' })
     const fields = [
       'customer_id', 'service_name', 'description', 'status',
-      'subtotal', 'discount', 'total', 'notes',
+      'subtotal', 'discount', 'delivery_fee', 'additional_charges', 'total', 'notes',
       'due_date', 'priority', 'payment_method',
       'product_id', 'order_date',
     ]
@@ -843,6 +1079,47 @@ export default function PedidosPage() {
       const val = order[k]
       if (val !== undefined && val !== null) setValue(k as never, val as never)
     })
+
+    const { data: rows } = await (supabase.from('order_items') as any)
+      .select('*')
+      .eq('order_id', order.id as string)
+
+    if (rows && rows.length > 0) {
+      setItems(rows.map((i: any) => ({
+        id: i.id || uid(),
+        product_id: i.product_id || undefined,
+        name: i.name || 'Item',
+        description: i.description || '',
+        quantity: Number(i.quantity) || 1,
+        unit_price: Number(i.unit_price) || 0,
+        discount: Number(i.discount) || 0,
+        discount_type: (i.discount_type as 'amount' | 'percentage') ?? 'amount',
+        subtotal: Number(i.subtotal) || 0,
+        width: i.width ?? undefined,
+        height: i.height ?? undefined,
+        area: i.area ?? undefined,
+        measurement_unit: i.measurement_unit ?? 'm',
+        finishings: Array.isArray(i.finishings) ? i.finishings : [],
+        finishing_type: i.finishing_type ?? undefined,
+        technical_notes: i.technical_notes ?? undefined,
+      })))
+    } else {
+      /* Pedido legado (anterior ao carrinho) — sintetiza 1 item a partir dos campos antigos */
+      const total = Number(order.total) || 0
+      const serviceName = String(order.service_name || '').trim()
+      setItems(total > 0 || serviceName ? [{
+        id: uid(),
+        product_id: (order.product_id as string) || undefined,
+        name: serviceName || 'Item',
+        description: String(order.description || ''),
+        quantity: 1,
+        unit_price: total,
+        discount: 0,
+        discount_type: 'amount',
+        subtotal: total,
+      }] : [])
+    }
+
     setShowModal(true)
   }
 
@@ -857,10 +1134,9 @@ export default function PedidosPage() {
         .eq('id', orderId)
         .single()
 
-      const productId = (fullOrder ?? order).product_id as string | undefined
-      const { data: productData } = productId
-        ? await (supabase.from('products') as any).select('name, description').eq('id', productId).single()
-        : { data: null }
+      const { data: itemRows } = await (supabase.from('order_items') as any)
+        .select('*, products(name, description, width, height, area, measurement_unit, finishings, finishing_type, technical_notes)')
+        .eq('order_id', orderId)
 
       const { data: payments } = await (supabase.from('payment_history') as any)
         .select('*')
@@ -869,7 +1145,7 @@ export default function PedidosPage() {
 
       await generateOrderPDF({
         order: fullOrder ?? order,
-        product: productData,
+        items: itemRows ?? [],
         payments: payments ?? [],
         company: companyData,
       })
@@ -927,7 +1203,7 @@ export default function PedidosPage() {
           </div>
 
           <button
-            onClick={() => { reset(); setEditingId(null); setEditingPaymentId(null); setShowModal(true) }}
+            onClick={() => { resetOrderForm(); setShowModal(true) }}
             className="btn-primary flex items-center gap-2 flex-shrink-0"
           >
             <Plus size={16} />
@@ -943,7 +1219,7 @@ export default function PedidosPage() {
             icon={ShoppingCart}
             title="Nenhum pedido"
             description="Crie seu primeiro pedido."
-            action={{ label: '+ Novo Pedido', onClick: () => setShowModal(true) }}
+            action={{ label: '+ Novo Pedido', onClick: () => { resetOrderForm(); setShowModal(true) } }}
           />
         ) : (
           <>
@@ -1293,7 +1569,7 @@ export default function PedidosPage() {
                   </button>
                 )}
                 <button
-                  onClick={() => { setShowModal(false); reset(); setEditingId(null); setEditingPaymentId(null); setShowProductPicker(false) }}
+                  onClick={() => { setShowModal(false); resetOrderForm() }}
                   className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted"
                 >
                   <X size={16} />
@@ -1310,73 +1586,193 @@ export default function PedidosPage() {
                   <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2">
                     <User size={12} /> Cliente
                   </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Cliente *</label>
-                      <select className="input" {...register('customer_id')}>
-                        <option value="">Selecione um cliente...</option>
-                        {(customers ?? []).map((c: Record<string, string>) => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCustomerMode('existing')}
+                      className={clsx(
+                        'flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border transition-colors',
+                        customerMode === 'existing'
+                          ? 'bg-primary text-white border-primary'
+                          : 'bg-transparent text-text-muted border-border dark:border-border-dark hover:border-primary/40'
+                      )}
+                    >
+                      <UserCheck size={14} /> Cliente cadastrado
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCustomerMode('new')}
+                      className={clsx(
+                        'flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold border transition-colors',
+                        customerMode === 'new'
+                          ? 'bg-primary text-white border-primary'
+                          : 'bg-transparent text-text-muted border-border dark:border-border-dark hover:border-primary/40'
+                      )}
+                    >
+                      <UserPlus size={14} /> Novo cliente
+                    </button>
+                  </div>
+
+                  {customerMode === 'existing' ? (
+                    <div className="space-y-2.5">
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                          <input
+                            type="text"
+                            className="input pl-9"
+                            placeholder="Buscar cliente cadastrado..."
+                            value={customerSearch}
+                            onFocus={() => setShowCustomerPicker(true)}
+                            onChange={e => { setCustomerSearch(e.target.value); setShowCustomerPicker(true) }}
+                            autoComplete="off"
+                          />
+                          {showCustomerPicker && (
+                            <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-white dark:bg-surface-dark border border-border dark:border-border-dark rounded-xl shadow-modal max-h-52 overflow-y-auto">
+                              {(customers ?? [])
+                                .filter((c: any) => customerSearch === '' || c.name.toLowerCase().includes(customerSearch.toLowerCase()))
+                                .slice(0, 8)
+                                .map((c: any) => (
+                                  <button
+                                    key={c.id}
+                                    type="button"
+                                    className="w-full text-left px-3 py-2.5 hover:bg-primary-50 dark:hover:bg-primary/10 flex items-center justify-between gap-3 border-b border-border dark:border-border-dark last:border-0 transition-colors"
+                                    onClick={() => {
+                                      setValue('customer_id', c.id, { shouldValidate: true })
+                                      setCustomerSearch(c.name)
+                                      setShowCustomerPicker(false)
+                                    }}
+                                  >
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-medium text-text-primary dark:text-stone-100 leading-snug break-words">{c.name}</p>
+                                      {c.phone && <p className="text-[10px] text-text-muted dark:text-stone-500">{c.phone}</p>}
+                                    </div>
+                                  </button>
+                                ))}
+                              {(customers ?? []).length === 0 && (
+                                <p className="text-xs text-text-muted dark:text-stone-500 text-center py-3">Nenhum cliente cadastrado</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCustomerMode('new')}
+                          className="flex items-center gap-1.5 px-3 rounded-xl text-xs font-semibold text-primary bg-primary-50 dark:bg-primary/10 hover:bg-primary-100 dark:hover:bg-primary/20 transition-colors flex-shrink-0"
+                        >
+                          <UserPlus size={13} /> Novo Cliente
+                        </button>
+                      </div>
                       {errors.customer_id && <p className="mt-1 text-xs text-error">{errors.customer_id.message}</p>}
+
+                      {selectedCustomer && (
+                        <div className="rounded-xl border border-border dark:border-border-dark p-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                          <div><span className="text-text-muted">Nome: </span><b className="text-text-primary dark:text-stone-100">{selectedCustomer.name}</b></div>
+                          <div><span className="text-text-muted">Telefone: </span><b className="text-text-primary dark:text-stone-100">{selectedCustomer.phone || '—'}</b></div>
+                          <div><span className="text-text-muted">WhatsApp: </span><b className="text-text-primary dark:text-stone-100">{selectedCustomer.phone || '—'}</b></div>
+                          <div><span className="text-text-muted">E-mail: </span><b className="text-text-primary dark:text-stone-100">{selectedCustomer.email || '—'}</b></div>
+                          <div><span className="text-text-muted">CPF/CNPJ: </span><b className="text-text-primary dark:text-stone-100">{selectedCustomer.cpf_cnpj || '—'}</b></div>
+                          <div><span className="text-text-muted">Endereço: </span><b className="text-text-primary dark:text-stone-100">{[selectedCustomer.address, selectedCustomer.city].filter(Boolean).join(' — ') || '—'}</b></div>
+                          {selectedCustomer.notes && (
+                            <div className="sm:col-span-2"><span className="text-text-muted">Observações: </span><span className="text-text-primary dark:text-stone-100">{selectedCustomer.notes}</span></div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Observações do cliente</label>
-                      <textarea rows={2} className="input resize-none" placeholder="Preferências, instruções especiais..." {...register('notes')} />
+                  ) : (
+                    <div className="space-y-3 rounded-xl border border-border dark:border-border-dark p-3.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Nome *</label>
+                          <input type="text" className="input" placeholder="Nome completo" value={newCustomer.name} onChange={e => setNewCustomer(p => ({ ...p, name: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Telefone</label>
+                          <input type="text" className="input" placeholder="(11) 99999-9999" value={newCustomer.phone} onChange={e => setNewCustomer(p => ({ ...p, phone: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">WhatsApp</label>
+                          <input type="text" className="input" placeholder="(11) 99999-9999" value={newCustomer.phone} onChange={e => setNewCustomer(p => ({ ...p, phone: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">E-mail</label>
+                          <input type="email" className="input" placeholder="email@exemplo.com" value={newCustomer.email} onChange={e => setNewCustomer(p => ({ ...p, email: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">CPF/CNPJ</label>
+                          <input type="text" className="input" value={newCustomer.cpf_cnpj} onChange={e => setNewCustomer(p => ({ ...p, cpf_cnpj: e.target.value }))} />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Endereço</label>
+                          <input type="text" className="input" value={newCustomer.address} onChange={e => setNewCustomer(p => ({ ...p, address: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Cidade</label>
+                          <input type="text" className="input" value={newCustomer.city} onChange={e => setNewCustomer(p => ({ ...p, city: e.target.value }))} />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Observações</label>
+                          <textarea rows={2} className="input resize-none" value={newCustomer.notes} onChange={e => setNewCustomer(p => ({ ...p, notes: e.target.value }))} />
+                        </div>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button type="button" onClick={() => setCustomerMode('existing')} className="btn-secondary flex-1">
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!newCustomer.name.trim() || createCustomerMutation.isPending}
+                          onClick={() => createCustomerMutation.mutate()}
+                          className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                          {createCustomerMutation.isPending && <Loader2 size={14} className="animate-spin" />}
+                          {createCustomerMutation.isPending ? 'Salvando...' : 'Salvar cliente'}
+                        </button>
+                      </div>
                     </div>
+                  )}
+
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Observações do pedido</label>
+                    <textarea rows={2} className="input resize-none" placeholder="Preferências, instruções especiais..." {...register('notes')} />
                   </div>
                 </section>
 
                 <div className="h-px bg-border dark:bg-border-dark" />
 
-                {/* ── S2: Produto / Serviço ── */}
+                {/* ── S2: Produtos / Serviços (carrinho) ── */}
                 <section className="space-y-3">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2">
-                    <Package size={12} /> Produto / Serviço
+                    <Package size={12} /> Produtos / Serviços
                   </h3>
 
-                  <div>
-                    <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
-                      Nome do produto / serviço *
-                    </label>
-                    <div className="relative">
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
                       <input
                         type="text"
-                        className="input pr-9"
-                        placeholder="Buscar nos cadastrados ou digitar manualmente..."
-                        {...register('service_name')}
+                        className="input pl-9"
+                        placeholder="Buscar produto cadastrado..."
+                        value={productSearch}
                         onFocus={() => setShowProductPicker(true)}
-                        onChange={e => {
-                          setProductSearch(e.target.value)
-                          register('service_name').onChange(e)
-                        }}
+                        onChange={e => { setProductSearch(e.target.value); setShowProductPicker(true) }}
                         autoComplete="off"
                       />
-                      <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-
                       {showProductPicker && (
-                        <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-white dark:bg-surface-dark border border-border dark:border-border-dark rounded-xl shadow-modal max-h-48 overflow-y-auto">
+                        <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-white dark:bg-surface-dark border border-border dark:border-border-dark rounded-xl shadow-modal max-h-52 overflow-y-auto">
                           {(productsList ?? [])
                             .filter((p: Record<string, unknown>) =>
                               productSearch === '' ||
                               (p.name as string).toLowerCase().includes(productSearch.toLowerCase())
                             )
                             .slice(0, 8)
-                            .map((p: Record<string, unknown>) => (
+                            .map((p: any) => (
                               <button
                                 key={p.id as string}
                                 type="button"
                                 className="w-full text-left px-3 py-2.5 hover:bg-primary-50 dark:hover:bg-primary/10 flex items-center justify-between gap-3 border-b border-border dark:border-border-dark last:border-0 transition-colors"
-                                onClick={() => {
-                                  setValue('service_name', p.name as string)
-                                  setValue('product_id', p.id as string)
-                                  setValue('subtotal', Number(p.final_price) || 0)
-                                  setValue('total', Number(p.final_price) || 0)
-                                  if (p.description) setValue('description', p.description as string)
-                                  setProductSearch(p.name as string)
-                                  setShowProductPicker(false)
-                                }}
+                                onClick={() => addItemFromProduct(p)}
                               >
                                 <div className="min-w-0">
                                   <p className="text-sm font-medium text-text-primary dark:text-stone-100 leading-snug break-words">{p.name as string}</p>
@@ -1390,46 +1786,141 @@ export default function PedidosPage() {
                           {(productsList ?? []).length === 0 && (
                             <p className="text-xs text-text-muted dark:text-stone-500 text-center py-3">Nenhum produto cadastrado</p>
                           )}
-                          <div className="px-3 py-2 bg-primary-50/50 dark:bg-primary/5">
-                            <p className="text-[10px] text-text-muted dark:text-stone-500">💡 Ou continue digitando para inserir manualmente</p>
-                          </div>
                         </div>
                       )}
                     </div>
-                    {errors.service_name && <p className="mt-1 text-xs text-error">{errors.service_name.message}</p>}
+                    <button
+                      type="button"
+                      onClick={addManualItem}
+                      className="flex items-center gap-1.5 px-3 rounded-xl text-xs font-semibold text-primary bg-primary-50 dark:bg-primary/10 hover:bg-primary-100 dark:hover:bg-primary/20 transition-colors flex-shrink-0"
+                    >
+                      <Plus size={13} /> Produto manual
+                    </button>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Descrição do pedido</label>
-                    <textarea rows={2} className="input resize-none" placeholder="Detalhes, especificações, cores..." {...register('description')} />
-                  </div>
+                  {items.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-border dark:border-border-dark p-5 text-center">
+                      <Package size={20} className="text-text-muted mx-auto mb-2" />
+                      <p className="text-xs text-text-muted">Nenhum produto adicionado ainda.</p>
+                      <p className="text-[10px] text-text-muted/70 mt-0.5">Busque um produto cadastrado ou clique em &quot;Produto manual&quot;.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {items.map((item) => (
+                        <div key={item.id} className="rounded-xl border border-border dark:border-border-dark p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">{item.name || 'Item sem nome'}</p>
+                              {item.description && <p className="text-[11px] text-text-muted mt-0.5 break-words">{item.description}</p>}
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-[11px] text-text-muted">
+                                <span>Qtd: <b className="text-text-primary dark:text-stone-200">{item.quantity}</b></span>
+                                <span>Valor: <b className="text-text-primary dark:text-stone-200">{fmtGlobal(item.unit_price)}</b></span>
+                                {item.discount > 0 && (
+                                  <span>Desconto: <b className="text-text-primary dark:text-stone-200">{item.discount_type === 'percentage' ? `${item.discount}%` : fmtGlobal(item.discount)}</b></span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <span className="text-sm font-bold text-primary mr-1">{fmtGlobal(item.subtotal)}</span>
+                              <button type="button" onClick={() => openEditItem(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors" title="Editar">
+                                <Edit2 size={13} />
+                              </button>
+                              <button type="button" onClick={() => removeItem(item.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors" title="Excluir">
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </section>
 
                 <div className="h-px bg-border dark:bg-border-dark" />
 
-                {/* ── S3: Valores ── */}
+                {/* ── S3: Totais ── */}
                 <section className="space-y-3">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2">
-                    <DollarSign size={12} /> Valores
+                    <DollarSign size={12} /> Totais
                   </h3>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Subtotal (R$)</label>
-                      <input type="number" step="0.01" min="0" className="input" placeholder="0,00" {...register('subtotal')} />
+                      <div className="input bg-stone-50 dark:bg-stone-800/50 flex items-center text-text-secondary dark:text-stone-400">
+                        {fmtGlobal(Number(watch('subtotal') || 0))}
+                      </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Desconto (R$)</label>
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Desconto Geral (R$)</label>
                       <input type="number" step="0.01" min="0" className="input" placeholder="0,00" {...register('discount')} />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Frete (R$)</label>
+                      <input type="number" step="0.01" min="0" className="input" placeholder="0,00" {...register('delivery_fee')} />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Acréscimos (R$)</label>
+                      <input type="number" step="0.01" min="0" className="input" placeholder="0,00" {...register('additional_charges')} />
                     </div>
                   </div>
                   <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20">
-                    <span className="text-sm font-medium text-text-secondary dark:text-stone-400">Total final</span>
+                    <span className="text-sm font-medium text-text-secondary dark:text-stone-400">Total do pedido</span>
                     <span className="text-xl font-bold text-primary">
-                      {fmtGlobal(Math.max(0, Number(watch('subtotal') || 0) - Number(watch('discount') || 0)))}
+                      {fmtGlobal(Number(watch('total') || 0))}
                     </span>
                   </div>
+                  <input type="hidden" {...register('subtotal')} />
                   <input type="hidden" {...register('total')} />
                 </section>
+
+                {items.length > 0 && (
+                  <>
+                    <div className="h-px bg-border dark:bg-border-dark" />
+
+                    {/* ── Resumo do Pedido ── */}
+                    <section className="space-y-2">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2">
+                        <FileText size={12} /> Resumo do Pedido
+                      </h3>
+                      <div className="rounded-xl border border-border dark:border-border-dark divide-y divide-border dark:divide-border-dark overflow-hidden">
+                        {items.map(item => (
+                          <div key={item.id} className="flex items-center justify-between px-3.5 py-2 text-xs">
+                            <span className="text-text-secondary dark:text-stone-300 truncate pr-2">
+                              {item.name} <span className="text-text-muted">· {item.quantity} un</span>
+                            </span>
+                            <span className="font-semibold text-text-primary dark:text-stone-100 flex-shrink-0">{fmtGlobal(item.subtotal)}</span>
+                          </div>
+                        ))}
+                        <div className="flex items-center justify-between px-3.5 py-2 text-xs bg-stone-50 dark:bg-stone-800/40">
+                          <span className="text-text-muted">Subtotal</span>
+                          <span className="font-medium text-text-primary dark:text-stone-100">{fmtGlobal(Number(watch('subtotal') || 0))}</span>
+                        </div>
+                        {Number(watch('discount') || 0) > 0 && (
+                          <div className="flex items-center justify-between px-3.5 py-2 text-xs">
+                            <span className="text-text-muted">Desconto</span>
+                            <span className="font-medium text-green-700 dark:text-green-400">− {fmtGlobal(Number(watch('discount')))}</span>
+                          </div>
+                        )}
+                        {Number(watch('delivery_fee') || 0) > 0 && (
+                          <div className="flex items-center justify-between px-3.5 py-2 text-xs">
+                            <span className="text-text-muted">Frete</span>
+                            <span className="font-medium text-text-primary dark:text-stone-100">+ {fmtGlobal(Number(watch('delivery_fee')))}</span>
+                          </div>
+                        )}
+                        {Number(watch('additional_charges') || 0) > 0 && (
+                          <div className="flex items-center justify-between px-3.5 py-2 text-xs">
+                            <span className="text-text-muted">Acréscimos</span>
+                            <span className="font-medium text-text-primary dark:text-stone-100">+ {fmtGlobal(Number(watch('additional_charges')))}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between px-3.5 py-2.5 bg-primary-50 dark:bg-primary/10">
+                          <span className="text-xs font-bold uppercase tracking-wide text-text-secondary dark:text-stone-300">Total</span>
+                          <span className="text-sm font-bold text-primary">{fmtGlobal(Number(watch('total') || 0))}</span>
+                        </div>
+                      </div>
+                    </section>
+                  </>
+                )}
 
                 <div className="h-px bg-border dark:bg-border-dark" />
 
@@ -1690,7 +2181,7 @@ export default function PedidosPage() {
               <div className="flex flex-col sm:flex-row gap-3 p-4 sm:p-5 border-t border-border dark:border-border-dark bg-white dark:bg-surface-dark sticky bottom-0">
                 <button
                   type="button"
-                  onClick={() => { setShowModal(false); reset(); setEditingId(null); setEditingPaymentId(null) }}
+                  onClick={() => { setShowModal(false); resetOrderForm() }}
                   className="btn-secondary flex-1"
                 >
                   Cancelar
@@ -1705,6 +2196,189 @@ export default function PedidosPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════
+          MODAL EDITAR ITEM DO PEDIDO
+      ══════════════════════════════════ */}
+
+      {editingItem && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setEditingItem(null)}
+          />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-md animate-scaleIn overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border dark:border-border-dark flex-shrink-0">
+              <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">
+                {editingItem.product_id ? 'Editar produto' : 'Produto manual'}
+              </h2>
+              <button onClick={() => setEditingItem(null)} className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted">
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-5 space-y-3.5 overflow-y-auto">
+              <div>
+                <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Nome *</label>
+                <input
+                  className="input"
+                  value={editingItem.name}
+                  onChange={e => setEditingItem(p => p ? { ...p, name: e.target.value } : null)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Descrição</label>
+                <input
+                  className="input text-sm"
+                  value={editingItem.description}
+                  onChange={e => setEditingItem(p => p ? { ...p, description: e.target.value } : null)}
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-2.5">
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Qtd</label>
+                  <input
+                    type="number" min="1" step="1" className="input text-sm"
+                    value={editingItem.quantity}
+                    onChange={e => setEditingItem(p => p ? { ...p, quantity: Number(e.target.value) } : null)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Valor unit.</label>
+                  <input
+                    type="number" step="0.01" min="0" className="input text-sm"
+                    value={editingItem.unit_price}
+                    onChange={e => setEditingItem(p => p ? { ...p, unit_price: Number(e.target.value) } : null)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Desconto</label>
+                  <input
+                    type="number" min="0" step="0.01" className="input text-sm"
+                    value={editingItem.discount}
+                    onChange={e => setEditingItem(p => p ? { ...p, discount: Number(e.target.value) } : null)}
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(p => p ? { ...p, discount_type: 'amount' } : null)}
+                  className={clsx(
+                    'flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors',
+                    editingItem.discount_type === 'amount'
+                      ? 'bg-primary text-white border-primary'
+                      : 'bg-transparent text-text-muted border-border dark:border-border-dark'
+                  )}
+                >
+                  R$
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(p => p ? { ...p, discount_type: 'percentage' } : null)}
+                  className={clsx(
+                    'flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors',
+                    editingItem.discount_type === 'percentage'
+                      ? 'bg-primary text-white border-primary'
+                      : 'bg-transparent text-text-muted border-border dark:border-border-dark'
+                  )}
+                >
+                  %
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowItemTechDetails(v => !v)}
+                className="flex items-center gap-1.5 text-xs font-semibold text-primary"
+              >
+                {showItemTechDetails ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                Detalhes técnicos
+              </button>
+
+              {showItemTechDetails && (
+                <div className="space-y-2.5 rounded-xl border border-border dark:border-border-dark p-3">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="flex items-center gap-1 text-xs font-medium text-text-primary dark:text-stone-200 mb-1">
+                        <Ruler size={11} /> Largura
+                      </label>
+                      <input
+                        type="number" step="0.01" min="0" className="input text-sm"
+                        value={editingItem.width ?? ''}
+                        onChange={e => setEditingItem(p => p ? { ...p, width: e.target.value ? Number(e.target.value) : undefined } : null)}
+                      />
+                    </div>
+                    <div>
+                      <label className="flex items-center gap-1 text-xs font-medium text-text-primary dark:text-stone-200 mb-1">
+                        <Ruler size={11} /> Altura
+                      </label>
+                      <input
+                        type="number" step="0.01" min="0" className="input text-sm"
+                        value={editingItem.height ?? ''}
+                        onChange={e => setEditingItem(p => p ? { ...p, height: e.target.value ? Number(e.target.value) : undefined } : null)}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="flex items-center gap-1 text-xs font-medium text-text-primary dark:text-stone-200 mb-1">
+                      <Scissors size={11} /> Acabamentos <span className="font-normal text-text-muted">(separe por vírgula)</span>
+                    </label>
+                    <input
+                      className="input text-sm"
+                      value={(editingItem.finishings ?? []).join(', ')}
+                      onChange={e => setEditingItem(p => p ? { ...p, finishings: e.target.value.split(',').map(s => s.trim()).filter(Boolean) } : null)}
+                    />
+                  </div>
+                  <div>
+                    <label className="flex items-center gap-1 text-xs font-medium text-text-primary dark:text-stone-200 mb-1">
+                      <Box size={11} /> Finalização
+                    </label>
+                    <select
+                      className="input text-sm"
+                      value={editingItem.finishing_type ?? ''}
+                      onChange={e => setEditingItem(p => p ? { ...p, finishing_type: e.target.value || undefined } : null)}
+                    >
+                      <option value="">Selecionar...</option>
+                      {FINISHING_TYPE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Observações técnicas</label>
+                    <textarea
+                      rows={2}
+                      className="input text-sm resize-none"
+                      value={editingItem.technical_notes ?? ''}
+                      onChange={e => setEditingItem(p => p ? { ...p, technical_notes: e.target.value } : null)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20">
+                <span className="text-sm font-medium text-text-secondary dark:text-stone-400">Subtotal</span>
+                <span className="text-lg font-bold text-primary">{fmtGlobal(computeItemSubtotal(editingItem))}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3 p-4 sm:p-5 border-t border-border dark:border-border-dark flex-shrink-0">
+              <button type="button" onClick={() => setEditingItem(null)} className="btn-secondary flex-1">
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={!editingItem.name.trim()}
+                onClick={() => saveEditItem(editingItem)}
+                className="btn-primary flex-1 disabled:opacity-50"
+              >
+                Salvar item
+              </button>
+            </div>
           </div>
         </div>
       )}

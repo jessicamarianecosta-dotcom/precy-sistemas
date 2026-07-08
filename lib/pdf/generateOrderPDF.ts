@@ -4,6 +4,8 @@
    ============================================================ */
 
 import { formatCurrency } from '@/lib/utils/format'
+import { getOrderItems } from '@/lib/pdf/getOrderItems'
+import { formatDimDisplay } from '@/lib/utils/dimensions'
 
 interface PaymentRow {
   payment_date: string
@@ -14,7 +16,7 @@ interface PaymentRow {
 
 interface PDFParams {
   order:    Record<string, unknown>
-  product?: Record<string, unknown> | null
+  items:    Record<string, unknown>[]
   payments: PaymentRow[]
   company:  Record<string, unknown> | null
 }
@@ -41,11 +43,10 @@ const METHOD_LABELS: Record<string,string> = {
 }
 const method = (m?: string | null) => (m ? (METHOD_LABELS[m] ?? m) : '—')
 
-export async function generateOrderPDF({ order, product, payments, company }: PDFParams) {
+export async function generateOrderPDF({ order, items, payments, company }: PDFParams) {
   const co   = company as any ?? {}
   const o    = order   as any ?? {}
   const cust = o.customers as any ?? {}
-  const prod = product as any ?? {}
 
   /* ── Empresa ── */
   const coName   = X(co.name    ?? 'Precy+')
@@ -66,8 +67,6 @@ export async function generateOrderPDF({ order, product, payments, company }: PD
   const oStatus = String(o.status ?? 'pending')
   const oPayStatus = String(o.payment_status ?? 'pending')
   const oPaidAt = D(o.paid_at)
-  const oService = X(o.service_name ?? prod.name ?? 'Serviço')
-  const oDesc    = X(o.description ?? prod.description ?? '')
 
   /* ── Cliente ── */
   const cName  = X(cust.name     ?? '—')
@@ -79,8 +78,15 @@ export async function generateOrderPDF({ order, product, payments, company }: PD
   const cAddr  = X(cust.address  ?? '')
   const cLoc   = [cCity, cState].filter(Boolean).join(' — ')
 
+  /* ── Itens — fonte única via getOrderItems ── */
+  const effectiveItems = getOrderItems(order, items)
+
   /* ── Financeiro ── */
-  const oTotal    = Number(o.total) || 0
+  const oSub   = Number(o.subtotal) || effectiveItems.reduce((s, i) => s + (Number(i.subtotal) || 0), 0)
+  const oDisc  = Number(o.discount) || 0
+  const oFee   = Number(o.delivery_fee) || 0
+  const oAdd   = Number(o.additional_charges) || 0
+  const oTotal = Number(o.total) || Math.max(0, oSub + oFee + oAdd - oDisc)
   const oReceived = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
   const oBalance  = Math.max(0, oTotal - oReceived)
   const pctRec    = oTotal > 0 ? Math.min(100, (oReceived / oTotal) * 100) : 0
@@ -107,16 +113,47 @@ export async function generateOrderPDF({ order, product, payments, company }: PD
     ? `<img src="${logoUrl}" alt="${coName}" style="max-height:60px;max-width:160px;object-fit:contain;display:block;">`
     : `<div style="width:54px;height:54px;background:${primary};border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:24px;font-weight:700;">${String(co.name??'P').charAt(0).toUpperCase()}</div>`
 
-  /* ── Linha única do serviço ── */
-  const rowsHTML = `
-    <tr style="background:#ffffff;page-break-inside:avoid;">
-      <td style="padding:11px 10px;border-bottom:1px solid #ede9e3;color:#aaa;font-size:11px;text-align:center;width:28px;vertical-align:top;">1</td>
-      <td style="padding:11px 14px;border-bottom:1px solid #ede9e3;vertical-align:top;">
-        <div style="font-size:13px;font-weight:600;color:#1a1208;line-height:1.35;">${oService}</div>
-        ${oDesc ? `<div style="font-size:11px;color:#9a8a7a;margin-top:3px;line-height:1.5;">${oDesc}</div>` : ''}
-      </td>
-      <td style="padding:11px 14px;border-bottom:1px solid #ede9e3;text-align:right;font-size:13px;font-weight:700;color:#1a1208;width:110px;vertical-align:top;">${R(oTotal)}</td>
-    </tr>`
+  /* ── Linhas dos itens ── */
+  const fmtDim = (item: typeof effectiveItems[0]) => {
+    const w = Number(item.width)
+    const h = Number(item.height)
+    const u = item.measurement_unit ?? 'm'
+    if (!w || !h) return ''
+    return formatDimDisplay(w, h, u)
+  }
+
+  const rowsHTML = effectiveItems.length === 0
+    ? `<tr><td colspan="5" style="text-align:center;padding:28px;color:#bbb;font-size:12px;font-style:italic;">Nenhum item cadastrado</td></tr>`
+    : effectiveItems.map((item, idx) => {
+        const nm   = X(item.name)
+        const desc = X(item.description)
+        const qty  = Number(item.quantity) || 1
+        const up   = Number(item.unit_price) || 0
+        const sub  = Number(item.subtotal)   || 0
+        const bg   = idx % 2 === 0 ? '#ffffff' : '#faf8f5'
+        const dim  = fmtDim(item)
+        const fins = (item.finishings ?? []).filter(Boolean)
+        const finT = item.finishing_type ?? ''
+        const obs  = item.technical_notes ?? ''
+        const finTHTML = finT.startsWith('Outros: ')
+          ? `Outros: <span style="font-style:italic;">${X(finT.slice(8))}</span>`
+          : X(finT)
+        return `
+        <tr style="background:${bg};page-break-inside:avoid;">
+          <td style="padding:11px 10px;border-bottom:1px solid #ede9e3;color:#aaa;font-size:11px;text-align:center;width:28px;vertical-align:top;">${idx+1}</td>
+          <td style="padding:11px 14px;border-bottom:1px solid #ede9e3;vertical-align:top;">
+            <div style="font-size:13px;font-weight:600;color:#1a1208;line-height:1.35;">${nm}</div>
+            ${desc ? `<div style="font-size:11px;color:#9a8a7a;margin-top:3px;line-height:1.5;">${X(desc)}</div>` : ''}
+            ${dim ? `<div style="font-size:10.5px;color:#6b7280;margin-top:4px;">📐 Medidas: ${X(dim)}</div>` : ''}
+            ${fins.length > 0 ? `<div style="font-size:10.5px;color:#6b7280;margin-top:3px;">✂ Acabamento: ${fins.map(X).join(' · ')}</div>` : ''}
+            ${finT ? `<div style="font-size:10.5px;color:#6b7280;margin-top:2px;">📦 Finalização: ${finTHTML}</div>` : ''}
+            ${obs ? `<div style="font-size:10px;color:#9a8a7a;margin-top:3px;font-style:italic;">ℹ ${X(obs)}</div>` : ''}
+          </td>
+          <td style="padding:11px 10px;border-bottom:1px solid #ede9e3;text-align:center;font-size:12.5px;color:#333;width:52px;vertical-align:top;">${qty}</td>
+          <td style="padding:11px 10px;border-bottom:1px solid #ede9e3;text-align:right;font-size:12.5px;color:#555;width:92px;vertical-align:top;">${R(up)}</td>
+          <td style="padding:11px 14px;border-bottom:1px solid #ede9e3;text-align:right;font-size:13px;font-weight:700;color:#1a1208;width:92px;vertical-align:top;">${R(sub)}</td>
+        </tr>`
+      }).join('')
 
   /* ── Tabela de recebimentos ── */
   const paymentsRowsHTML = payments.map((p, idx) => `
@@ -230,6 +267,7 @@ export async function generateOrderPDF({ order, product, payments, company }: PD
   thead th{padding:9px 10px;font-size:8.5px;font-weight:700;
     letter-spacing:1.5px;text-transform:uppercase;
     color:rgba(255,255,255,.9);text-align:left;}
+  .th-c{text-align:center!important;}
   .th-r{text-align:right!important;}
   tbody tr{page-break-inside:avoid;}
   .bot{display:table;width:100%;padding:6px 26px 18px;}
@@ -242,6 +280,8 @@ export async function generateOrderPDF({ order, product, payments, company }: PD
   .fl{display:table-cell;font-size:12px;color:#888;}
   .fv{display:table-cell;text-align:right;font-size:12px;
     font-weight:600;color:#1a1208;}
+  .frow.disc .fv{color:#166534;}
+  .frow.fee  .fv{color:#555;}
   .ftot{background:#1a1208;padding:11px 14px;display:table;width:100%;}
   .ftl{display:table-cell;font-size:10px;font-weight:700;
     letter-spacing:.8px;text-transform:uppercase;color:rgba(255,255,255,.7);}
@@ -331,14 +371,16 @@ export async function generateOrderPDF({ order, product, payments, company }: PD
   </div>
 </div>
 
-<div class="slbl">Serviço</div>
+<div class="slbl">Itens do Pedido</div>
 <div class="tw">
   <table>
     <thead>
       <tr>
-        <th style="width:28px;text-align:center;">#</th>
-        <th>Descrição</th>
-        <th class="th-r" style="width:110px;">Valor</th>
+        <th class="th-c" style="width:28px;">#</th>
+        <th>Produto / Descrição</th>
+        <th class="th-c" style="width:52px;">Qtd</th>
+        <th class="th-r" style="width:92px;">Vlr. Unit.</th>
+        <th class="th-r" style="width:92px;">Subtotal</th>
       </tr>
     </thead>
     <tbody>${rowsHTML}</tbody>
@@ -348,13 +390,30 @@ export async function generateOrderPDF({ order, product, payments, company }: PD
 ${paymentsBlockHTML}
 
 <div class="bot">
-  <div class="bot-l">
-    ${oNotes ? '' : ''}
-  </div>
+  <div class="bot-l"></div>
   <div class="bot-r">
     <div class="fin">
+      <div class="frow">
+        <span class="fl">Subtotal</span>
+        <span class="fv">${R(oSub)}</span>
+      </div>
+      ${oFee > 0 ? `
+      <div class="frow fee">
+        <span class="fl">Frete</span>
+        <span class="fv">+ ${R(oFee)}</span>
+      </div>` : ''}
+      ${oAdd > 0 ? `
+      <div class="frow fee">
+        <span class="fl">Acréscimos</span>
+        <span class="fv">+ ${R(oAdd)}</span>
+      </div>` : ''}
+      ${oDisc > 0 ? `
+      <div class="frow disc">
+        <span class="fl">Desconto</span>
+        <span class="fv">− ${R(oDisc)}</span>
+      </div>` : ''}
       <div class="ftot">
-        <span class="ftl">Valor Total</span>
+        <span class="ftl">Total</span>
         <span class="ftv">${R(oTotal)}</span>
       </div>
       ${hasPayments ? `

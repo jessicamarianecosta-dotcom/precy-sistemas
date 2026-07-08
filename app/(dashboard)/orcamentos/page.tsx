@@ -389,9 +389,10 @@ export default function OrcamentosPage() {
 
     setConverting(b.id)
     try {
-      // 1. Buscar itens do orçamento
+      // 1. Buscar itens do orçamento (com fallback de dados do produto)
       const { data: bi } = await (supabase.from('budget_items') as any)
-        .select('*').eq('budget_id', b.id)
+        .select('*, products(name, description, width, height, area, measurement_unit, finishings, finishing_type, technical_notes)')
+        .eq('budget_id', b.id)
 
       const customer = b.customers as any
       const customerId = b.customer_id
@@ -431,6 +432,44 @@ export default function OrcamentosPage() {
         .single()
 
       if (orderErr) throw new Error(orderErr.message)
+
+      // 3b. Copiar todos os itens do orçamento para order_items (carrinho completo, não só o primeiro)
+      const itemRows = (bi ?? []).map((i: any) => ({
+        order_id:         order.id,
+        product_id:       i.product_id || null,
+        name:             i.name             || i.products?.name        || 'Item',
+        description:      i.description      || i.products?.description || null,
+        quantity:         Number(i.quantity)   || 1,
+        unit_price:       Number(i.unit_price) || 0,
+        discount:         0,
+        discount_type:    'amount',
+        subtotal:         Number(i.subtotal)   || 0,
+        width:            i.width             ?? i.products?.width             ?? null,
+        height:           i.height            ?? i.products?.height            ?? null,
+        area:             i.area              ?? i.products?.area              ?? null,
+        measurement_unit: i.measurement_unit  ?? i.products?.measurement_unit  ?? null,
+        finishings:       Array.isArray(i.finishings)          ? i.finishings
+                        : Array.isArray(i.products?.finishings) ? i.products.finishings
+                        : [],
+        finishing_type:   i.finishing_type   ?? i.products?.finishing_type   ?? null,
+        technical_notes:  i.technical_notes  ?? i.products?.technical_notes  ?? null,
+      }))
+
+      if (itemRows.length === 0 && Number(b.total) > 0) {
+        // Orçamento legado sem itens salvos — sintetiza 1 item a partir do total
+        itemRows.push({
+          order_id: order.id, product_id: null,
+          name: (orderPayload.service_name as string) || 'Item', description: null,
+          quantity: 1, unit_price: Number(b.total), discount: 0, discount_type: 'amount',
+          subtotal: Number(b.total), width: null, height: null, area: null,
+          measurement_unit: null, finishings: [], finishing_type: null, technical_notes: null,
+        })
+      }
+
+      if (itemRows.length > 0) {
+        const { error: itemsErr } = await (supabase.from('order_items') as any).insert(itemRows)
+        if (itemsErr) throw new Error(itemsErr.message)
+      }
 
       // 4. Marcar orçamento como convertido + salvar referência do pedido
       await (supabase.from('budgets') as any).update({
