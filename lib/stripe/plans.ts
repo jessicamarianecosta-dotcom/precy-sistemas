@@ -25,9 +25,9 @@ export const PLANS = {
 export type PlanId = keyof typeof PLANS
 
 // Limites por plano — used in both client and server
-export const PLAN_LIMITS: Record<PlanId, { products: number; orders: number }> = {
-  basic: { products: 20, orders: 30 },
-  pro:   { products: Infinity, orders: Infinity },
+export const PLAN_LIMITS: Record<PlanId, { products: number; orders: number; categories: number; published_products: number }> = {
+  basic: { products: 20, orders: 30, categories: 0,  published_products: 0 },
+  pro:   { products: Infinity, orders: Infinity, categories: 20, published_products: 500 },
 }
 
 // Resolve plano a partir do Stripe price_id (server-side env vars)

@@ -40,12 +40,28 @@ export async function checkPlan(userId: string): Promise<PlanCheck> {
     isPro: effectivePlan === 'pro', companyId: co.id, limits: PLAN_LIMITS[effectivePlan] ?? PLAN_LIMITS.basic }
 }
 
-export async function checkUsageLimit(companyId: string, type: 'products'|'orders', plan: 'basic'|'pro') {
+export async function checkUsageLimit(
+  companyId: string,
+  type: 'products'|'orders'|'categories'|'published_products',
+  plan: 'basic'|'pro'
+) {
   const limit = PLAN_LIMITS[plan][type]
   if (limit === Infinity) return { allowed: true, current: 0, limit: Infinity }
   if (type === 'products') {
     const { count } = await (supabaseAdmin.from('products') as any)
       .select('id', { count: 'exact', head: true }).eq('company_id', companyId)
+    const current = count ?? 0
+    return { allowed: current < limit, current, limit }
+  }
+  if (type === 'categories') {
+    const { count } = await (supabaseAdmin.from('catalog_categories') as any)
+      .select('id', { count: 'exact', head: true }).eq('company_id', companyId)
+    const current = count ?? 0
+    return { allowed: current < limit, current, limit }
+  }
+  if (type === 'published_products') {
+    const { count } = await (supabaseAdmin.from('products') as any)
+      .select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('is_published_catalog', true)
     const current = count ?? 0
     return { allowed: current < limit, current, limit }
   }

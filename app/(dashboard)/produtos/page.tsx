@@ -21,6 +21,7 @@ import { clsx } from 'clsx'
 import Link from 'next/link'
 import { CategorySelect } from '@/components/ui/CategorySelect'
 import { formatCurrency } from '@/lib/utils/format'
+import { useSubscription } from '@/hooks/useSubscription'
 
 /* ─── Types ─── */
 type FinishingCalcType = 'fixed' | 'percent' | 'per_m2' | 'per_unit' | 'per_meter'
@@ -79,6 +80,11 @@ interface Product {
   finishing_items?:  FinishingItem[] | null
   finishing_type?:   string | null
   technical_notes?:  string | null
+  // Catálogo Online
+  is_published_catalog?:   boolean | null
+  catalog_category_id?:    string | null
+  catalog_lead_time_days?: number | null
+  catalog_starting_price?: number | null
 }
 
 interface ProductMaterial {
@@ -101,6 +107,10 @@ const schema = z.object({
   material_cost:         z.coerce.number().min(0),
   markup_percentage:     z.coerce.number().min(0),
   final_price:           z.coerce.number().min(0),
+  is_published_catalog:  z.boolean().optional(),
+  catalog_category_id:   z.string().optional(),
+  catalog_lead_time_days:z.coerce.number().optional(),
+  catalog_starting_price:z.coerce.number().optional(),
 })
 type FormData = z.infer<typeof schema>
 
@@ -135,6 +145,18 @@ export default function ProdutosPage() {
   const qc            = useQueryClient()
   const { toast }     = useToast()
   const { companyId } = useCompanyId()
+  const sub           = useSubscription()
+  const isPro         = sub?.data?.isPro ?? false
+
+  const { data: catalogCategories } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['catalog_categories', companyId],
+    enabled:  !!companyId && isPro,
+    queryFn:  async () => {
+      const { data } = await (supabase.from('catalog_categories') as any)
+        .select('id, name').eq('company_id', companyId!).order('name')
+      return data ?? []
+    },
+  })
 
   /* ui state */
   const [showForm,      setShowForm]      = useState(false)
@@ -177,13 +199,14 @@ export default function ProdutosPage() {
   /* ── Mutations ── */
   const saveMutation = useMutation({
     mutationFn: async (d: FormData) => {
+      const payload = { ...d, catalog_category_id: d.catalog_category_id || null }
       if (editingId) {
         const { error } = await (supabase.from('products') as any)
-          .update({ ...d, updated_at: new Date().toISOString() }).eq('id', editingId)
+          .update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editingId)
         if (error) throw error
       } else {
         const { error } = await (supabase.from('products') as any)
-          .insert([{ ...d, company_id: companyId!, is_active: true }]).select()
+          .insert([{ ...payload, company_id: companyId!, is_active: true }]).select()
         if (error) throw error
       }
     },
@@ -282,7 +305,8 @@ export default function ProdutosPage() {
   /* ── Handlers ── */
   function openEdit(p: Product) {
     setEditingId(p.id)
-    ;(['name','description','category','unit','production_time_hours','material_cost','markup_percentage','final_price'] as Array<keyof FormData>)
+    ;(['name','description','category','unit','production_time_hours','material_cost','markup_percentage','final_price',
+       'is_published_catalog','catalog_category_id','catalog_lead_time_days','catalog_starting_price'] as Array<keyof FormData>)
       .forEach(k => setValue(k, (p as unknown as Record<string, unknown>)[k] as string))
     setShowForm(true)
   }
@@ -945,6 +969,36 @@ export default function ProdutosPage() {
                   <textarea rows={2} className="input resize-none" placeholder="Descrição opcional" {...register('description')} />
                 </div>
               </div>
+
+              {/* ── Catálogo Online ── */}
+              <div className="border-t border-border dark:border-border-dark pt-4">
+                <label className={clsx('flex items-center gap-2.5 text-sm font-medium', !isPro && 'opacity-50 cursor-not-allowed')} title={!isPro ? 'Exclusivo do Plano PRO' : undefined}>
+                  <input type="checkbox" disabled={!isPro} className="w-4 h-4 rounded accent-primary" {...register('is_published_catalog')} />
+                  Publicar no Catálogo Online
+                  {!isPro && <span className="badge badge-primary text-[10px]">PRO</span>}
+                </label>
+
+                {watch('is_published_catalog') && isPro && (
+                  <div className="grid sm:grid-cols-2 gap-4 mt-3">
+                    <div>
+                      <label className="block text-xs font-medium text-text-secondary dark:text-stone-400 mb-1.5">Categoria do catálogo</label>
+                      <select className="input" {...register('catalog_category_id')}>
+                        <option value="">Sem categoria</option>
+                        {(catalogCategories ?? []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-text-secondary dark:text-stone-400 mb-1.5">Prazo de entrega (dias)</label>
+                      <input type="number" step="1" className="input" placeholder="3" {...register('catalog_lead_time_days')} />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-medium text-text-secondary dark:text-stone-400 mb-1.5">Preço inicial (opcional — se vazio, usa o Preço Final)</label>
+                      <input type="number" step="0.01" className="input" placeholder="0,00" {...register('catalog_starting_price')} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex flex-col sm:flex-row gap-3 pt-2">
                 <button type="button" onClick={closeForm} className="btn-secondary flex-1">Cancelar</button>
                 <button type="submit" disabled={saveMutation.isPending} className="btn-primary flex-1 flex items-center justify-center gap-2">

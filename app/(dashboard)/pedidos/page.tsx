@@ -67,6 +67,7 @@ import { format, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { formatCurrency as fmtGlobal } from '@/lib/utils/format'
 import { useSubscription } from '@/hooks/useSubscription'
+import { recalcOrderPaymentStatus, recalcCustomerTotalPurchases } from '@/lib/orders/recalc'
 
 /* ─────────────────────────────────────────────
    STATUS
@@ -755,48 +756,6 @@ export default function PedidosPage() {
   })
 
   /* ─────────────────────────────────────────────
-     HELPERS — recálculo de saldo/status/quitação
-  ───────────────────────────────────────────── */
-
-  /** Recalcula payment_status + paid_at do pedido a partir do SUM atual do payment_history. */
-  async function recalcOrderPaymentStatus(orderId: string, orderTotalValue: number, currentPaidAt: string | null) {
-    const { data: rows } = await (supabase.from('payment_history') as any)
-      .select('amount')
-      .eq('order_id', orderId)
-      .eq('company_id', companyId!)
-    const total = (rows ?? []).reduce((s: number, p: any) => s + Number(p.amount), 0)
-
-    let status: string
-    if (orderTotalValue > 0 && total >= orderTotalValue) status = 'paid'
-    else if (total > 0) status = 'partial'
-    else status = 'pending'
-
-    const isPaid = status === 'paid'
-    await (supabase.from('orders') as any)
-      .update({
-        payment_status: status,
-        paid_at: isPaid ? (currentPaidAt ?? new Date().toISOString()) : null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', orderId)
-
-    return status
-  }
-
-  /** Recalcula total_purchases do cliente somando apenas pedidos 100% pagos. */
-  async function recalcCustomerTotalPurchases(customerId: string) {
-    const { data: clientOrders } = await (supabase.from('orders') as any)
-      .select('total')
-      .eq('customer_id', customerId)
-      .eq('company_id', companyId!)
-      .eq('payment_status', 'paid')
-    const totalPurchases = (clientOrders ?? []).reduce((s: number, o: any) => s + Number(o.total), 0)
-    await (supabase.from('customers') as any)
-      .update({ total_purchases: totalPurchases, updated_at: new Date().toISOString() })
-      .eq('id', customerId)
-  }
-
-  /* ─────────────────────────────────────────────
      REGISTRAR RECEBIMENTO
   ───────────────────────────────────────────── */
 
@@ -857,11 +816,11 @@ export default function PedidosPage() {
       if (ftError) throw new Error(`Erro ao lançar no financeiro: ${ftError.message}`)
 
       /* 3. Recalcular payment_status/paid_at a partir do SUM do payment_history */
-      const newPaymentStatus = await recalcOrderPaymentStatus(editingId, orderTotalValue, orderRecord.paid_at ?? null)
+      const newPaymentStatus = await recalcOrderPaymentStatus(supabase, editingId, companyId, orderTotalValue, orderRecord.paid_at ?? null)
 
       /* 4. Atualizar total_purchases do cliente */
       if (orderRecord.customer_id) {
-        await recalcCustomerTotalPurchases(orderRecord.customer_id)
+        await recalcCustomerTotalPurchases(supabase, orderRecord.customer_id, companyId)
       }
 
       return newPaymentStatus
@@ -942,9 +901,9 @@ export default function PedidosPage() {
       if (ftError) throw new Error(`Erro ao atualizar lançamento no financeiro: ${ftError.message}`)
 
       /* 3. Recalcular payment_status/paid_at e total_purchases */
-      await recalcOrderPaymentStatus(editingId, orderTotalValue, orderRecord.paid_at ?? null)
+      await recalcOrderPaymentStatus(supabase, editingId, companyId, orderTotalValue, orderRecord.paid_at ?? null)
       if (orderRecord.customer_id) {
-        await recalcCustomerTotalPurchases(orderRecord.customer_id)
+        await recalcCustomerTotalPurchases(supabase, orderRecord.customer_id, companyId)
       }
     },
 
@@ -990,9 +949,9 @@ export default function PedidosPage() {
       if (phError) throw new Error(`Erro ao excluir recebimento: ${phError.message}`)
 
       /* 3. Recalcular payment_status/paid_at e total_purchases */
-      await recalcOrderPaymentStatus(editingId, Number(orderRecord.total), orderRecord.paid_at ?? null)
+      await recalcOrderPaymentStatus(supabase, editingId, companyId, Number(orderRecord.total), orderRecord.paid_at ?? null)
       if (orderRecord.customer_id) {
-        await recalcCustomerTotalPurchases(orderRecord.customer_id)
+        await recalcCustomerTotalPurchases(supabase, orderRecord.customer_id, companyId)
       }
     },
 
@@ -1355,7 +1314,12 @@ export default function PedidosPage() {
                               )}
                             >
                               <div className="flex items-center justify-between gap-2 mb-1">
-                                <span className="text-[10px] font-mono text-text-muted">{order.order_number || '—'}</span>
+                                <span className="flex items-center gap-1">
+                                  <span className="text-[10px] font-mono text-text-muted">{order.order_number || '—'}</span>
+                                  {order.source === 'catalog' && (
+                                    <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-primary/10 text-primary">Online</span>
+                                  )}
+                                </span>
                                 <GripVertical size={11} className="text-text-muted/50 flex-shrink-0" />
                               </div>
                               <p className="text-xs font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">
@@ -1432,6 +1396,9 @@ export default function PedidosPage() {
                             <div className="flex items-center gap-1.5">
                               <GripVertical size={12} className="text-text-muted/50 flex-shrink-0" />
                               <span className="text-[10px] font-mono text-text-muted">{order.order_number || '—'}</span>
+                              {order.source === 'catalog' && (
+                                <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-primary/10 text-primary">Online</span>
+                              )}
                               {(order as any).quote_id && (
                                 <a href="/orcamentos" className="inline-flex items-center gap-0.5 text-[9px] font-medium text-primary hover:opacity-80" title="Originado de orçamento">
                                   <FileText size={9} /> ORC

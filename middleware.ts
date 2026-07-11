@@ -4,10 +4,11 @@ import type { NextRequest }       from 'next/server'
 
 /* ── Rotas públicas ── */
 const PUBLIC = ['/', '/login', '/cadastro', '/recuperar-senha', '/nova-senha',
-                '/termos', '/privacidade', '/reembolso']
+                '/termos', '/privacidade', '/reembolso', '/loja', '/api/loja']
 
 /* ── Rotas exclusivas PRO ── */
-const PRO_ROUTES = ['/agenda', '/financeiro', '/relatorios', '/conteudo', '/financeiro-avancado']
+const PRO_ROUTES = ['/agenda', '/financeiro', '/relatorios', '/conteudo', '/financeiro-avancado',
+                    '/catalogo', '/api/catalogo']
 
 /* ── Rota de bloqueio por inadimplência ── */
 const BLOCKED_ROUTE   = '/assinatura/bloqueada'
@@ -116,6 +117,9 @@ export async function middleware(req: NextRequest) {
 
   const isProRoute = PRO_ROUTES.some(r => pathname.startsWith(r))
   if (isProRoute && effectivePlan !== 'pro') {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Catálogo Online é exclusivo do Plano PRO' }, { status: 403 })
+    }
     const url = new URL(UPGRADE_ROUTE, req.url)
     url.searchParams.set('from', pathname)
     return NextResponse.redirect(url)

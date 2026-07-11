@@ -5,6 +5,7 @@ import { useSearchParams, useRouter }              from 'next/navigation'
 import { Suspense } from 'react'
 
 const PRO_FEATURES = [
+  'Catálogo Online — sua própria loja na internet',
   'Produtos e pedidos ilimitados',
   'Agenda integrada com pedidos',
   'Controle financeiro completo',
