@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']
 const MAX_SIZE = 10 * 1024 * 1024
@@ -29,17 +30,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Arquivo muito grande. Máximo 10MB.' }, { status: 400 })
   }
 
-  const { data: settings } = await (supabaseAdmin.from('catalog_settings') as any)
-    .select('company_id, companies:company_id(current_plan)')
-    .eq('slug', slug)
-    .single()
-
-  if (!settings || settings.companies?.current_plan !== 'pro') {
+  const companyId = await resolveStoreCompanyId(slug)
+  if (!companyId) {
     return NextResponse.json({ error: 'Loja não encontrada' }, { status: 404 })
   }
 
   const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg'
-  const path = `${settings.company_id}/checkout-arts/${randomUUID()}.${ext}`
+  const path = `${companyId}/checkout-arts/${randomUUID()}.${ext}`
 
   const arrayBuffer = await file.arrayBuffer()
   const buffer = Buffer.from(arrayBuffer)

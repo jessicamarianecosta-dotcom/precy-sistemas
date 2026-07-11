@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getShippingAdapter, type ShippingItem } from '@/lib/catalog/shipping'
+import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
 
 /**
  * POST /api/loja/frete
@@ -21,12 +21,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'CEP inválido' }, { status: 400 })
   }
 
-  const { data: settings } = await (supabaseAdmin.from('catalog_settings') as any)
-    .select('company_id, companies:company_id(current_plan)')
-    .eq('slug', slug)
-    .single()
-
-  if (!settings || settings.companies?.current_plan !== 'pro') {
+  const companyId = await resolveStoreCompanyId(slug)
+  if (!companyId) {
     return NextResponse.json({ error: 'Loja não encontrada' }, { status: 404 })
   }
 

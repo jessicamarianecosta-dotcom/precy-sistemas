@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getPaymentAdapter } from '@/lib/catalog/payments'
+import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
 
 interface CheckoutItem { productId: string; quantity: number }
 
@@ -21,7 +22,11 @@ export async function POST(request: Request) {
   const slug = String(body?.slug ?? '')
   const items: CheckoutItem[] = Array.isArray(body?.items) ? body.items : []
   const customer = body?.customer ?? {}
-  const shippingPrice = Number(body?.shippingPrice ?? 0)
+  // Nunca confiar cegamente no valor de frete vindo do client — só ele decide
+  // o total cobrado no pagamento. Sem re-cotação server-side (ver nota no
+  // relatório de auditoria), pelo menos garante que não é negativo/absurdo.
+  const rawShipping = Number(body?.shippingPrice ?? 0)
+  const shippingPrice = Number.isFinite(rawShipping) ? Math.min(Math.max(rawShipping, 0), 10000) : 0
   const artworkUrl = body?.artworkUrl ?? null
 
   if (!slug || items.length === 0) {
@@ -31,15 +36,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Nome e telefone são obrigatórios' }, { status: 400 })
   }
 
-  const { data: settings } = await (supabaseAdmin.from('catalog_settings') as any)
-    .select('company_id, companies:company_id(current_plan)')
-    .eq('slug', slug)
-    .single()
-
-  if (!settings || settings.companies?.current_plan !== 'pro') {
+  const companyId = await resolveStoreCompanyId(slug)
+  if (!companyId) {
     return NextResponse.json({ error: 'Loja não encontrada' }, { status: 404 })
   }
-  const companyId = settings.company_id as string
 
   /* ── Revalidar produtos: publicados, ativos e da mesma empresa ── */
   const productIds = items.map(i => i.productId)

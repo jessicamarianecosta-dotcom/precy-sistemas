@@ -18,12 +18,29 @@ export const runtime = 'nodejs'
  *   4. evento em Agenda (calendar_tasks.linked_order_id — primeiro uso real
  *      dessa coluna, que já existia mas nunca era populada)
  *
- * Idempotente via orders.catalog_checkout_ref: se o pedido já estiver
- * pago, responde 200 sem reprocessar.
+ * Idempotência: payment_history.catalog_checkout_ref tem UNIQUE constraint
+ * (migration 048) e É a trava atômica — se dois envios do mesmo evento
+ * chegarem simultaneamente (comum em gateways que reenviam em timeout), o
+ * segundo INSERT falha com 23505 e é tratado como "já processado". Isso
+ * evita a condição de corrida de checar `orders.payment_status` antes do
+ * primeiro envio terminar de gravar.
+ *
+ * Passos 3 (estoque) e 4 (agenda) são best-effort: falham silenciosamente
+ * (log apenas) sem derrubar a resposta 200, porque o pagamento em si (passo
+ * 1-2) já foi gravado com sucesso quando eles rodam — devolver 500 aqui
+ * faria o gateway reenviar, e o reenvio cairia direto no "já processado"
+ * (idempotência do passo 1), nunca tentando estoque/agenda de novo.
  */
 export async function POST(req: NextRequest) {
   const rawBody = await req.text()
   const adapter = getPaymentAdapter()
+
+  // Modo mock não verifica assinatura de verdade (qualquer POST com um ref
+  // válido confirma o pagamento) — aceitável para testes com o ref
+  // (UUID) não sendo público, mas nunca deve ficar ligado em produção real.
+  if (!process.env.INFINITYPAY_API_KEY) {
+    console.warn('[webhook/infinitypay] INFINITYPAY_API_KEY ausente — rodando em modo mock, sem verificação real de assinatura')
+  }
 
   const signature = req.headers.get('x-infinitypay-signature') ?? req.headers.get('signature')
   if (!adapter.verifyWebhookSignature(rawBody, signature)) {
@@ -42,7 +59,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { data: order, error: orderError } = await (supabaseAdmin.from('orders') as any)
-    .select('id, company_id, customer_id, total, payment_status, paid_at, order_number')
+    .select('id, company_id, customer_id, total, paid_at, order_number, customers(name)')
     .eq('catalog_checkout_ref', event.ref)
     .single()
 
@@ -51,28 +68,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true, warning: 'Pedido não encontrado' })
   }
 
-  /* ── Idempotência: já processado? ── */
-  if (order.payment_status === 'paid') {
-    return NextResponse.json({ received: true, alreadyProcessed: true })
+  /* 1. payment_history — o INSERT com catalog_checkout_ref único É a trava de idempotência */
+  const { data: paymentHistory, error: phError } = await (supabaseAdmin.from('payment_history') as any)
+    .insert([{
+      order_id: order.id,
+      customer_id: order.customer_id,
+      company_id: order.company_id,
+      amount: order.total,
+      payment_date: new Date().toISOString().slice(0, 10),
+      payment_method: event.paymentMethod ?? 'infinitypay',
+      observation: 'Pagamento via Catálogo Online',
+      percentage: 100,
+      catalog_checkout_ref: event.ref,
+    }])
+    .select('id')
+    .single()
+
+  if (phError) {
+    if (phError.code === '23505') {
+      return NextResponse.json({ received: true, alreadyProcessed: true })
+    }
+    console.error('[webhook/infinitypay] payment_history error:', phError.message)
+    return NextResponse.json({ error: 'Erro ao registrar pagamento' }, { status: 500 })
   }
 
   try {
-    /* 1. payment_history + financial_transactions — mesma forma do módulo Pedidos */
-    const { data: paymentHistory, error: phError } = await (supabaseAdmin.from('payment_history') as any)
-      .insert([{
-        order_id: order.id,
-        customer_id: order.customer_id,
-        company_id: order.company_id,
-        amount: order.total,
-        payment_date: new Date().toISOString().slice(0, 10),
-        payment_method: event.paymentMethod ?? 'infinitypay',
-        observation: 'Pagamento via Catálogo Online',
-        percentage: 100,
-      }])
-      .select('id')
-      .single()
-    if (phError) throw new Error(`payment_history: ${phError.message}`)
-
+    /* financial_transactions — mesma forma do "Registrar Recebimento" em Pedidos */
     const { error: ftError } = await (supabaseAdmin.from('financial_transactions') as any)
       .insert([{
         company_id: order.company_id,
@@ -84,6 +105,7 @@ export async function POST(req: NextRequest) {
         description: `Recebimento — Pedido ${order.order_number || ''} · Catálogo Online`,
         date: new Date().toISOString().slice(0, 10),
         status: 'received',
+        client_name: order.customers?.name ?? null,
       }])
     if (ftError) throw new Error(`financial_transactions: ${ftError.message}`)
 
@@ -92,12 +114,17 @@ export async function POST(req: NextRequest) {
     if (order.customer_id) {
       await recalcCustomerTotalPurchases(supabaseAdmin, order.customer_id, order.company_id)
     }
+  } catch (err: any) {
+    console.error('[webhook/infinitypay] processing error:', err?.message ?? err)
+    return NextResponse.json({ error: 'Erro ao processar pagamento' }, { status: 500 })
+  }
 
-    /* 3. Baixa de estoque via BOM (só quando o produto tiver product_materials) */
-    const { data: items } = await (supabaseAdmin.from('order_items') as any)
-      .select('product_id, quantity')
-      .eq('order_id', order.id)
+  /* 3. Baixa de estoque via BOM — best-effort, não derruba a resposta */
+  const { data: items } = await (supabaseAdmin.from('order_items') as any)
+    .select('product_id, quantity')
+    .eq('order_id', order.id)
 
+  try {
     for (const item of items ?? []) {
       if (!item.product_id) continue
       const { data: materials } = await (supabaseAdmin.from('product_materials') as any)
@@ -117,8 +144,12 @@ export async function POST(req: NextRequest) {
           .eq('id', material.inventory_id)
       }
     }
+  } catch (err: any) {
+    console.error('[webhook/infinitypay] baixa de estoque falhou (pagamento já registrado):', err?.message ?? err)
+  }
 
-    /* 4. Evento de entrega na Agenda, vinculado ao pedido */
+  /* 4. Evento de entrega na Agenda — best-effort, não derruba a resposta */
+  try {
     const firstItem = (items ?? [])[0]
     let leadTimeDays = 3
     if (firstItem?.product_id) {
@@ -140,10 +171,9 @@ export async function POST(req: NextRequest) {
       status: 'pending',
       linked_order_id: order.id,
     }])
-
-    return NextResponse.json({ received: true, orderId: order.id })
   } catch (err: any) {
-    console.error('[webhook/infinitypay] processing error:', err?.message ?? err)
-    return NextResponse.json({ error: 'Erro ao processar pagamento' }, { status: 500 })
+    console.error('[webhook/infinitypay] criação do evento de agenda falhou (pagamento já registrado):', err?.message ?? err)
   }
+
+  return NextResponse.json({ received: true, orderId: order.id })
 }

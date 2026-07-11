@@ -10,7 +10,7 @@ import { useCart } from '@/lib/catalog/useCart'
 import Link from 'next/link'
 
 interface Settings {
-  slug: string; logo_url: string | null; banner_url: string | null; description: string | null
+  company_id: string; slug: string; logo_url: string | null; banner_url: string | null; description: string | null
   whatsapp: string | null; instagram: string | null; theme_color: string
 }
 interface CatalogProduct {
@@ -31,32 +31,28 @@ export default function LojaPage() {
     queryKey: ['loja-settings', slug],
     queryFn: async () => {
       const { data } = await (supabase.from('catalog_settings') as any)
-        .select('slug, logo_url, banner_url, description, whatsapp, instagram, theme_color')
+        .select('company_id, slug, logo_url, banner_url, description, whatsapp, instagram, theme_color')
         .eq('slug', slug).maybeSingle()
       return data ?? null
     },
   })
 
   const { data: categories } = useQuery<Category[]>({
-    queryKey: ['loja-categories', slug, settings?.slug],
+    queryKey: ['loja-categories', settings?.company_id],
     enabled: !!settings,
     queryFn: async () => {
-      const { data: co } = await (supabase.from('catalog_settings') as any).select('company_id').eq('slug', slug).single()
-      if (!co) return []
-      const { data } = await (supabase.from('catalog_categories') as any).select('id, name').eq('company_id', co.company_id).order('sort_order')
+      const { data } = await (supabase.from('catalog_categories') as any).select('id, name').eq('company_id', settings!.company_id).order('sort_order')
       return data ?? []
     },
   })
 
   const { data: products, isLoading: loadingProducts } = useQuery<CatalogProduct[]>({
-    queryKey: ['loja-products', slug, settings?.slug],
+    queryKey: ['loja-products', settings?.company_id],
     enabled: !!settings,
     queryFn: async () => {
-      const { data: co } = await (supabase.from('catalog_settings') as any).select('company_id').eq('slug', slug).single()
-      if (!co) return []
       const { data } = await (supabase.from('products') as any)
         .select('id, name, final_price, catalog_starting_price, catalog_photos, catalog_category_id')
-        .eq('company_id', co.company_id).eq('is_published_catalog', true)
+        .eq('company_id', settings!.company_id).eq('is_published_catalog', true)
       return data ?? []
     },
   })

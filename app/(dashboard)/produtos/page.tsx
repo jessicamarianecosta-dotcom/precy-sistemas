@@ -97,6 +97,14 @@ interface ProductMaterial {
   subtotal:      number
 }
 
+// Números opcionais/nulos (campos do Catálogo Online): '', null e undefined viram
+// undefined (coluna não é tocada no update), nunca 0 — z.coerce.number() sozinho
+// converteria null/'' em 0 e sobrescreveria silenciosamente o valor salvo.
+const optionalNumber = z.preprocess(
+  v => (v === '' || v === null || v === undefined ? undefined : Number(v)),
+  z.number().optional()
+)
+
 /* ─── Schema (form de criação/edição básica) ─── */
 const schema = z.object({
   name:                  z.string().min(2, 'Nome obrigatório'),
@@ -109,8 +117,8 @@ const schema = z.object({
   final_price:           z.coerce.number().min(0),
   is_published_catalog:  z.boolean().optional(),
   catalog_category_id:   z.string().optional(),
-  catalog_lead_time_days:z.coerce.number().optional(),
-  catalog_starting_price:z.coerce.number().optional(),
+  catalog_lead_time_days: optionalNumber,
+  catalog_starting_price: optionalNumber,
 })
 type FormData = z.infer<typeof schema>
 

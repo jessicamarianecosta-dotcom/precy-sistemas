@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { checkPlan, type PlanCheck } from '@/lib/subscription/check'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 
 type AuthResult =
   | { ok: true; userId: string; companyId: string; plan: PlanCheck }
@@ -29,4 +30,25 @@ export async function requireCatalogAccess(): Promise<AuthResult> {
   }
 
   return { ok: true, userId: user.id, companyId: plan.companyId, plan }
+}
+
+/**
+ * Resolve o companyId de uma loja pública pelo slug, usando a MESMA regra
+ * de acesso PRO efetivo dos triggers de banco (company_has_catalog_access:
+ * current_plan='pro' OU trial ativo OU role='developer') — nunca checar
+ * `current_plan === 'pro'` direto aqui, ou empresas em trial/developer
+ * ficam com a loja pública fora do ar mesmo tendo acesso PRO no dashboard.
+ * Usa supabaseAdmin (rotas públicas não têm sessão/RLS de usuário).
+ */
+export async function resolveStoreCompanyId(slug: string): Promise<string | null> {
+  const { data: settings } = await (supabaseAdmin.from('catalog_settings') as any)
+    .select('company_id')
+    .eq('slug', slug)
+    .maybeSingle()
+  if (!settings) return null
+
+  const { data: hasAccess } = await (supabaseAdmin.rpc as any)('company_has_catalog_access', {
+    p_company_id: settings.company_id,
+  })
+  return hasAccess ? (settings.company_id as string) : null
 }
