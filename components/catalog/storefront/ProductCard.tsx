@@ -17,7 +17,7 @@ interface Props {
 export function ProductCard({ product, href, isBestseller }: Props) {
   const price = product.catalog_starting_price ?? product.final_price
   const hasPromo = product.catalog_promo_price != null && product.catalog_promo_price < price
-  const photo = product.catalog_photos?.[0]
+  const photo = product.images?.[0]?.url ?? product.catalog_photos?.[0]
 
   const isNew = (Date.now() - new Date(product.created_at).getTime()) / 86400000 <= NEW_THRESHOLD_DAYS
 

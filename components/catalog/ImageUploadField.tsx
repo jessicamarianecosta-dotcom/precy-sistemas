@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { clsx } from 'clsx'
 import { UploadCloud, ImageIcon, AlertCircle, Loader2 } from 'lucide-react'
+import { uploadImageXhr } from '@/lib/catalog/useImageUploadXhr'
 
 interface Props {
   label:             string
@@ -52,36 +53,13 @@ export function ImageUploadField({
     setLocalPreview(URL.createObjectURL(file))
     setProgress(0)
 
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('context', context)
-
-    const xhr = new XMLHttpRequest()
-    xhr.open('POST', '/api/catalogo/upload')
-    xhr.upload.onprogress = e => {
-      if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100))
-    }
-    xhr.onload = () => {
-      setProgress(null)
-      try {
-        const json = JSON.parse(xhr.responseText)
-        if (xhr.status >= 200 && xhr.status < 300 && json.url) {
-          onUploaded(json.url)
-        } else {
-          setError(json.error ?? 'Erro ao enviar imagem.')
-          setLocalPreview(null)
-        }
-      } catch {
-        setError('Erro ao enviar imagem.')
+    uploadImageXhr(file, { context }, pct => setProgress(pct))
+      .then(url => { setProgress(null); onUploaded(url) })
+      .catch((err: Error) => {
+        setProgress(null)
+        setError(err.message)
         setLocalPreview(null)
-      }
-    }
-    xhr.onerror = () => {
-      setProgress(null)
-      setError('Erro de conexão ao enviar imagem.')
-      setLocalPreview(null)
-    }
-    xhr.send(formData)
+      })
   }, [context, maxSizeMb, onUploaded])
 
   return (

@@ -55,9 +55,10 @@ export default function LojaPage() {
     enabled: !!settings,
     queryFn: async () => {
       const { data } = await (supabase.from('products') as any)
-        .select('id, name, final_price, catalog_starting_price, catalog_promo_price, catalog_photos, catalog_category_id, created_at')
+        .select('id, name, final_price, catalog_starting_price, catalog_promo_price, catalog_photos, catalog_category_id, created_at, product_images(id, url, sort_order)')
         .eq('company_id', settings!.company_id).eq('is_published_catalog', true)
-      return data ?? []
+        .order('sort_order', { foreignTable: 'product_images' })
+      return (data ?? []).map((p: any) => ({ ...p, images: p.product_images ?? [] }))
     },
   })
 

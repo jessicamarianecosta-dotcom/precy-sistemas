@@ -27,4 +27,8 @@ export interface StorefrontProduct {
   catalog_photos:         string[]
   catalog_category_id:    string | null
   created_at:             string
+  /** Galeria normalizada (product_images), fonte de verdade a partir da migration 051.
+   *  catalog_photos é mantido como fallback para produtos sem linhas aqui. */
+  images?:                { id: string; url: string; sort_order: number }[]
+  hasVariants?:           boolean
 }

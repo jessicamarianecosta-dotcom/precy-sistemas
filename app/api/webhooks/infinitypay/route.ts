@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
 
   /* 3. Baixa de estoque via BOM — best-effort, não derruba a resposta */
   const { data: items } = await (supabaseAdmin.from('order_items') as any)
-    .select('product_id, quantity')
+    .select('product_id, variant_id, quantity')
     .eq('order_id', order.id)
 
   try {
@@ -146,6 +146,27 @@ export async function POST(req: NextRequest) {
     }
   } catch (err: any) {
     console.error('[webhook/infinitypay] baixa de estoque falhou (pagamento já registrado):', err?.message ?? err)
+  }
+
+  /* 3b. Baixa de estoque por VARIAÇÃO (product_variants.stock_quantity) — conceito
+     novo e totalmente separado do BOM/matéria-prima acima: aqui é estoque de
+     produto acabado por combinação (ex: "Azul · 1000un: 5 restantes"), não
+     consumo de insumo para custo. Best-effort, mesmo padrão dos demais passos. */
+  try {
+    for (const item of items ?? []) {
+      if (!item.variant_id) continue
+      const { data: variant } = await (supabaseAdmin.from('product_variants') as any)
+        .select('stock_quantity')
+        .eq('id', item.variant_id)
+        .single()
+      if (!variant || variant.stock_quantity == null) continue
+      const newQty = Math.max(0, Number(variant.stock_quantity) - Number(item.quantity))
+      await (supabaseAdmin.from('product_variants') as any)
+        .update({ stock_quantity: newQty, updated_at: new Date().toISOString() })
+        .eq('id', item.variant_id)
+    }
+  } catch (err: any) {
+    console.error('[webhook/infinitypay] baixa de estoque de variação falhou (pagamento já registrado):', err?.message ?? err)
   }
 
   /* 4. Evento de entrega na Agenda — best-effort, não derruba a resposta */

@@ -13,6 +13,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null)
   const slug = String(body?.slug ?? '')
   const productId = String(body?.productId ?? '')
+  const variantId = body?.variantId ? String(body.variantId) : null
   const customer = body?.customer ?? {}
 
   if (!slug || !productId || !customer.name || !customer.phone) {
@@ -25,10 +26,32 @@ export async function POST(request: Request) {
   }
 
   const { data: product } = await (supabaseAdmin.from('products') as any)
-    .select('id, name, catalog_starting_price, final_price')
+    .select('id, name, catalog_starting_price, catalog_promo_price, final_price')
     .eq('id', productId).eq('company_id', companyId).eq('is_published_catalog', true)
     .single()
   if (!product) return NextResponse.json({ error: 'Produto indisponível' }, { status: 400 })
+
+  // Nunca confiar no preço/label vindos do client — revalida a variante no servidor
+  // exatamente como o checkout faz.
+  let variant: any = null
+  let variantLabel: string | null = null
+  if (variantId) {
+    const { data } = await (supabaseAdmin.from('product_variants') as any)
+      .select(`
+        id, sku, price, is_active,
+        product_variant_option_values(
+          option_id,
+          product_variation_options(value, product_variation_groups(name))
+        )
+      `)
+      .eq('id', variantId).eq('product_id', productId).eq('company_id', companyId).eq('is_active', true)
+      .maybeSingle()
+    if (!data) return NextResponse.json({ error: 'Variação indisponível' }, { status: 400 })
+    variant = data
+    variantLabel = (data.product_variant_option_values ?? [])
+      .map((ov: any) => `${ov.product_variation_options?.product_variation_groups?.name}: ${ov.product_variation_options?.value}`)
+      .join(' · ')
+  }
 
   const phone = String(customer.phone).replace(/\D/g, '')
   let customerId: string
@@ -45,7 +68,10 @@ export async function POST(request: Request) {
     customerId = created.id
   }
 
-  const price = Number(product.catalog_starting_price ?? product.final_price ?? 0)
+  const basePrice = Number(product.catalog_starting_price ?? product.final_price ?? 0)
+  const promoPrice = product.catalog_promo_price != null ? Number(product.catalog_promo_price) : null
+  const productEffectivePrice = promoPrice != null && promoPrice < basePrice ? promoPrice : basePrice
+  const price = variant?.price != null ? Number(variant.price) : productEffectivePrice
 
   const { data: budget, error: budgetError } = await (supabaseAdmin.from('budgets') as any)
     .insert([{
@@ -62,7 +88,11 @@ export async function POST(request: Request) {
   if (budgetError) return NextResponse.json({ error: `Erro ao criar orçamento: ${budgetError.message}` }, { status: 500 })
 
   const { error: itemError } = await (supabaseAdmin.from('budget_items') as any)
-    .insert([{ budget_id: budget.id, product_id: product.id, name: product.name, quantity: 1, unit_price: price, subtotal: price }])
+    .insert([{
+      budget_id: budget.id, product_id: product.id, name: product.name,
+      quantity: 1, unit_price: price, subtotal: price,
+      variant_id: variant?.id ?? null, variant_label: variantLabel,
+    }])
   if (itemError) return NextResponse.json({ error: `Erro ao registrar item: ${itemError.message}` }, { status: 500 })
 
   return NextResponse.json({ ok: true, budgetId: budget.id })

@@ -66,7 +66,7 @@ export default function CheckoutLojaPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           slug,
-          items: items.map(i => ({ productId: i.productId, quantity: i.quantity })),
+          items: items.map(i => ({ productId: i.productId, variantId: i.variantId ?? null, quantity: i.quantity })),
           customer,
           shippingPrice: shipping?.price ?? 0,
           artworkUrl,
@@ -104,20 +104,21 @@ export default function CheckoutLojaPage() {
           <div className="space-y-5">
             <div className="card divide-y divide-border dark:divide-border-dark">
               {items.map(item => (
-                <div key={item.productId} className="flex items-center gap-3 p-3">
+                <div key={`${item.productId}:${item.variantId ?? ''}`} className="flex items-center gap-3 p-3">
                   <div className="w-12 h-12 rounded-lg bg-surface dark:bg-white/5 overflow-hidden flex-shrink-0">
                     {item.photo && <img src={item.photo} alt="" className="w-full h-full object-cover" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{item.name}</p>
+                    {item.variantLabel && <p className="text-[11px] text-text-muted truncate">{item.variantLabel}</p>}
                     <p className="text-xs text-text-muted">{formatCurrency(item.price)}</p>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <button type="button" onClick={() => updateQty(item.productId, item.quantity - 1)} className="p-1 rounded hover:bg-primary-50 dark:hover:bg-white/5"><Minus size={13} /></button>
+                    <button type="button" onClick={() => updateQty(item.productId, item.variantId, item.quantity - 1)} className="p-1 rounded hover:bg-primary-50 dark:hover:bg-white/5"><Minus size={13} /></button>
                     <span className="text-sm w-5 text-center">{item.quantity}</span>
-                    <button type="button" onClick={() => updateQty(item.productId, item.quantity + 1)} className="p-1 rounded hover:bg-primary-50 dark:hover:bg-white/5"><Plus size={13} /></button>
+                    <button type="button" onClick={() => updateQty(item.productId, item.variantId, item.quantity + 1)} className="p-1 rounded hover:bg-primary-50 dark:hover:bg-white/5"><Plus size={13} /></button>
                   </div>
-                  <button type="button" onClick={() => removeItem(item.productId)} className="p-1.5 text-text-muted hover:text-error"><Trash2 size={14} /></button>
+                  <button type="button" onClick={() => removeItem(item.productId, item.variantId)} className="p-1.5 text-text-muted hover:text-error"><Trash2 size={14} /></button>
                 </div>
               ))}
             </div>

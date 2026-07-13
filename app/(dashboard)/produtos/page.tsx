@@ -11,7 +11,10 @@ import {
   Package, Plus, Search, Edit2, Trash2, X, Loader2,
   Copy, ExternalLink, DollarSign, Clock, Layers,
   TrendingUp, ChevronRight, Tag, Zap, Ruler, FileText,
+  Images, SlidersHorizontal,
 } from 'lucide-react'
+import { ProductGalleryUpload } from '@/components/catalog/ProductGalleryUpload'
+import { VariationsEditor } from '@/components/catalog/VariationsEditor'
 import { calculateAreaM2, formatAreaM2, formatDimDisplay, getDimBlock } from '@/lib/utils/dimensions'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -299,6 +302,62 @@ export default function ProdutosPage() {
         await (supabase.from('product_materials') as any).insert(rows)
       }
 
+      // Duplicar fotos do catálogo (product_images)
+      if (newProd?.id) {
+        const { data: images } = await (supabase.from('product_images') as any)
+          .select('url, sort_order').eq('product_id', p.id).order('sort_order')
+        if (images && images.length > 0) {
+          await (supabase.from('product_images') as any).insert(
+            images.map((img: { url: string; sort_order: number }) => ({ ...img, company_id: companyId, product_id: newProd.id }))
+          )
+        }
+
+        // Duplicar grupos/opções/variantes de variação
+        const { data: groups } = await (supabase.from('product_variation_groups') as any)
+          .select('id, name, sort_order').eq('product_id', p.id).order('sort_order')
+        if (groups && groups.length > 0) {
+          const groupIdMap = new Map<string, string>()
+          for (const g of groups as { id: string; name: string; sort_order: number }[]) {
+            const { data: newGroup } = await (supabase.from('product_variation_groups') as any)
+              .insert({ product_id: newProd.id, company_id: companyId, name: g.name, sort_order: g.sort_order })
+              .select('id').single()
+            if (newGroup) groupIdMap.set(g.id, newGroup.id)
+          }
+
+          const { data: options } = await (supabase.from('product_variation_options') as any)
+            .select('id, group_id, value, sort_order').in('group_id', groups.map((g: { id: string }) => g.id))
+          const optionIdMap = new Map<string, string>()
+          for (const o of (options ?? []) as { id: string; group_id: string; value: string; sort_order: number }[]) {
+            const { data: newOption } = await (supabase.from('product_variation_options') as any)
+              .insert({ group_id: groupIdMap.get(o.group_id), company_id: companyId, value: o.value, sort_order: o.sort_order })
+              .select('id').single()
+            if (newOption) optionIdMap.set(o.id, newOption.id)
+          }
+
+          const { data: variants } = await (supabase.from('product_variants') as any)
+            .select('id, sku, price, stock_quantity, lead_time_days, weight_kg, sort_order, product_variant_option_values(option_id, group_id)')
+            .eq('product_id', p.id)
+          for (const v of (variants ?? []) as any[]) {
+            const { data: newVariant } = await (supabase.from('product_variants') as any)
+              .insert({
+                product_id: newProd.id, company_id: companyId, sku: v.sku, price: v.price,
+                stock_quantity: v.stock_quantity, lead_time_days: v.lead_time_days, weight_kg: v.weight_kg,
+                sort_order: v.sort_order,
+              })
+              .select('id').single()
+            if (!newVariant) continue
+            const valueRows = (v.product_variant_option_values ?? [])
+              .map((ov: { option_id: string; group_id: string }) => ({
+                variant_id: newVariant.id,
+                option_id: optionIdMap.get(ov.option_id),
+                group_id: groupIdMap.get(ov.group_id),
+              }))
+              .filter((r: { option_id?: string; group_id?: string }) => r.option_id && r.group_id)
+            if (valueRows.length > 0) await (supabase.from('product_variant_option_values') as any).insert(valueRows)
+          }
+        }
+      }
+
       qc.invalidateQueries({ queryKey: ['products', companyId] })
       toast('success', `"${p.name} (cópia)" criado!`)
     } catch (err: unknown) {
@@ -553,6 +612,21 @@ export default function ProdutosPage() {
                   <p className="text-xs text-text-secondary dark:text-stone-400 mt-1 leading-relaxed">{vp.description}</p>
                 )}
               </FichaSection>
+
+              {/* ── Galeria de fotos e Variações (Catálogo Online, exclusivo PRO) ── */}
+              {isPro && vp?.id && companyId && (
+                <>
+                  <FichaSection icon={Images} title="Fotos do produto"
+                    color="text-primary" bg="bg-primary-50 dark:bg-primary/10">
+                    <ProductGalleryUpload productId={vp.id} companyId={companyId} />
+                  </FichaSection>
+
+                  <FichaSection icon={SlidersHorizontal} title="Variações"
+                    color="text-primary" bg="bg-primary-50 dark:bg-primary/10">
+                    <VariationsEditor productId={vp.id} companyId={companyId} />
+                  </FichaSection>
+                </>
+              )}
 
               {/* ── S2: Materiais ── */}
               <FichaSection icon={Layers} title="Materiais utilizados"

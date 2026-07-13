@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getPaymentAdapter } from '@/lib/catalog/payments'
 import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
 
-interface CheckoutItem { productId: string; quantity: number }
+interface CheckoutItem { productId: string; variantId?: string | null; quantity: number }
 
 /**
  * POST /api/loja/checkout
@@ -63,18 +63,73 @@ export async function POST(request: Request) {
   }))
   const nameById = new Map(products.map((p: any) => [p.id, p.name as string]))
 
-  const orderItems = items
-    .filter(i => priceById.has(i.productId) && i.quantity > 0)
-    .map(i => {
-      const unitPrice = priceById.get(i.productId) as number
-      return {
-        product_id: i.productId,
-        name: nameById.get(i.productId),
-        quantity: i.quantity,
-        unit_price: unitPrice,
-        subtotal: unitPrice * i.quantity,
-      }
-    })
+  /* ── Revalidar variantes (estoque de variação é conceito separado do estoque
+     de matéria-prima/BOM — nunca confiar em preço/label vindos do client) ── */
+  const variantIds = [...new Set(items.map(i => i.variantId).filter(Boolean))] as string[]
+  const variantsById = new Map<string, any>()
+  if (variantIds.length > 0) {
+    const { data: variants } = await (supabaseAdmin.from('product_variants') as any)
+      .select(`
+        id, product_id, sku, price, stock_quantity, image_id, is_active,
+        product_variant_option_values(
+          option_id,
+          product_variation_options(value, product_variation_groups(name))
+        )
+      `)
+      .in('id', variantIds)
+      .in('product_id', productIds)
+      .eq('company_id', companyId)
+      .eq('is_active', true)
+    for (const v of variants ?? []) variantsById.set(v.id, v)
+  }
+
+  const imageIds = [...variantsById.values()].map(v => v.image_id).filter(Boolean)
+  const imageUrlById = new Map<string, string>()
+  if (imageIds.length > 0) {
+    const { data: imgs } = await (supabaseAdmin.from('product_images') as any).select('id, url').in('id', imageIds)
+    for (const img of imgs ?? []) imageUrlById.set(img.id, img.url)
+  }
+
+  function buildVariantLabel(variant: any): string {
+    return (variant.product_variant_option_values ?? [])
+      .map((ov: any) => `${ov.product_variation_options?.product_variation_groups?.name}: ${ov.product_variation_options?.value}`)
+      .join(' · ')
+  }
+
+  const validItems = items.filter(i => priceById.has(i.productId) && i.quantity > 0)
+
+  // Primeira passagem: valida existência de variante e estoque suficiente para
+  // TODOS os itens antes de criar qualquer coisa — checkout é tudo ou nada.
+  for (const i of validItems) {
+    if (!i.variantId) continue
+    const variant = variantsById.get(i.variantId)
+    const productName = nameById.get(i.productId)
+    if (!variant || variant.product_id !== i.productId) {
+      return NextResponse.json({ error: `Variação indisponível para "${productName}"` }, { status: 400 })
+    }
+    if (variant.stock_quantity != null && variant.stock_quantity < i.quantity) {
+      return NextResponse.json({
+        error: `Estoque insuficiente para "${productName}" (${buildVariantLabel(variant)}): disponível ${variant.stock_quantity}, solicitado ${i.quantity}`,
+      }, { status: 400 })
+    }
+  }
+
+  const orderItems = validItems.map(i => {
+    const variant = i.variantId ? variantsById.get(i.variantId) : null
+    const basePrice = priceById.get(i.productId) as number
+    const unitPrice = variant?.price != null ? Number(variant.price) : basePrice
+    return {
+      product_id: i.productId,
+      name: nameById.get(i.productId),
+      quantity: i.quantity,
+      unit_price: unitPrice,
+      subtotal: unitPrice * i.quantity,
+      variant_id: variant?.id ?? null,
+      variant_label: variant ? buildVariantLabel(variant) : null,
+      variant_sku: variant?.sku ?? null,
+      variant_photo: variant?.image_id ? imageUrlById.get(variant.image_id) ?? null : null,
+    }
+  })
 
   if (orderItems.length === 0) {
     return NextResponse.json({ error: 'Nenhum item válido no carrinho' }, { status: 400 })

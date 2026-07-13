@@ -3,11 +3,15 @@ import { randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { requireCatalogAccess } from '@/lib/catalog/server-auth'
 
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+const DEFAULT_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+const ALLOWED_TYPES_BY_CONTEXT: Record<string, string[]> = {
+  product: ['image/jpeg', 'image/png', 'image/webp'],
+}
 const MAX_SIZE_BY_CONTEXT: Record<string, number> = {
-  logo:   2 * 1024 * 1024,
-  banner: 5 * 1024 * 1024,
-  seo:    5 * 1024 * 1024,
+  logo:    2 * 1024 * 1024,
+  banner:  5 * 1024 * 1024,
+  seo:     5 * 1024 * 1024,
+  product: 10 * 1024 * 1024,
 }
 const DEFAULT_MAX_SIZE = 4 * 1024 * 1024
 
@@ -29,11 +33,12 @@ export async function POST(request: Request) {
   const context = String(formData.get('context') ?? '')
 
   if (!file) return NextResponse.json({ error: 'Arquivo não enviado' }, { status: 400 })
-  if (!productId && !['logo', 'banner', 'seo'].includes(context)) {
-    return NextResponse.json({ error: 'productId ou context (logo/banner/seo) é obrigatório' }, { status: 400 })
+  if (!productId && !['logo', 'banner', 'seo', 'product'].includes(context)) {
+    return NextResponse.json({ error: 'productId ou context (logo/banner/seo/product) é obrigatório' }, { status: 400 })
   }
 
-  if (!ALLOWED_TYPES.includes(file.type)) {
+  const allowedTypes = ALLOWED_TYPES_BY_CONTEXT[context] ?? DEFAULT_ALLOWED_TYPES
+  if (!allowedTypes.includes(file.type)) {
     return NextResponse.json({ error: 'Tipo de arquivo não permitido.' }, { status: 400 })
   }
   const maxSize = MAX_SIZE_BY_CONTEXT[context] ?? DEFAULT_MAX_SIZE
