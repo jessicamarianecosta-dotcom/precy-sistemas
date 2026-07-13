@@ -44,7 +44,7 @@ export async function POST(request: Request) {
   /* ── Revalidar produtos: publicados, ativos e da mesma empresa ── */
   const productIds = items.map(i => i.productId)
   const { data: products, error: productsError } = await (supabaseAdmin.from('products') as any)
-    .select('id, name, catalog_starting_price, final_price')
+    .select('id, name, catalog_starting_price, catalog_promo_price, final_price')
     .in('id', productIds)
     .eq('company_id', companyId)
     .eq('is_published_catalog', true)
@@ -53,7 +53,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Produtos indisponíveis' }, { status: 400 })
   }
 
-  const priceById = new Map(products.map((p: any) => [p.id, Number(p.catalog_starting_price ?? p.final_price ?? 0)]))
+  // Preço efetivo: promocional (quando definido e menor que o preço normal) tem prioridade —
+  // precisa espelhar exatamente a mesma regra usada na exibição pública do produto.
+  const priceById = new Map(products.map((p: any) => {
+    const basePrice = Number(p.catalog_starting_price ?? p.final_price ?? 0)
+    const promoPrice = p.catalog_promo_price != null ? Number(p.catalog_promo_price) : null
+    const effectivePrice = promoPrice != null && promoPrice < basePrice ? promoPrice : basePrice
+    return [p.id, effectivePrice]
+  }))
   const nameById = new Map(products.map((p: any) => [p.id, p.name as string]))
 
   const orderItems = items

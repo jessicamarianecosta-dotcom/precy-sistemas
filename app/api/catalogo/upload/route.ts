@@ -4,7 +4,12 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { requireCatalogAccess } from '@/lib/catalog/server-auth'
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
-const MAX_SIZE = 4 * 1024 * 1024
+const MAX_SIZE_BY_CONTEXT: Record<string, number> = {
+  logo:   2 * 1024 * 1024,
+  banner: 5 * 1024 * 1024,
+  seo:    5 * 1024 * 1024,
+}
+const DEFAULT_MAX_SIZE = 4 * 1024 * 1024
 
 /**
  * POST /api/catalogo/upload
@@ -24,15 +29,16 @@ export async function POST(request: Request) {
   const context = String(formData.get('context') ?? '')
 
   if (!file) return NextResponse.json({ error: 'Arquivo não enviado' }, { status: 400 })
-  if (!productId && !['logo', 'banner'].includes(context)) {
-    return NextResponse.json({ error: 'productId ou context (logo/banner) é obrigatório' }, { status: 400 })
+  if (!productId && !['logo', 'banner', 'seo'].includes(context)) {
+    return NextResponse.json({ error: 'productId ou context (logo/banner/seo) é obrigatório' }, { status: 400 })
   }
 
   if (!ALLOWED_TYPES.includes(file.type)) {
     return NextResponse.json({ error: 'Tipo de arquivo não permitido.' }, { status: 400 })
   }
-  if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: 'Arquivo muito grande. Máximo 4MB.' }, { status: 400 })
+  const maxSize = MAX_SIZE_BY_CONTEXT[context] ?? DEFAULT_MAX_SIZE
+  if (file.size > maxSize) {
+    return NextResponse.json({ error: `Arquivo muito grande. Máximo ${Math.round(maxSize / (1024 * 1024))}MB.` }, { status: 400 })
   }
 
   let folder = context

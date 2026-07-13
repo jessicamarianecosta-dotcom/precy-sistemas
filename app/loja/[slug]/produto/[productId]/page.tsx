@@ -8,14 +8,22 @@ import { formatCurrency } from '@/lib/utils/format'
 import { ArrowLeft, Clock, Store, Loader2, CheckCircle } from 'lucide-react'
 import { useCart } from '@/lib/catalog/useCart'
 import { useToast } from '@/components/ui/Toaster'
+import { StoreFooter } from '@/components/catalog/storefront/StoreFooter'
+import type { StorefrontSettings } from '@/components/catalog/storefront/types'
 import Link from 'next/link'
 
 interface ProductDetail {
   id: string; name: string; description: string | null; final_price: number
-  catalog_starting_price: number | null; catalog_photos: string[]
+  catalog_starting_price: number | null; catalog_promo_price: number | null; catalog_photos: string[]
   catalog_lead_time_days: number | null; catalog_checkout_mode: 'buy' | 'quote' | null
   catalog_category_id: string | null
 }
+
+const SETTINGS_COLUMNS = `
+  company_id, slug, logo_url, banner_url, description, whatsapp, instagram,
+  facebook, tiktok, youtube, pinterest, website, city, state, address,
+  business_hours, theme_color, checkout_mode, companies(name)
+`
 
 export default function ProdutoLojaPage() {
   const { slug, productId } = useParams<{ slug: string; productId: string }>()
@@ -29,11 +37,11 @@ export default function ProdutoLojaPage() {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
 
-  const { data: settings } = useQuery({
+  const { data: settings } = useQuery<(StorefrontSettings & { checkout_mode: 'buy' | 'quote'; companies: { name: string } | null }) | null>({
     queryKey: ['loja-settings', slug],
     queryFn: async () => {
-      const { data } = await (supabase.from('catalog_settings') as any).select('checkout_mode').eq('slug', slug).maybeSingle()
-      return data
+      const { data } = await (supabase.from('catalog_settings') as any).select(SETTINGS_COLUMNS).eq('slug', slug).maybeSingle()
+      return data ?? null
     },
   })
 
@@ -41,7 +49,7 @@ export default function ProdutoLojaPage() {
     queryKey: ['loja-product', productId],
     queryFn: async () => {
       const { data } = await (supabase.from('products') as any)
-        .select('id, name, description, final_price, catalog_starting_price, catalog_photos, catalog_lead_time_days, catalog_checkout_mode, catalog_category_id')
+        .select('id, name, description, final_price, catalog_starting_price, catalog_promo_price, catalog_photos, catalog_lead_time_days, catalog_checkout_mode, catalog_category_id')
         .eq('id', productId).eq('is_published_catalog', true).maybeSingle()
       return data ?? null
     },
@@ -51,8 +59,11 @@ export default function ProdutoLojaPage() {
   if (!product) return <div className="min-h-screen flex items-center justify-center text-text-muted">Produto não encontrado.</div>
 
   const price = product.catalog_starting_price ?? product.final_price
+  const hasPromo = product.catalog_promo_price != null && product.catalog_promo_price < price
+  const effectivePrice = hasPromo ? product.catalog_promo_price! : price
   const photos = product.catalog_photos?.length ? product.catalog_photos : []
   const mode = product.catalog_checkout_mode ?? settings?.checkout_mode ?? 'quote'
+  const storeName = settings?.companies?.name ?? slug
 
   async function submitQuote(e: React.FormEvent) {
     e.preventDefault()
@@ -97,7 +108,15 @@ export default function ProdutoLojaPage() {
 
           <div>
             <h1 className="text-xl font-bold text-text-primary dark:text-stone-100 mb-2">{product.name}</h1>
-            <p className="text-2xl font-bold text-primary mb-3">{formatCurrency(price)}</p>
+            {hasPromo ? (
+              <div className="flex items-baseline gap-2 mb-3">
+                <p className="text-2xl font-bold text-error">{formatCurrency(effectivePrice)}</p>
+                <p className="text-base text-text-muted line-through">{formatCurrency(price)}</p>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-error text-white">Promoção</span>
+              </div>
+            ) : (
+              <p className="text-2xl font-bold text-primary mb-3">{formatCurrency(price)}</p>
+            )}
             {product.catalog_lead_time_days && (
               <p className="flex items-center gap-1.5 text-sm text-text-secondary dark:text-stone-400 mb-3">
                 <Clock size={14} /> Prazo estimado: {product.catalog_lead_time_days} dia(s)
@@ -108,7 +127,7 @@ export default function ProdutoLojaPage() {
             {mode === 'buy' ? (
               <button
                 onClick={() => {
-                  addItem({ productId: product.id, name: product.name, price, quantity: 1, photo: photos[0] ?? null })
+                  addItem({ productId: product.id, name: product.name, price: effectivePrice, quantity: 1, photo: photos[0] ?? null })
                   toast('success', 'Adicionado ao carrinho!')
                   router.push(`/loja/${slug}/checkout`)
                 }}

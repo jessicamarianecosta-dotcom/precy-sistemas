@@ -9,12 +9,13 @@ import { useToast } from '@/components/ui/Toaster'
 import { useCompanyId } from '@/hooks/useCompanyId'
 import { clsx } from 'clsx'
 import {
-  Store, LayoutGrid, Package, BookOpen, Settings, Plus, Trash2, Edit2,
-  Search, CheckSquare, Square, Loader2, ExternalLink, ShoppingBag,
-  TrendingUp, DollarSign, Tags, Copy, X,
+  LayoutGrid, Package, BookOpen, Settings, Plus, Trash2, Edit2,
+  Search, CheckSquare, Square, Loader2, ShoppingBag,
+  TrendingUp, DollarSign, Tags, Copy,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils/format'
 import { toSlug } from '@/lib/utils/slug'
+import { ConfiguracoesTab } from './ConfiguracoesTab'
 
 type Tab = 'dashboard' | 'categorias' | 'produtos' | 'biblioteca' | 'configuracoes'
 
@@ -277,6 +278,7 @@ interface CatalogProduct {
   catalog_category_id: string | null
   catalog_starting_price: number | null
   catalog_lead_time_days: number | null
+  catalog_promo_price: number | null
 }
 
 function ProdutosTab() {
@@ -291,7 +293,7 @@ function ProdutosTab() {
     enabled: !!companyId,
     queryFn: async () => {
       const { data } = await (supabase.from('products') as any)
-        .select('id, name, category, final_price, is_published_catalog, catalog_category_id, catalog_starting_price, catalog_lead_time_days')
+        .select('id, name, category, final_price, is_published_catalog, catalog_category_id, catalog_starting_price, catalog_lead_time_days, catalog_promo_price')
         .eq('company_id', companyId!)
         .eq('is_active', true)
         .order('name', { ascending: true })
@@ -338,6 +340,20 @@ function ProdutosTab() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['catalogo_produtos', companyId] }),
   })
 
+  const promoMutation = useMutation({
+    mutationFn: async ({ id, promoPrice }: { id: string; promoPrice: number | null }) => {
+      const { error } = await (supabase.from('products') as any)
+        .update({ catalog_promo_price: promoPrice })
+        .eq('id', id)
+      if (error) throw new Error(error.message)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['catalogo_produtos', companyId] })
+      toast('success', 'Preço promocional atualizado!')
+    },
+    onError: (err: Error) => toast('error', err.message),
+  })
+
   const filtered = (products ?? []).filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
   const publishedCount = (products ?? []).filter(p => p.is_published_catalog).length
 
@@ -362,6 +378,20 @@ function ProdutosTab() {
               <div className="flex-1 min-w-[160px]">
                 <p className="text-sm font-medium text-text-primary dark:text-stone-100">{p.name}</p>
                 <p className="text-xs text-text-muted">{formatCurrency(p.catalog_starting_price ?? p.final_price)}</p>
+              </div>
+              <div className="w-32">
+                <input
+                  type="number" step="0.01" min="0"
+                  className="input text-xs py-1.5"
+                  placeholder="Preço promo."
+                  defaultValue={p.catalog_promo_price ?? ''}
+                  onBlur={e => {
+                    const raw = e.target.value.trim()
+                    const promoPrice = raw === '' ? null : Number(raw)
+                    if (promoPrice === (p.catalog_promo_price ?? null)) return
+                    promoMutation.mutate({ id: p.id, promoPrice })
+                  }}
+                />
               </div>
               <select
                 className="input text-xs py-1.5 w-40"
@@ -509,150 +539,3 @@ function BibliotecaTab() {
   )
 }
 
-/* ═══════════════════════════ CONFIGURAÇÕES ═══════════════════════════ */
-
-interface CatalogSettings {
-  slug: string; logo_url: string | null; banner_url: string | null; description: string | null
-  whatsapp: string | null; instagram: string | null; facebook: string | null; address: string | null
-  theme_color: string; checkout_mode: 'buy' | 'quote'; policies_text: string | null
-}
-
-function ConfiguracoesTab() {
-  const supabase = createClient()
-  const { companyId } = useCompanyId()
-  const { toast } = useToast()
-  const queryClient = useQueryClient()
-  const [form, setForm] = useState<CatalogSettings | null>(null)
-
-  const { data, isLoading } = useQuery<CatalogSettings | null>({
-    queryKey: ['catalog_settings', companyId],
-    enabled: !!companyId,
-    queryFn: async () => {
-      const { data } = await (supabase.from('catalog_settings') as any)
-        .select('slug, logo_url, banner_url, description, whatsapp, instagram, facebook, address, theme_color, checkout_mode, policies_text')
-        .eq('company_id', companyId!)
-        .maybeSingle()
-      if (data) return data
-      return {
-        slug: '', logo_url: null, banner_url: null, description: null,
-        whatsapp: null, instagram: null, facebook: null, address: null,
-        theme_color: '#8B6C4F', checkout_mode: 'quote', policies_text: null,
-      }
-    },
-  })
-
-  const current = form ?? data ?? null
-
-  const saveMutation = useMutation({
-    mutationFn: async (settings: CatalogSettings) => {
-      if (!settings.slug.trim()) throw new Error('Informe o endereço (slug) da loja')
-      const { error } = await (supabase.from('catalog_settings') as any)
-        .upsert([{ company_id: companyId, ...settings, slug: toSlug(settings.slug) }], { onConflict: 'company_id' })
-      if (error) throw new Error(error.message.includes('duplicate') ? 'Esse endereço já está em uso por outra loja' : error.message)
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['catalog_settings', companyId] })
-      toast('success', 'Configurações salvas!')
-    },
-    onError: (err: Error) => toast('error', err.message),
-  })
-
-  async function uploadImage(file: File, context: 'logo' | 'banner') {
-    const body = new FormData()
-    body.append('file', file)
-    body.append('context', context)
-    const res = await fetch('/api/catalogo/upload', { method: 'POST', body })
-    const json = await res.json()
-    if (!res.ok) { toast('error', json.error ?? 'Erro ao enviar imagem'); return }
-    setForm({ ...(current as CatalogSettings), [context === 'logo' ? 'logo_url' : 'banner_url']: json.url })
-  }
-
-  if (isLoading || !current) return <div className="py-8 text-center text-text-muted text-sm">Carregando…</div>
-
-  return (
-    <form onSubmit={e => { e.preventDefault(); saveMutation.mutate(current) }} className="space-y-4">
-      <div className="card p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Endereço da loja</h3>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-text-muted whitespace-nowrap">precyplus.com.br/loja/</span>
-          <input
-            className="input flex-1"
-            placeholder="minha-loja"
-            value={current.slug}
-            onChange={e => setForm({ ...current, slug: e.target.value })}
-          />
-        </div>
-        {current.slug && (
-          <a href={`/loja/${toSlug(current.slug)}`} target="_blank" rel="noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-            Ver loja <ExternalLink size={12} />
-          </a>
-        )}
-      </div>
-
-      <div className="card p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Identidade visual</h3>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs text-text-muted mb-1 block">Logo</label>
-            {current.logo_url && <img src={current.logo_url} alt="Logo" className="w-16 h-16 rounded-lg object-cover mb-2" />}
-            <input type="file" accept="image/*" onChange={e => e.target.files?.[0] && uploadImage(e.target.files[0], 'logo')} className="text-xs" />
-          </div>
-          <div>
-            <label className="text-xs text-text-muted mb-1 block">Banner</label>
-            {current.banner_url && <img src={current.banner_url} alt="Banner" className="w-full h-16 rounded-lg object-cover mb-2" />}
-            <input type="file" accept="image/*" onChange={e => e.target.files?.[0] && uploadImage(e.target.files[0], 'banner')} className="text-xs" />
-          </div>
-        </div>
-        <div>
-          <label className="text-xs text-text-muted mb-1 block">Cor do tema</label>
-          <input type="color" value={current.theme_color} onChange={e => setForm({ ...current, theme_color: e.target.value })} className="h-9 w-16 rounded-lg border border-border dark:border-border-dark" />
-        </div>
-        <div>
-          <label className="text-xs text-text-muted mb-1 block">Descrição da loja</label>
-          <textarea className="input" rows={2} value={current.description ?? ''} onChange={e => setForm({ ...current, description: e.target.value })} />
-        </div>
-      </div>
-
-      <div className="card p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Contato e redes sociais</h3>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <input className="input" placeholder="WhatsApp" value={current.whatsapp ?? ''} onChange={e => setForm({ ...current, whatsapp: e.target.value })} />
-          <input className="input" placeholder="Instagram" value={current.instagram ?? ''} onChange={e => setForm({ ...current, instagram: e.target.value })} />
-          <input className="input" placeholder="Facebook" value={current.facebook ?? ''} onChange={e => setForm({ ...current, facebook: e.target.value })} />
-          <input className="input" placeholder="Endereço" value={current.address ?? ''} onChange={e => setForm({ ...current, address: e.target.value })} />
-        </div>
-      </div>
-
-      <div className="card p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Modo de compra padrão</h3>
-        <div className="flex gap-2">
-          {(['buy', 'quote'] as const).map(mode => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => setForm({ ...current, checkout_mode: mode })}
-              className={clsx(
-                'px-3 py-2 rounded-lg text-sm font-medium border',
-                current.checkout_mode === mode
-                  ? 'bg-primary text-white border-primary'
-                  : 'border-border dark:border-border-dark text-text-secondary dark:text-stone-400'
-              )}
-            >
-              {mode === 'buy' ? 'Comprar (checkout)' : 'Solicitar orçamento'}
-            </button>
-          ))}
-        </div>
-        <div>
-          <label className="text-xs text-text-muted mb-1 block">Políticas (trocas, entrega, etc.)</label>
-          <textarea className="input" rows={3} value={current.policies_text ?? ''} onChange={e => setForm({ ...current, policies_text: e.target.value })} />
-        </div>
-      </div>
-
-      <button type="submit" disabled={saveMutation.isPending} className="btn-primary">
-        {saveMutation.isPending ? <Loader2 size={15} className="animate-spin" /> : <Store size={15} />}
-        Salvar configurações
-      </button>
-    </form>
-  )
-}
