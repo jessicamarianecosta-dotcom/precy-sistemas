@@ -11,9 +11,9 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { clsx } from 'clsx'
 import {
   Plus, X, Trash2, Loader2, TrendingUp, TrendingDown,
-  DollarSign, ArrowUpRight, ArrowDownRight, Search,
+  DollarSign, ArrowUpRight, ArrowDownRight,
   Filter, Edit3, CheckCircle, Clock, AlertTriangle,
-  Calendar, Tag, User, ShoppingCart, FileText,
+  Tag, User, ShoppingCart, FileText,
   Eye, Wallet, HandCoins, Layers, RefreshCw, CreditCard,
   Truck, ChevronDown, UserCog,
 } from 'lucide-react'
@@ -21,6 +21,9 @@ import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isToday, pars
 import { ptBR } from 'date-fns/locale'
 import { formatCurrency } from '@/lib/utils/format'
 import { nextDueFrom } from '@/lib/utils/recurring'
+import { useFinanceFilters, type FinanceFilters } from './useFinanceFilters'
+import { FinanceToolbar } from '@/components/finance/FinanceToolbar'
+import type { FinanceFilterOption, FinanceFilterGroup } from '@/components/finance/FinanceFilterSelect'
 
 /* ─── Types ─── */
 interface Transaction {
@@ -70,8 +73,6 @@ interface Supplier {
   is_active: boolean
 }
 
-type Period = 'all' | 'today' | 'week' | 'month' | 'last_month' | 'next_month' | 'custom'
-type TypeFilter = 'all' | 'income' | 'expense'
 
 type PaymentMethod = 'pix' | 'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'transferencia' | 'boleto' | 'outro'
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
@@ -147,6 +148,58 @@ function fmt(v: number) {
   return formatCurrency(v)
 }
 
+/** Aplica todos os filtros da toolbar a um lançamento. `skipType` ignora o filtro de Tipo — usado para os contadores "Receitas (N)"/"Despesas (N)". */
+function transactionMatchesFilters(t: Transaction, f: FinanceFilters, opts?: { skipType?: boolean }): boolean {
+  if (f.period !== 'all') {
+    const now = new Date()
+    const d = parseISO(t.date)
+    if (f.period === 'today'      && !isToday(d)) return false
+    if (f.period === 'week'       && d < startOfWeek(now, { locale: ptBR })) return false
+    if (f.period === 'month'      && (d < startOfMonth(now) || d > endOfMonth(now))) return false
+    if (f.period === 'last_month') {
+      const lm = subMonths(now, 1)
+      if (d < startOfMonth(lm) || d > endOfMonth(lm)) return false
+    }
+    if (f.period === 'next_month') {
+      const nm = addMonths(now, 1)
+      if (d < startOfMonth(nm) || d > endOfMonth(nm)) return false
+    }
+    if (f.period === 'custom' && f.customStart && f.customEnd) {
+      const start = parseISO(f.customStart)
+      const end   = parseISO(f.customEnd)
+      if (d < start || d > end) return false
+    }
+  }
+  if (!opts?.skipType && f.typeFilter !== 'all' && t.type !== f.typeFilter) return false
+  if (f.costCenterFilter !== 'all' && t.cost_center_id !== f.costCenterFilter) return false
+  if (f.supplierFilter !== 'all') {
+    if (f.supplierFilter.startsWith('id:')) {
+      if (t.supplier_id !== f.supplierFilter.slice(3)) return false
+    } else if (f.supplierFilter.startsWith('name:')) {
+      if (t.supplier_id || t.supplier_name !== f.supplierFilter.slice(5)) return false
+    }
+  }
+  if (f.category !== 'all' && t.category !== f.category) return false
+  if (f.status !== 'all' && t.status !== f.status) return false
+  if (f.paymentMethod !== 'all' && t.payment_method !== f.paymentMethod) return false
+  if (f.client.trim() && !(t.client_name ?? '').toLowerCase().includes(f.client.trim().toLowerCase())) return false
+  if (f.amountMin !== '' && Number(t.amount) < Number(f.amountMin)) return false
+  if (f.amountMax !== '' && Number(t.amount) > Number(f.amountMax)) return false
+  if (f.installmentOnly && !t.expense_group_id && !(t.installments && t.installments > 1)) return false
+  if (f.search.trim()) {
+    const q = f.search.trim().toLowerCase()
+    const matches = (
+      (t.description ?? '').toLowerCase().includes(q) ||
+      (t.category ?? '').toLowerCase().includes(q) ||
+      (t.client_name ?? '').toLowerCase().includes(q) ||
+      (t.supplier_name ?? '').toLowerCase().includes(q) ||
+      String(t.amount).includes(q)
+    )
+    if (!matches) return false
+  }
+  return true
+}
+
 /* ══════════════════════════════════════════════
    PAGE
 ══════════════════════════════════════════════ */
@@ -156,17 +209,10 @@ export default function FinanceiroPage() {
   const { toast }   = useToast()
   const { companyId } = useCompanyId()
 
+  /* ── Filtros da toolbar (estado único, ver useFinanceFilters.ts) ── */
+  const { filters, setFilters, resetFilters, resetAdvancedFilters, isAnyFilterActive, advancedActiveCount } = useFinanceFilters()
+
   /* ── UI state ── */
-  const [period,      setPeriod]     = useState<Period>('month')
-  const [customStart, setCustomStart] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'))
-  const [customEnd,   setCustomEnd]   = useState(format(endOfMonth(new Date()),   'yyyy-MM-dd'))
-  const [showCustom,  setShowCustom]  = useState(false)
-  const [calViewDate, setCalViewDate] = useState(new Date())
-  const [pickStep,    setPickStep]    = useState<'start'|'end'>('start')
-  const [typeFilter,  setTypeFilter] = useState<TypeFilter>('all')
-  const [costCenterFilter, setCostCenterFilter] = useState<string>('all')
-  const [supplierFilter, setSupplierFilter] = useState<string>('all')
-  const [search,      setSearch]     = useState('')
   const [showModal,   setShowModal]  = useState(false)
   const [editTx,      setEditTx]     = useState<Transaction | null>(null)
   const [deleteId,    setDeleteId]   = useState<string | null>(null)
@@ -321,50 +367,19 @@ export default function FinanceiroPage() {
   })
 
   /* ── Filtered ── */
-  const filtered = useMemo(() => {
-    const now = new Date()
-    return (transactions ?? []).filter(t => {
-      if (period !== 'all') {
-        const d = parseISO(t.date)
-        if (period === 'today'      && !isToday(d)) return false
-        if (period === 'week'       && d < startOfWeek(now, { locale: ptBR })) return false
-        if (period === 'month'      && (d < startOfMonth(now) || d > endOfMonth(now))) return false
-        if (period === 'last_month') {
-          const lm = subMonths(now, 1)
-          if (d < startOfMonth(lm) || d > endOfMonth(lm)) return false
-        }
-        if (period === 'next_month') {
-          const nm = addMonths(now, 1)
-          if (d < startOfMonth(nm) || d > endOfMonth(nm)) return false
-        }
-        if (period === 'custom' && customStart && customEnd) {
-          const start = parseISO(customStart)
-          const end   = parseISO(customEnd)
-          if (d < start || d > end) return false
-        }
-      }
-      if (typeFilter !== 'all' && t.type !== typeFilter) return false
-      if (costCenterFilter !== 'all' && t.cost_center_id !== costCenterFilter) return false
-      if (supplierFilter !== 'all') {
-        if (supplierFilter.startsWith('id:')) {
-          if (t.supplier_id !== supplierFilter.slice(3)) return false
-        } else if (supplierFilter.startsWith('name:')) {
-          if (t.supplier_id || t.supplier_name !== supplierFilter.slice(5)) return false
-        }
-      }
-      if (search.trim()) {
-        const q = search.toLowerCase()
-        return (
-          (t.description ?? '').toLowerCase().includes(q) ||
-          (t.category ?? '').toLowerCase().includes(q) ||
-          (t.client_name ?? '').toLowerCase().includes(q) ||
-          (t.supplier_name ?? '').toLowerCase().includes(q) ||
-          String(t.amount).includes(q)
-        )
-      }
-      return true
-    })
-  }, [transactions, period, typeFilter, costCenterFilter, supplierFilter, search, customStart, customEnd])
+  const filtered = useMemo(
+    () => (transactions ?? []).filter(t => transactionMatchesFilters(t, filters)),
+    [transactions, filters]
+  )
+
+  /* Contagem de receitas/despesas sob os DEMAIS filtros ativos (para os chips "Receitas (N)"/"Despesas (N)") */
+  const typeCounts = useMemo(() => {
+    const base = (transactions ?? []).filter(t => transactionMatchesFilters(t, filters, { skipType: true }))
+    return {
+      income:  base.filter(t => t.type === 'income').length,
+      expense: base.filter(t => t.type === 'expense').length,
+    }
+  }, [transactions, filters])
 
   /* Nomes de fornecedores informados manualmente (para o filtro) */
   const manualSupplierNames = useMemo(() => {
@@ -374,6 +389,41 @@ export default function FinanceiroPage() {
     })
     return Array.from(names).sort()
   }, [transactions])
+
+  /* ── Opções para a toolbar (FinanceToolbar/FinanceAdvancedFilters) ── */
+  const costCenterOptions: FinanceFilterOption[] = useMemo(
+    () => (costCenters ?? []).map(c => ({ value: c.id, label: `${c.icon} ${c.name}` })),
+    [costCenters]
+  )
+
+  const supplierGroups: FinanceFilterGroup[] = useMemo(() => {
+    const groups: FinanceFilterGroup[] = []
+    if ((suppliers ?? []).length > 0) {
+      groups.push({ label: 'Cadastrados', options: (suppliers ?? []).map(s => ({ value: `id:${s.id}`, label: s.name })) })
+    }
+    if (manualSupplierNames.length > 0) {
+      groups.push({ label: 'Informados manualmente', options: manualSupplierNames.map(name => ({ value: `name:${name}`, label: name })) })
+    }
+    return groups
+  }, [suppliers, manualSupplierNames])
+
+  const categoryOptions: FinanceFilterOption[] = useMemo(() => {
+    const seen = new Set<string>()
+    return ALL_CATS.filter(c => (seen.has(c.value) ? false : (seen.add(c.value), true)))
+      .map(c => ({ value: c.value, label: c.label }))
+  }, [])
+
+  const statusFilterOptions: FinanceFilterOption[] = useMemo(() => {
+    const seen = new Set<string>()
+    return [...STATUS_INCOME, ...STATUS_EXPENSE]
+      .filter(s => (seen.has(s.value) ? false : (seen.add(s.value), true)))
+      .map(s => ({ value: s.value, label: s.label }))
+  }, [])
+
+  const paymentMethodOptions: FinanceFilterOption[] = useMemo(
+    () => PAYMENT_METHODS.map(m => ({ value: m.value, label: m.label })),
+    []
+  )
 
   /* ── Computed stats ── */
   const stats = useMemo(() => {
@@ -796,7 +846,7 @@ export default function FinanceiroPage() {
             <div className="flex items-start justify-between mb-3">
               <div>
                 <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">
-                  Saldo {period === 'all' ? 'geral' : period === 'month' ? 'do mês' : period === 'next_month' ? 'próx. mês' : period === 'last_month' ? 'mês ant.' : period === 'week' ? 'da semana' : period === 'today' ? 'de hoje' : 'do período'}
+                  Saldo {filters.period === 'all' ? 'geral' : filters.period === 'month' ? 'do mês' : filters.period === 'next_month' ? 'próx. mês' : filters.period === 'last_month' ? 'mês ant.' : filters.period === 'week' ? 'da semana' : filters.period === 'today' ? 'de hoje' : 'do período'}
                 </p>
                 <p className={clsx('text-2xl font-bold mt-1', stats.monthBal >= 0 ? 'text-primary' : 'text-error dark:text-red-400')}>
                   {fmt(stats.monthBal)}
@@ -831,7 +881,7 @@ export default function FinanceiroPage() {
             <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider mb-3">Despesas por Centro de Custo</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
               {costCenterTotals.map(c => (
-                <button key={c.id} type="button" onClick={() => setCostCenterFilter(c.id)}
+                <button key={c.id} type="button" onClick={() => setFilters({ costCenterFilter: c.id })}
                   className="rounded-xl border border-border dark:border-border-dark p-3 text-left hover:border-primary/40 transition-colors">
                   <p className="text-[11px] font-medium text-text-muted dark:text-stone-400 truncate">{c.icon} {c.name}</p>
                   <p className="text-sm font-bold text-error dark:text-red-400 mt-0.5">{fmt(c.total)}</p>
@@ -842,266 +892,21 @@ export default function FinanceiroPage() {
         )}
 
         {/* ── TOOLBAR ── */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          {/* Search */}
-          <div className="relative flex-1 min-w-0">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-            <input className="input pl-9 text-sm" placeholder="Buscar por descrição, cliente, categoria..."
-              value={search} onChange={e => setSearch(e.target.value)} />
-          </div>
-
-          {/* Period filter */}
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-primary-50 dark:bg-white/[0.04] flex-shrink-0 flex-wrap">
-            {([['all','Todos'],['month','Mês atual'],['next_month','Próx. mês'],['last_month','Mês ant.'],['week','Semana'],['today','Hoje']] as const).map(([k,l]) => (
-              <button key={k} onClick={() => { setPeriod(k); setShowCustom(false) }}
-                className={clsx('px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all whitespace-nowrap',
-                  period === k ? 'bg-white dark:bg-surface-dark text-primary shadow-sm' : 'text-text-muted dark:text-stone-500 hover:text-text-primary')}>
-                {l}
-              </button>
-            ))}
-            {/* Personalizado */}
-            <div className="relative">
-              <button
-                onClick={() => { setPeriod('custom'); setShowCustom(s => !s) }}
-                className={clsx('px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1 whitespace-nowrap',
-                  period === 'custom'
-                    ? 'bg-white dark:bg-surface-dark text-primary shadow-sm'
-                    : 'text-text-muted dark:text-stone-500 hover:text-text-primary'
-                )}
-              >
-                <Calendar size={11} />
-                {period === 'custom'
-                  ? `${customStart.split('-').reverse().slice(0,2).join('/')} → ${customEnd.split('-').reverse().slice(0,2).join('/')}`
-                  : 'Personalizado'
-                }
-              </button>
-
-              {showCustom && (
-                <div className="fixed sm:absolute inset-x-0 sm:inset-x-auto bottom-0 sm:bottom-auto top-auto sm:top-full sm:right-0 mt-0 sm:mt-2 z-[60] sm:animate-scaleIn px-3 sm:px-0 pb-4 sm:pb-0">
-                  <div className="fixed inset-0 bg-black/40 sm:hidden" onClick={() => setShowCustom(false)} />
-                  <div className="relative bg-white dark:bg-[#1C1714] rounded-t-2xl sm:rounded-2xl border-t sm:border border-border dark:border-stone-800 shadow-[0_-8px_32px_rgba(0,0,0,0.3)] sm:shadow-[0_8px_32px_rgba(0,0,0,0.4)] p-4 space-y-3 sm:w-[320px]">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-bold text-text-primary dark:text-stone-100">Período personalizado</p>
-                      <button onClick={() => setShowCustom(false)}
-                        className="p-1 rounded-lg text-text-muted hover:text-text-primary dark:hover:text-stone-300 hover:bg-primary-50 dark:hover:bg-white/5 transition-colors">
-                        <X size={13} />
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        { label: 'De', value: customStart, active: pickStep === 'start' },
-                        { label: 'Até', value: customEnd, active: pickStep === 'end' },
-                      ].map(f => (
-                        <button key={f.label} type="button"
-                          onClick={() => setPickStep(f.label === 'De' ? 'start' : 'end')}
-                          className={clsx(
-                            'flex flex-col items-start px-3 py-2 rounded-xl border text-left transition-all',
-                            f.active
-                              ? 'border-primary bg-primary-50 dark:bg-primary/10'
-                              : 'border-border dark:border-stone-700 hover:border-primary/50'
-                          )}
-                        >
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-text-muted dark:text-stone-500">{f.label}</span>
-                          <span className="text-sm font-semibold text-text-primary dark:text-stone-100 mt-0.5">
-                            {f.value ? f.value.split('-').reverse().join('/') : '—'}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Calendário */}
-                    {(() => {
-                      const year  = calViewDate.getFullYear()
-                      const month = calViewDate.getMonth()
-                      const firstDay    = new Date(year, month, 1)
-                      const daysInMonth = getDaysInMonth(firstDay)
-                      const startWday   = getDay(firstDay)
-                      const today = format(new Date(), 'yyyy-MM-dd')
-
-                      const cells: (number|null)[] = [
-                        ...Array(startWday).fill(null),
-                        ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-                      ]
-                      while (cells.length % 7 !== 0) cells.push(null)
-
-                      return (
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <button
-                              onClick={() => setCalViewDate(d => subMonths(d, 1))}
-                              className="w-7 h-7 rounded-lg flex items-center justify-center text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-primary/10 transition-colors text-sm font-bold">
-                              ‹
-                            </button>
-                            <div className="flex items-center gap-1.5">
-                              <select
-                                value={month}
-                                onChange={e => setCalViewDate(d => new Date(d.getFullYear(), Number(e.target.value), 1))}
-                                className="text-xs font-bold text-text-primary dark:text-stone-100 bg-transparent border-none outline-none cursor-pointer hover:text-primary transition-colors capitalize"
-                              >
-                                {Array.from({ length: 12 }, (_, i) => (
-                                  <option key={i} value={i} className="bg-white dark:bg-stone-900">
-                                    {format(new Date(2000, i, 1), 'MMMM', { locale: ptBR })}
-                                  </option>
-                                ))}
-                              </select>
-                              <select
-                                value={year}
-                                onChange={e => setCalViewDate(d => new Date(Number(e.target.value), d.getMonth(), 1))}
-                                className="text-xs font-bold text-text-primary dark:text-stone-100 bg-transparent border-none outline-none cursor-pointer hover:text-primary transition-colors"
-                              >
-                                {Array.from({ length: 12 }, (_, i) => {
-                                  const y = new Date().getFullYear() - 2 + i
-                                  return <option key={y} value={y} className="bg-white dark:bg-stone-900">{y}</option>
-                                })}
-                              </select>
-                            </div>
-                            <button
-                              onClick={() => setCalViewDate(d => addMonths(d, 1))}
-                              className="w-7 h-7 rounded-lg flex items-center justify-center text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-primary/10 transition-colors text-sm font-bold">
-                              ›
-                            </button>
-                          </div>
-
-                          <div className="grid grid-cols-7 mb-1">
-                            {['D','S','T','Q','Q','S','S'].map((d,i) => (
-                              <div key={i} className="text-center text-[9px] font-bold text-text-muted dark:text-stone-600 uppercase py-0.5">{d}</div>
-                            ))}
-                          </div>
-
-                          <div className="grid grid-cols-7 gap-px">
-                            {cells.map((day, idx) => {
-                              if (!day) return <div key={idx} />
-                              const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`
-                              const isStart = dateStr === customStart
-                              const isEnd   = dateStr === customEnd
-                              const inRange = customStart && customEnd && dateStr > customStart && dateStr < customEnd
-                              const isNow   = dateStr === today
-                              return (
-                                <button
-                                  key={idx}
-                                  type="button"
-                                  onClick={() => {
-                                    if (pickStep === 'start') {
-                                      setCustomStart(dateStr)
-                                      if (dateStr > customEnd) setCustomEnd(dateStr)
-                                      setPickStep('end')
-                                    } else {
-                                      if (dateStr < customStart) {
-                                        setCustomEnd(customStart)
-                                        setCustomStart(dateStr)
-                                      } else {
-                                        setCustomEnd(dateStr)
-                                      }
-                                      setPickStep('start')
-                                    }
-                                  }}
-                                  className={clsx(
-                                    'h-7 w-full rounded-lg text-[11px] font-medium transition-all',
-                                    isStart || isEnd
-                                      ? 'bg-primary text-white font-bold shadow-sm'
-                                      : inRange
-                                        ? 'bg-primary-50 dark:bg-primary/15 text-primary'
-                                        : isNow
-                                          ? 'ring-1 ring-primary text-primary'
-                                          : 'text-text-primary dark:text-stone-200 hover:bg-primary-50 dark:hover:bg-primary/10 hover:text-primary'
-                                  )}
-                                >
-                                  {day}
-                                </button>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )
-                    })()}
-
-                    {/* Atalhos rápidos */}
-                    <div>
-                      <p className="text-[10px] font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider mb-1.5">Atalhos</p>
-                      <div className="flex flex-wrap gap-1">
-                        {[
-                          { label: 'Este mês',    start: format(startOfMonth(new Date()), 'yyyy-MM-dd'), end: format(endOfMonth(new Date()), 'yyyy-MM-dd') },
-                          { label: 'Próx. mês',   start: format(startOfMonth(addMonths(new Date(),1)), 'yyyy-MM-dd'), end: format(endOfMonth(addMonths(new Date(),1)), 'yyyy-MM-dd') },
-                          { label: 'Mês passado', start: format(startOfMonth(subMonths(new Date(),1)), 'yyyy-MM-dd'), end: format(endOfMonth(subMonths(new Date(),1)), 'yyyy-MM-dd') },
-                          { label: 'Últimos 30d', start: format(subMonths(new Date(),1), 'yyyy-MM-dd'), end: format(new Date(), 'yyyy-MM-dd') },
-                          { label: 'Próx. 3m',    start: format(new Date(), 'yyyy-MM-dd'), end: format(endOfMonth(addMonths(new Date(),2)), 'yyyy-MM-dd') },
-                          { label: 'Este ano',    start: `${new Date().getFullYear()}-01-01`, end: `${new Date().getFullYear()}-12-31` },
-                        ].map(s => (
-                          <button key={s.label} type="button"
-                            onClick={() => {
-                              setCustomStart(s.start); setCustomEnd(s.end)
-                              setCalViewDate(parseISO(s.start))
-                            }}
-                            className="text-[10px] font-medium px-2 py-1 rounded-lg border border-border dark:border-stone-700 text-text-muted dark:text-stone-400 hover:border-primary hover:text-primary transition-all whitespace-nowrap">
-                            {s.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2 pt-1">
-                      <button onClick={() => { setShowCustom(false); setPeriod('all') }}
-                        className="btn-secondary flex-1 text-xs py-2">Limpar</button>
-                      <button onClick={() => setShowCustom(false)}
-                        className="btn-primary flex-1 text-xs py-2">Aplicar</button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Type filter */}
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-primary-50 dark:bg-white/[0.04] flex-shrink-0">
-            {([['all','Todos'],['income','Receitas'],['expense','Despesas']] as const).map(([k,l]) => (
-              <button key={k} onClick={() => setTypeFilter(k)}
-                className={clsx('px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all',
-                  typeFilter === k ? 'bg-white dark:bg-surface-dark text-primary shadow-sm' : 'text-text-muted dark:text-stone-500 hover:text-text-primary')}>
-                {l}
-              </button>
-            ))}
-          </div>
-
-          {/* Centro de Custo filter */}
-          <select
-            className="input text-xs py-2 flex-shrink-0 w-auto max-w-[160px]"
-            value={costCenterFilter}
-            onChange={e => setCostCenterFilter(e.target.value)}
-          >
-            <option value="all">Todos os centros</option>
-            {(costCenters ?? []).map(c => (
-              <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
-            ))}
-          </select>
-
-          {/* Fornecedor filter */}
-          <select
-            className="input text-xs py-2 flex-shrink-0 w-auto max-w-[160px]"
-            value={supplierFilter}
-            onChange={e => setSupplierFilter(e.target.value)}
-          >
-            <option value="all">Todos os fornecedores</option>
-            {(suppliers ?? []).length > 0 && (
-              <optgroup label="Cadastrados">
-                {(suppliers ?? []).map(s => (
-                  <option key={s.id} value={`id:${s.id}`}>{s.name}</option>
-                ))}
-              </optgroup>
-            )}
-            {manualSupplierNames.length > 0 && (
-              <optgroup label="Informados manualmente">
-                {manualSupplierNames.map(name => (
-                  <option key={name} value={`name:${name}`}>{name}</option>
-                ))}
-              </optgroup>
-            )}
-          </select>
-
-          <button onClick={openNew} className="btn-primary flex items-center gap-1.5 text-sm px-4 flex-shrink-0">
-            <Plus size={15} /> Novo lançamento
-          </button>
-        </div>
+        <FinanceToolbar
+          filters={filters}
+          setFilters={setFilters}
+          resetFilters={resetFilters}
+          resetAdvancedFilters={resetAdvancedFilters}
+          isAnyFilterActive={isAnyFilterActive}
+          advancedActiveCount={advancedActiveCount}
+          costCenterOptions={costCenterOptions}
+          supplierGroups={supplierGroups}
+          categoryOptions={categoryOptions}
+          statusOptions={statusFilterOptions}
+          paymentMethodOptions={paymentMethodOptions}
+          typeCounts={typeCounts}
+          onNewTransaction={openNew}
+        />
 
         {/* ── TABELA / LISTA ── */}
         <div className="card p-0 overflow-hidden">
