@@ -42,7 +42,7 @@ export function BrandIdentityCard({ value, onChange }: SettingsCardProps) {
             maxSizeMb={5}
             previewAspect="aspect-[3.84/1]"
             showSafeArea
-            helpText="As laterais poderão ser cortadas em celulares. Evite textos importantes nas extremidades — prefira imagens leves e de alta qualidade."
+            helpText="As informações da loja serão exibidas nesta região. Evite colocar textos importantes atrás do logo ou na parte inferior do banner — um overlay escuro é aplicado automaticamente para garantir a leitura, mas prefira imagens leves e de alta qualidade."
           />
         </div>
       </div>

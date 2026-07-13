@@ -122,7 +122,13 @@ export function ImageUploadField({
         )}
 
         {showSafeArea && !progress && (
-          <div className="absolute inset-y-0 left-[10%] right-[10%] border-x-2 border-dashed border-white/70 pointer-events-none" />
+          <div className="absolute inset-0 pointer-events-none">
+            {/* Mesmo overlay em gradiente da loja real, para mostrar onde o contraste é mais forte */}
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(0,0,0,.15) 0%, rgba(0,0,0,.55) 45%, rgba(0,0,0,.75) 100%)' }} />
+            <div className="absolute left-[4%] right-[35%] sm:right-[55%] bottom-[8%] top-[20%] rounded-xl border-2 border-dashed border-white/80 flex items-end justify-start p-1.5">
+              <span className="text-[9px] sm:text-[10px] font-semibold text-white bg-black/50 px-1.5 py-0.5 rounded">Área da loja</span>
+            </div>
+          </div>
         )}
 
         {progress !== null && (
