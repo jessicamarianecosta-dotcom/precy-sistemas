@@ -95,12 +95,12 @@ export default function LojaPage() {
 
   return (
     <div className="min-h-screen bg-background dark:bg-background-dark flex flex-col">
-      <StoreHero settings={settings} storeName={storeName} />
+      <StoreHero settings={settings} storeName={storeName} categories={categories} />
 
       <div className="max-w-6xl mx-auto px-4 -mt-5 relative z-10 w-full flex-1">
         <div className="flex items-start gap-3 mb-5">
           <div className="flex-1">
-            <StoreInfoBar settings={settings} productCount={(products ?? []).length} categoryCount={(categories ?? []).length} />
+            <StoreInfoBar productCount={(products ?? []).length} categoryCount={(categories ?? []).length} />
           </div>
           <button onClick={() => router.push(`/loja/${slug}/checkout`)} className="btn-primary relative h-[52px] flex-shrink-0">
             <ShoppingBag size={18} />
