@@ -51,6 +51,7 @@ export function VariationsEditor({ productId, companyId }: Props) {
   const [copyTargetId, setCopyTargetId] = useState<string>('')
   const [imageUploadProgress, setImageUploadProgress] = useState<number | null>(null)
   const [imageUploadError, setImageUploadError] = useState<string | null>(null)
+  const [confirmDuplicate, setConfirmDuplicate] = useState(false)
   const imageInputRef = useRef<HTMLInputElement>(null)
 
   const groupsQuery = useQuery<GroupRow[]>({
@@ -192,7 +193,7 @@ export function VariationsEditor({ productId, companyId }: Props) {
       const { error: valErr } = await (supabase.from('product_variant_option_values') as any).insert(rows)
       if (valErr) throw valErr
     },
-    onSuccess: () => { invalidateVariants(); setVariantForm(null); setError(null) },
+    onSuccess: () => { invalidateVariants(); setVariantForm(null); setConfirmDuplicate(false); setError(null) },
     onError: (err: Error) => setError(err.message),
   })
 
@@ -293,7 +294,14 @@ export function VariationsEditor({ productId, companyId }: Props) {
     if (confirm(msg)) removeGroupMutation.mutate(id)
   }
 
+  function closeVariantForm() {
+    setVariantForm(null)
+    setConfirmDuplicate(false)
+    setError(null)
+  }
+
   function openNewVariantForm() {
+    setConfirmDuplicate(false)
     setVariantForm({
       selection: Object.fromEntries(groupsSorted.map(g => [g.id, g.options[0]?.id ?? ''])),
       settings: { price: '', stock_quantity: '', sku: '', lead_time_days: '', weight_kg: '', image_id: '' },
@@ -301,6 +309,7 @@ export function VariationsEditor({ productId, companyId }: Props) {
   }
 
   function openDuplicateForm(v: VariantRow) {
+    setConfirmDuplicate(false)
     setVariantForm({
       selection: Object.fromEntries(groupsSorted.map((g, idx) => [g.id, v.optionIds[idx] ?? g.options[0]?.id ?? ''])),
       settings: {
@@ -319,9 +328,18 @@ export function VariationsEditor({ productId, companyId }: Props) {
     }
     const optionIds = groupsSorted.map(g => variantForm.selection[g.id])
     if (existingCombos.has(comboKey(optionIds))) {
-      setError('Essa combinação já existe.')
+      // Nunca bloqueia — combinações "iguais" na seleção de opções podem ter
+      // preço/condição diferentes de propósito (promoção, cliente específico
+      // etc.), então só confirma antes de criar mesmo assim.
+      setConfirmDuplicate(true)
       return
     }
+    createVariantMutation.mutate(variantForm)
+  }
+
+  function forceSubmitVariantForm() {
+    if (!variantForm) return
+    setConfirmDuplicate(false)
     createVariantMutation.mutate(variantForm)
   }
 
@@ -505,13 +523,14 @@ export function VariationsEditor({ productId, companyId }: Props) {
           existingCombos={existingCombos}
           onClose={() => setShowWizard(false)}
           onGenerate={combos => bulkGenerateMutation.mutateAsync(combos)}
+          onOpenManualForm={() => { setShowWizard(false); openNewVariantForm() }}
         />
       )}
 
       {/* Formulário de combinação manual / duplicar */}
       {variantForm && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setVariantForm(null)} />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => closeVariantForm()} />
           <div
             className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal flex flex-col overflow-hidden"
             style={{ width: 'min(900px, 95vw)', maxHeight: '90vh' }}
@@ -519,7 +538,7 @@ export function VariationsEditor({ productId, companyId }: Props) {
             {/* Header */}
             <div className="flex items-center justify-between p-5 sm:p-6 border-b border-border dark:border-border-dark flex-shrink-0">
               <h2 className="text-base font-semibold text-text-primary dark:text-stone-100">Nova combinação</h2>
-              <button onClick={() => setVariantForm(null)} className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted flex-shrink-0">
+              <button onClick={() => closeVariantForm()} className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted flex-shrink-0">
                 <X size={16} />
               </button>
             </div>
@@ -669,10 +688,33 @@ export function VariationsEditor({ productId, companyId }: Props) {
 
             {/* Footer — sempre fixo, nunca rola */}
             <div className="flex gap-3 p-5 sm:p-6 border-t border-border dark:border-border-dark flex-shrink-0">
-              <button type="button" onClick={() => setVariantForm(null)} className="btn-secondary flex-1">Cancelar</button>
+              <button type="button" onClick={() => closeVariantForm()} className="btn-secondary flex-1">Cancelar</button>
               <button type="button" disabled={busy} onClick={submitVariantForm}
                 className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50">
                 {busy && <Loader2 size={14} className="animate-spin" />} Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmar criação de combinação duplicada */}
+      {confirmDuplicate && variantForm && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmDuplicate(false)} />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm p-5">
+            <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-2">Já existe uma combinação idêntica</h2>
+            <p className="text-xs text-text-muted dark:text-stone-500 mb-4">
+              Já existe uma combinação com exatamente essas opções ({groupsSorted.map(g => optionValue(g.id, variantForm.selection[g.id])).join(' · ')}).
+              Deseja criar mesmo assim? Útil para promoções, preços especiais ou versões exclusivas.
+            </p>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setConfirmDuplicate(false)} className="btn-secondary flex-1 text-sm py-2">
+                Cancelar
+              </button>
+              <button type="button" disabled={busy} onClick={forceSubmitVariantForm}
+                className="btn-primary flex-1 text-sm py-2 flex items-center justify-center gap-1.5 disabled:opacity-50">
+                {busy && <Loader2 size={13} className="animate-spin" />} Criar mesmo assim
               </button>
             </div>
           </div>

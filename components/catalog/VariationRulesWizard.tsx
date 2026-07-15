@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import { ChevronLeft, ChevronRight, Loader2, X, Sparkles } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, X, Sparkles, Plus } from 'lucide-react'
 import { clsx } from 'clsx'
 import { comboKey, generateValidCombos, type DependencyRow, type GroupRow } from '@/lib/catalog/variationCombos'
 
@@ -14,6 +14,7 @@ interface Props {
   existingCombos: Set<string>
   onClose: () => void
   onGenerate: (combos: string[][]) => Promise<void>
+  onOpenManualForm: () => void
 }
 
 /** parentGroupId escolhido + quais opções-pai habilitam cada opção deste grupo */
@@ -31,7 +32,7 @@ interface GroupConfig {
  * No passo final, gera só as combinações válidas resultantes (nunca apaga
  * combinações já existentes).
  */
-export function VariationRulesWizard({ productId, companyId, groups, existingCombos, onClose, onGenerate }: Props) {
+export function VariationRulesWizard({ productId, companyId, groups, existingCombos, onClose, onGenerate, onOpenManualForm }: Props) {
   const supabase = createClient()
   const qc = useQueryClient()
   const [stepIndex, setStepIndex] = useState(0)
@@ -177,13 +178,23 @@ export function VariationRulesWizard({ productId, companyId, groups, existingCom
         className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-h-[90vh] flex flex-col overflow-hidden"
         style={{ width: 'min(900px, 90vw)' }}
       >
-        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border dark:border-border-dark flex-shrink-0">
+        <div className="flex items-center justify-between gap-3 p-4 sm:p-5 border-b border-border dark:border-border-dark flex-shrink-0">
           <h2 className="text-sm sm:text-base font-semibold text-text-primary dark:text-stone-100 flex items-center gap-2 min-w-0">
             <Sparkles size={16} className="text-primary flex-shrink-0" /> <span className="truncate">Gerenciar combinações</span>
           </h2>
-          <button onClick={onClose} className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted flex-shrink-0">
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              type="button"
+              onClick={onOpenManualForm}
+              className="btn-secondary text-xs sm:text-sm py-1.5 px-3 flex items-center gap-1.5"
+              title="Criar uma combinação manual, sem depender do gerador automático"
+            >
+              <Plus size={14} /> <span className="hidden sm:inline">Nova combinação</span>
+            </button>
+            <button onClick={onClose} className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted">
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
@@ -258,34 +269,52 @@ export function VariationRulesWizard({ productId, companyId, groups, existingCom
             </div>
           ) : isPreviewStep ? (
             <div className="space-y-3">
-              <p className="text-xs sm:text-sm text-text-muted dark:text-stone-500">
-                {newCombos.length === 0
-                  ? 'Nenhuma combinação nova a gerar — todas já existem ou nenhuma regra permite uma combinação nova.'
-                  : `${newCombos.length} combinação(ões) nova(s) serão criadas. Desmarque as que não quiser gerar.`}
-              </p>
-              <div
-                className="grid gap-2.5"
-                style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
-              >
-                {newCombos.map(combo => {
-                  const key = comboKey(combo)
-                  return (
-                    <label key={key} className="flex items-center gap-2.5 text-sm p-3 rounded-xl border border-border dark:border-border-dark">
-                      <input
-                        type="checkbox"
-                        checked={!excluded.has(key)}
-                        onChange={() => setExcluded(prev => {
-                          const next = new Set(prev)
-                          if (next.has(key)) next.delete(key); else next.add(key)
-                          return next
-                        })}
-                        className="w-4 h-4 rounded accent-primary flex-shrink-0"
-                      />
-                      <span className="min-w-0 break-words">{combo.map(optionLabel).join(' · ')}</span>
-                    </label>
-                  )
-                })}
-              </div>
+              {newCombos.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border dark:border-border-dark p-5 text-center space-y-3">
+                  <p className="text-sm font-medium text-text-primary dark:text-stone-100">
+                    Todas as combinações automáticas já foram criadas.
+                  </p>
+                  <p className="text-xs sm:text-sm text-text-muted dark:text-stone-500">
+                    Você ainda pode adicionar combinações manuais clicando em &ldquo;Nova combinação&rdquo;.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={onOpenManualForm}
+                    className="btn-secondary text-xs sm:text-sm py-2 px-4 inline-flex items-center gap-1.5"
+                  >
+                    <Plus size={14} /> Nova combinação
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs sm:text-sm text-text-muted dark:text-stone-500">
+                    {`${newCombos.length} combinação(ões) nova(s) serão criadas. Desmarque as que não quiser gerar.`}
+                  </p>
+                  <div
+                    className="grid gap-2.5"
+                    style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
+                  >
+                    {newCombos.map(combo => {
+                      const key = comboKey(combo)
+                      return (
+                        <label key={key} className="flex items-center gap-2.5 text-sm p-3 rounded-xl border border-border dark:border-border-dark">
+                          <input
+                            type="checkbox"
+                            checked={!excluded.has(key)}
+                            onChange={() => setExcluded(prev => {
+                              const next = new Set(prev)
+                              if (next.has(key)) next.delete(key); else next.add(key)
+                              return next
+                            })}
+                            className="w-4 h-4 rounded accent-primary flex-shrink-0"
+                          />
+                          <span className="min-w-0 break-words">{combo.map(optionLabel).join(' · ')}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
             </div>
           ) : null}
         </div>
