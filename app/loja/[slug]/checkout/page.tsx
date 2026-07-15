@@ -51,7 +51,7 @@ export default function CheckoutLojaPage() {
 
     setSubmitting(true)
     try {
-      let artworkUrl: string | null = null
+      let artwork: { url: string; path: string; fileName: string; fileSize: number; mimeType: string | null } | null = null
       if (artworkFile) {
         const body = new FormData()
         body.append('file', artworkFile)
@@ -59,7 +59,7 @@ export default function CheckoutLojaPage() {
         const res = await fetch('/api/loja/upload-arte', { method: 'POST', body })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error ?? 'Erro ao enviar arte')
-        artworkUrl = data.url
+        artwork = { url: data.url, path: data.path, fileName: data.fileName, fileSize: data.fileSize, mimeType: data.mimeType }
       }
 
       const res = await fetch('/api/loja/checkout', {
@@ -69,7 +69,7 @@ export default function CheckoutLojaPage() {
           items: items.map(i => ({ productId: i.productId, variantId: i.variantId ?? null, quantity: i.quantity })),
           customer,
           shippingPrice: shipping?.price ?? 0,
-          artworkUrl,
+          artwork,
         }),
       })
       const data = await res.json()

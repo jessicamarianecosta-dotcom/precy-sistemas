@@ -68,6 +68,7 @@ import { ptBR } from 'date-fns/locale'
 import { formatCurrency as fmtGlobal } from '@/lib/utils/format'
 import { useSubscription } from '@/hooks/useSubscription'
 import { recalcOrderPaymentStatus, recalcCustomerTotalPurchases } from '@/lib/orders/recalc'
+import { OrderFilesSection } from '@/components/orders/OrderFilesSection'
 
 /* ─────────────────────────────────────────────
    STATUS
@@ -1708,6 +1709,26 @@ export default function PedidosPage() {
 
                 <div className="h-px bg-border dark:bg-border-dark" />
 
+                {/* ── Arquivos do Cliente (arte) ── */}
+                {editingId && companyId ? (
+                  <>
+                    <OrderFilesSection
+                      orderId={editingId}
+                      companyId={companyId}
+                      customerName={selectedCustomer?.name}
+                      customerPhone={selectedCustomer?.phone}
+                      customerEmail={selectedCustomer?.email}
+                    />
+                    <div className="h-px bg-border dark:bg-border-dark" />
+                  </>
+                ) : (
+                  <section className="rounded-xl border border-dashed border-border dark:border-border-dark p-4 text-center">
+                    <FileText size={20} className="text-text-muted mx-auto mb-2" />
+                    <p className="text-xs font-medium text-text-secondary dark:text-stone-400">Arquivos do Cliente</p>
+                    <p className="text-[10px] text-text-muted dark:text-stone-500 mt-0.5">Salve o pedido para poder anexar arquivos de arte.</p>
+                  </section>
+                )}
+
                 {/* ── S2: Produtos / Serviços (carrinho) ── */}
                 <section className="space-y-3">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2">
@@ -2134,13 +2155,6 @@ export default function PedidosPage() {
                     </section>
                   </>
                 )}
-
-                {/* ── Anexos (estrutura futura) ── */}
-                <section className="rounded-xl border border-dashed border-border dark:border-border-dark p-4 text-center">
-                  <FileText size={20} className="text-text-muted mx-auto mb-2" />
-                  <p className="text-xs font-medium text-text-secondary dark:text-stone-400">Anexos</p>
-                  <p className="text-[10px] text-text-muted dark:text-stone-500 mt-0.5">Upload de arte, PDF e imagens — em breve</p>
-                </section>
 
               </div>
 

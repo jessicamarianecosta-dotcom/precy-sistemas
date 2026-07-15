@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   // relatório de auditoria), pelo menos garante que não é negativo/absurdo.
   const rawShipping = Number(body?.shippingPrice ?? 0)
   const shippingPrice = Number.isFinite(rawShipping) ? Math.min(Math.max(rawShipping, 0), 10000) : 0
-  const artworkUrl = body?.artworkUrl ?? null
+  const artwork = body?.artwork ?? null
 
   if (!slug || items.length === 0) {
     return NextResponse.json({ error: 'Dados insuficientes para finalizar o pedido' }, { status: 400 })
@@ -176,10 +176,11 @@ export async function POST(request: Request) {
 
   /* ── Criar pedido pendente ── */
   const checkoutRef = randomUUID()
+  // notes fica só com texto do cliente — arte enviada vira uma linha estruturada
+  // em order_files (ver abaixo), nunca mais uma URL solta aqui.
   const notesParts = [
     customer.notes ? `Observações: ${customer.notes}` : null,
     customer.cep ? `CEP: ${customer.cep}` : null,
-    artworkUrl ? `Arte enviada: ${artworkUrl}` : null,
   ].filter(Boolean)
 
   const { data: order, error: orderError } = await (supabaseAdmin.from('orders') as any)
@@ -197,6 +198,7 @@ export async function POST(request: Request) {
       notes: notesParts.join(' · ') || null,
       source: 'catalog',
       catalog_checkout_ref: checkoutRef,
+      art_status: artwork ? 'recebida' : 'nao_enviada',
     }])
     .select('id, order_number')
     .single()
@@ -210,6 +212,25 @@ export async function POST(request: Request) {
 
   if (itemsError) {
     return NextResponse.json({ error: `Erro ao registrar itens do pedido: ${itemsError.message}` }, { status: 500 })
+  }
+
+  if (artwork?.url) {
+    await (supabaseAdmin.from('order_files') as any).insert([{
+      order_id: order.id,
+      company_id: companyId,
+      file_name: artwork.fileName,
+      file_url: artwork.url,
+      file_path: artwork.path,
+      file_size: artwork.fileSize ?? 0,
+      mime_type: artwork.mimeType,
+      uploaded_by: 'cliente',
+    }])
+    await (supabaseAdmin.from('order_art_events') as any).insert([{
+      order_id: order.id,
+      company_id: companyId,
+      event_type: 'arte_enviada',
+      description: `Arte enviada pelo cliente: ${artwork.fileName}`,
+    }])
   }
 
   /* ── Criar cobrança no adapter de pagamento (InfinityPay ou mock) ── */
