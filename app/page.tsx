@@ -42,13 +42,28 @@ const features = [
     icon: '💵',
     title: 'Financeiro Completo',
     description:
-      'Registre receitas e despesas, visualize saldo em tempo real e acompanhe a saúde do negócio.',
+      'Exclusivo do Plano PRO: fluxo de caixa, contas a pagar e receber, centros de custo, parcelamentos, relatórios financeiros e análises avançadas.',
+    badge: { label: '⭐ Exclusivo PRO', color: '#8B6C4F' },
   },
   {
     icon: '📊',
     title: 'Dashboard com Dados Reais',
     description:
       'Faturamento, lucro, pedidos ativos e alertas em cards e gráficos atualizados automaticamente.',
+  },
+  {
+    icon: '🛍️',
+    title: 'Catálogo Online',
+    description:
+      'Em breve você poderá criar sua loja virtual integrada ao Precy+, publicar produtos, receber pedidos online, integrar pagamentos e calcular fretes automaticamente.',
+    badge: { label: '🚀 Em breve', color: '#5C8B4F' },
+  },
+  {
+    icon: '📚',
+    title: 'Biblioteca Precy+',
+    description:
+      'Biblioteca exclusiva com centenas de produtos prontos para importar, agilizando o cadastro e a precificação.',
+    badge: { label: '⭐ Exclusivo PRO', color: '#8B6C4F' },
   },
 ]
 
@@ -285,7 +300,15 @@ export default function LandingPage() {
                   style={{ background: 'rgba(139,108,79,0.08)' }}>
                   {f.icon}
                 </div>
-                <h3 className="text-base font-semibold text-[#2C2018] dark:text-stone-100 mb-2">{f.title}</h3>
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="text-base font-semibold text-[#2C2018] dark:text-stone-100">{f.title}</h3>
+                  {f.badge && (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full text-white flex-shrink-0"
+                      style={{ background: f.badge.color }}>
+                      {f.badge.label}
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm text-[#7A6855] dark:text-stone-400 leading-relaxed">{f.description}</p>
               </div>
             ))}
