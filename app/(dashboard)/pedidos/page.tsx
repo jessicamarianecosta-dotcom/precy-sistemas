@@ -294,6 +294,7 @@ export default function PedidosPage() {
   const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null)
   const [viewingPaymentId, setViewingPaymentId] = useState<string | null>(null)
   const [confirmDeletePaymentId, setConfirmDeletePaymentId] = useState<string | null>(null)
+  const [confirmDeleteOrderId, setConfirmDeleteOrderId] = useState<string | null>(null)
 
   /* Texto exibido nos campos de Valor/Porcentagem do modal de recebimento (aceita vírgula) */
   const [amountDisplayText, setAmountDisplayText] = useState('')
@@ -999,11 +1000,40 @@ export default function PedidosPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      await (supabase.from('orders') as any).delete().eq('id', id)
+      console.log('[pedidos] excluir pedido:', id)
+
+      // Eventos da agenda vinculados não têm FK CASCADE (só SET NULL) —
+      // apaga explicitamente em vez de deixar "entrega" órfã na agenda.
+      await (supabase.from('calendar_tasks') as any).delete().eq('linked_order_id', id)
+
+      const { data, error } = await (supabase.from('orders') as any)
+        .delete()
+        .eq('id', id)
+        .select()
+
+      console.log('[pedidos] resposta do Supabase (delete):', { data, error })
+      if (error) throw error
+      if (!data || data.length === 0) {
+        // delete sem erro mas 0 linhas afetadas: id inexistente ou RLS
+        // bloqueou silenciosamente — sem essa checagem parecia sucesso
+        // sem excluir nada.
+        throw new Error('Nenhum pedido foi excluído — verifique se ele ainda existe ou se você tem permissão.')
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders', companyId] })
-      toast('success', 'Pedido removido!')
+      queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['calendar-tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar-orders'] })
+      toast('success', 'Pedido excluído com sucesso.')
+      setConfirmDeleteOrderId(null)
+      setShowModal(false)
+      resetOrderForm()
+    },
+    onError: (err: Error) => {
+      console.error('[pedidos] erro ao excluir pedido:', err)
+      toast('error', `Erro ao excluir pedido: ${err.message}`)
+      setConfirmDeleteOrderId(null)
     },
   })
 
@@ -1259,12 +1289,20 @@ export default function PedidosPage() {
                         </div>
                       )}
                     </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); openOrder(order) }}
-                      className="p-1.5 rounded-xl text-text-muted hover:text-primary hover:bg-primary-50 flex-shrink-0 self-center"
-                    >
-                      <Edit2 size={13} />
-                    </button>
+                    <div className="flex flex-col gap-1 flex-shrink-0 self-center">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openOrder(order) }}
+                        className="p-1.5 rounded-xl text-text-muted hover:text-primary hover:bg-primary-50"
+                      >
+                        <Edit2 size={13} />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteOrderId(order.id) }}
+                        className="p-1.5 rounded-xl text-text-muted hover:text-error hover:bg-error-light"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1321,7 +1359,15 @@ export default function PedidosPage() {
                                     <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-primary/10 text-primary">Online</span>
                                   )}
                                 </span>
-                                <GripVertical size={11} className="text-text-muted/50 flex-shrink-0" />
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setConfirmDeleteOrderId(order.id) }}
+                                    className="p-0.5 rounded text-text-muted/60 hover:text-error"
+                                  >
+                                    <Trash2 size={11} />
+                                  </button>
+                                  <GripVertical size={11} className="text-text-muted/50" />
+                                </div>
                               </div>
                               <p className="text-xs font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">
                                 {order.service_name || '—'}
@@ -1429,7 +1475,7 @@ export default function PedidosPage() {
                                 <Edit2 size={12} />
                               </button>
                               <button
-                                onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(order.id) }}
+                                onClick={(e) => { e.stopPropagation(); setConfirmDeleteOrderId(order.id) }}
                                 className="p-1 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"
                                 title="Excluir"
                               >
@@ -2160,6 +2206,16 @@ export default function PedidosPage() {
 
               {/* Footer */}
               <div className="flex flex-col sm:flex-row gap-3 p-4 sm:p-5 border-t border-border dark:border-border-dark bg-white dark:bg-surface-dark sticky bottom-0">
+                {editingId && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteOrderId(editingId)}
+                    className="p-2.5 rounded-xl text-error border border-error/30 hover:bg-error-light dark:hover:bg-error/10 transition-colors flex-shrink-0"
+                    title="Excluir pedido"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => { setShowModal(false); resetOrderForm() }}
@@ -2667,6 +2723,53 @@ export default function PedidosPage() {
           </div>
         )
       })()}
+
+      {/* ══════════════════════════════════
+          MODAL CONFIRMAR EXCLUSÃO DE PEDIDO
+      ══════════════════════════════════ */}
+
+      {confirmDeleteOrderId && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => !deleteMutation.isPending && setConfirmDeleteOrderId(null)}
+          />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm animate-scaleIn overflow-hidden p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-error-light flex items-center justify-center flex-shrink-0">
+                <Trash2 size={18} className="text-error" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">Excluir pedido</h2>
+                <p className="text-xs text-text-muted mt-0.5">Deseja realmente excluir este pedido?</p>
+              </div>
+            </div>
+            <p className="text-[11px] text-text-muted mb-4">
+              Esta ação não pode ser desfeita. Itens do pedido, recebimentos, arquivos de arte e o
+              evento de entrega na agenda vinculados a ele também serão removidos.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                disabled={deleteMutation.isPending}
+                onClick={() => setConfirmDeleteOrderId(null)}
+                className="btn-secondary flex-1"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={deleteMutation.isPending}
+                onClick={() => deleteMutation.mutate(confirmDeleteOrderId)}
+                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-error text-white text-sm font-semibold py-2.5 hover:bg-error/90 transition-colors disabled:opacity-50"
+              >
+                {deleteMutation.isPending && <Loader2 size={14} className="animate-spin" />}
+                Excluir pedido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ══════════════════════════════════
           MODAL CONFIRMAR EXCLUSÃO DE RECEBIMENTO
