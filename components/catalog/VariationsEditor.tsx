@@ -1,11 +1,17 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, X, Loader2, AlertCircle, Copy, ClipboardCopy, Trash2, Sparkles } from 'lucide-react'
+import { clsx } from 'clsx'
+import { Plus, X, Loader2, AlertCircle, Copy, ClipboardCopy, Trash2, Sparkles, Upload, Image as ImageIcon } from 'lucide-react'
 import { comboKey, type GroupRow } from '@/lib/catalog/variationCombos'
+import { compressImage } from '@/lib/catalog/useImageCompression'
+import { uploadImageXhr } from '@/lib/catalog/useImageUploadXhr'
 import { VariationRulesWizard } from './VariationRulesWizard'
+
+const IMAGE_MAX_PHOTOS = 4
+const IMAGE_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 interface VariantRow {
   id: string
@@ -43,6 +49,9 @@ export function VariationsEditor({ productId, companyId }: Props) {
   const [variantForm, setVariantForm] = useState<{ selection: Record<string, string>; settings: Record<string, string> } | null>(null)
   const [copySourceId, setCopySourceId] = useState<string | null>(null)
   const [copyTargetId, setCopyTargetId] = useState<string>('')
+  const [imageUploadProgress, setImageUploadProgress] = useState<number | null>(null)
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
 
   const groupsQuery = useQuery<GroupRow[]>({
     queryKey: ['product-variation-groups', productId],
@@ -215,6 +224,41 @@ export function VariationsEditor({ productId, companyId }: Props) {
     },
     onSuccess: () => { invalidateVariants(); setCopySourceId(null); setCopyTargetId('') },
   })
+
+  /** Envia uma nova foto do produto (reaproveitada por qualquer combinação) e já a seleciona no formulário aberto. */
+  const uploadVariantImageMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const compressed = await compressImage(file)
+      const url = await uploadImageXhr(compressed, { context: 'product', productId }, setImageUploadProgress)
+      const nextOrder = productImages.length > 0 ? Math.max(...productImages.map(i => i.sort_order)) + 1 : 0
+      const { data, error: err } = await (supabase.from('product_images') as any)
+        .insert({ product_id: productId, company_id: companyId, url, sort_order: nextOrder })
+        .select('id').single()
+      if (err) throw err
+      return data.id as string
+    },
+    onSuccess: (newImageId) => {
+      qc.invalidateQueries({ queryKey: ['product-images', productId] })
+      setImageUploadProgress(null)
+      setImageUploadError(null)
+      setVariantForm(f => f && ({ ...f, settings: { ...f.settings, image_id: newImageId } }))
+    },
+    onError: (err: Error) => { setImageUploadProgress(null); setImageUploadError(err.message) },
+  })
+
+  function handleImageFilePicked(file: File | undefined) {
+    if (!file) return
+    setImageUploadError(null)
+    if (!IMAGE_ALLOWED_TYPES.includes(file.type)) {
+      setImageUploadError('Formato não permitido. Use JPG, PNG ou WEBP.')
+      return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setImageUploadError('Arquivo muito grande. Máximo 10MB.')
+      return
+    }
+    uploadVariantImageMutation.mutate(file)
+  }
 
   function numOrNull(v: string): number | null {
     return v === '' ? null : Number(v)
@@ -468,79 +512,168 @@ export function VariationsEditor({ productId, companyId }: Props) {
       {variantForm && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setVariantForm(null)} />
-          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-md max-h-[90vh] overflow-y-auto p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">Nova combinação</h2>
-              <button onClick={() => setVariantForm(null)} className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted">
-                <X size={15} />
+          <div
+            className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal flex flex-col overflow-hidden"
+            style={{ width: 'min(900px, 95vw)', maxHeight: '90vh' }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between p-5 sm:p-6 border-b border-border dark:border-border-dark flex-shrink-0">
+              <h2 className="text-base font-semibold text-text-primary dark:text-stone-100">Nova combinação</h2>
+              <button onClick={() => setVariantForm(null)} className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted flex-shrink-0">
+                <X size={16} />
               </button>
             </div>
-            <div className="space-y-3">
-              {groupsSorted.map(g => (
-                <div key={g.id}>
-                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">{g.name}</label>
-                  <select
-                    value={variantForm.selection[g.id] ?? ''}
-                    onChange={e => setVariantForm(f => f && ({ ...f, selection: { ...f.selection, [g.id]: e.target.value } }))}
-                    className="input text-xs h-9"
-                  >
-                    {g.options.map(o => <option key={o.id} value={o.id}>{o.value}</option>)}
-                  </select>
+
+            {/* Body — só esta área rola */}
+            <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+              {/* Dados principais */}
+              <section className="space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400">Dados principais</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  {groupsSorted.map(g => (
+                    <div key={g.id}>
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">{g.name}</label>
+                      <select
+                        value={variantForm.selection[g.id] ?? ''}
+                        onChange={e => setVariantForm(f => f && ({ ...f, selection: { ...f.selection, [g.id]: e.target.value } }))}
+                        className="input w-full"
+                      >
+                        {g.options.map(o => <option key={o.id} value={o.id}>{o.value}</option>)}
+                      </select>
+                    </div>
+                  ))}
                 </div>
-              ))}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Preço</label>
-                  <input type="number" step="0.01" placeholder="Padrão" value={variantForm.settings.price}
-                    onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, price: e.target.value } }))}
-                    className="input text-xs h-9" />
+              </section>
+
+              <div className="h-px bg-border dark:bg-border-dark" />
+
+              {/* Comercial */}
+              <section className="space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400">Comercial</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Preço</label>
+                    <input type="number" step="0.01" placeholder="Padrão" value={variantForm.settings.price}
+                      onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, price: e.target.value } }))}
+                      className="input w-full" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Estoque</label>
+                    <input type="number" step="1" placeholder="Ilimitado" value={variantForm.settings.stock_quantity}
+                      onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, stock_quantity: e.target.value } }))}
+                      className="input w-full" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">SKU</label>
+                    <input type="text" value={variantForm.settings.sku}
+                      onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, sku: e.target.value } }))}
+                      className="input w-full" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Prazo (dias)</label>
+                    <input type="number" step="1" placeholder="Padrão" value={variantForm.settings.lead_time_days}
+                      onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, lead_time_days: e.target.value } }))}
+                      className="input w-full" />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Estoque</label>
-                  <input type="number" step="1" placeholder="Ilimitado" value={variantForm.settings.stock_quantity}
-                    onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, stock_quantity: e.target.value } }))}
-                    className="input text-xs h-9" />
+              </section>
+
+              <div className="h-px bg-border dark:bg-border-dark" />
+
+              {/* Logística */}
+              <section className="space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400">Logística</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Peso (kg)</label>
+                    <input type="number" step="0.001" placeholder="0,000" value={variantForm.settings.weight_kg}
+                      onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, weight_kg: e.target.value } }))}
+                      className="input w-full" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Imagem da combinação</label>
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      onChange={e => { handleImageFilePicked(e.target.files?.[0]); e.target.value = '' }}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, image_id: '' } }))}
+                        className={clsx(
+                          'flex flex-col items-center justify-center gap-1 w-16 h-16 rounded-xl border-2 text-[10px] font-medium transition-colors flex-shrink-0',
+                          !variantForm.settings.image_id
+                            ? 'border-primary text-primary bg-primary-50 dark:bg-primary/10'
+                            : 'border-border dark:border-border-dark text-text-muted hover:border-primary/40'
+                        )}
+                      >
+                        <ImageIcon size={16} /> Padrão
+                      </button>
+                      {productImages.map((img, i) => {
+                        const active = variantForm.settings.image_id === img.id
+                        return (
+                          <button
+                            key={img.id}
+                            type="button"
+                            onClick={() => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, image_id: img.id } }))}
+                            className={clsx(
+                              'relative w-16 h-16 rounded-xl overflow-hidden border-2 flex-shrink-0 transition-colors',
+                              active ? 'border-primary' : 'border-transparent hover:border-primary/40'
+                            )}
+                            title={`Foto ${i + 1}`}
+                          >
+                            <img src={img.url} alt="" className="w-full h-full object-cover" />
+                          </button>
+                        )
+                      })}
+                      <button
+                        type="button"
+                        disabled={productImages.length >= IMAGE_MAX_PHOTOS || uploadVariantImageMutation.isPending}
+                        onClick={() => imageInputRef.current?.click()}
+                        title={productImages.length >= IMAGE_MAX_PHOTOS ? 'Limite de 4 fotos do produto atingido' : 'Enviar imagem'}
+                        className="flex flex-col items-center justify-center gap-1 w-16 h-16 rounded-xl border-2 border-dashed border-border dark:border-border-dark text-text-muted hover:border-primary hover:text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                      >
+                        {uploadVariantImageMutation.isPending
+                          ? <Loader2 size={16} className="animate-spin" />
+                          : <Upload size={16} />}
+                        <span className="text-[10px] font-medium">Enviar</span>
+                      </button>
+                    </div>
+                    {imageUploadProgress !== null && (
+                      <p className="flex items-center gap-1.5 text-[11px] text-text-muted mt-2">
+                        <Loader2 size={11} className="animate-spin" /> Enviando... {imageUploadProgress}%
+                      </p>
+                    )}
+                    {imageUploadError && (
+                      <p className="flex items-center gap-1 text-[11px] text-error dark:text-red-400 mt-2">
+                        <AlertCircle size={11} /> {imageUploadError}
+                      </p>
+                    )}
+                    <p className="text-[11px] text-text-muted dark:text-stone-500 mt-2">
+                      Arraste uma imagem para a área de upload ou clique em Enviar. Até {IMAGE_MAX_PHOTOS} fotos por produto,
+                      compartilhadas entre as combinações.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">SKU</label>
-                  <input type="text" value={variantForm.settings.sku}
-                    onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, sku: e.target.value } }))}
-                    className="input text-xs h-9" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Prazo (dias)</label>
-                  <input type="number" step="1" placeholder="Padrão" value={variantForm.settings.lead_time_days}
-                    onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, lead_time_days: e.target.value } }))}
-                    className="input text-xs h-9" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Peso (kg)</label>
-                  <input type="number" step="0.001" placeholder="0,000" value={variantForm.settings.weight_kg}
-                    onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, weight_kg: e.target.value } }))}
-                    className="input text-xs h-9" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Imagem</label>
-                  <select value={variantForm.settings.image_id}
-                    onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, image_id: e.target.value } }))}
-                    className="input text-xs h-9">
-                    <option value="">Padrão</option>
-                    {productImages.map((img, i) => <option key={img.id} value={img.id}>Foto {i + 1}</option>)}
-                  </select>
-                </div>
-              </div>
+              </section>
+
               {error && (
-                <p className="flex items-center gap-1 text-[11px] text-error dark:text-red-400">
-                  <AlertCircle size={11} /> {error}
+                <p className="flex items-center gap-1 text-xs text-error dark:text-red-400">
+                  <AlertCircle size={12} /> {error}
                 </p>
               )}
-              <div className="flex gap-2 pt-1">
-                <button type="button" onClick={() => setVariantForm(null)} className="btn-secondary flex-1 text-xs py-2">Cancelar</button>
-                <button type="button" disabled={busy} onClick={submitVariantForm}
-                  className="btn-primary flex-1 text-xs py-2 flex items-center justify-center gap-1.5 disabled:opacity-50">
-                  {busy && <Loader2 size={12} className="animate-spin" />} Salvar
-                </button>
-              </div>
+            </div>
+
+            {/* Footer — sempre fixo, nunca rola */}
+            <div className="flex gap-3 p-5 sm:p-6 border-t border-border dark:border-border-dark flex-shrink-0">
+              <button type="button" onClick={() => setVariantForm(null)} className="btn-secondary flex-1">Cancelar</button>
+              <button type="button" disabled={busy} onClick={submitVariantForm}
+                className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50">
+                {busy && <Loader2 size={14} className="animate-spin" />} Salvar
+              </button>
             </div>
           </div>
         </div>
