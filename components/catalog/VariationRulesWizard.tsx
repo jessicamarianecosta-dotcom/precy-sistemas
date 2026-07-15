@@ -173,84 +173,104 @@ export function VariationRulesWizard({ productId, companyId, groups, existingCom
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between p-4 border-b border-border dark:border-border-dark flex-shrink-0">
-          <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100 flex items-center gap-2">
-            <Sparkles size={15} className="text-primary" /> Gerenciar combinações
+      <div
+        className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-h-[90vh] flex flex-col overflow-hidden"
+        style={{ width: 'min(900px, 90vw)' }}
+      >
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border dark:border-border-dark flex-shrink-0">
+          <h2 className="text-sm sm:text-base font-semibold text-text-primary dark:text-stone-100 flex items-center gap-2 min-w-0">
+            <Sparkles size={16} className="text-primary flex-shrink-0" /> <span className="truncate">Gerenciar combinações</span>
           </h2>
-          <button onClick={onClose} className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted">
-            <X size={15} />
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted flex-shrink-0">
+            <X size={16} />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
           {!loaded ? (
             <div className="flex items-center gap-2 text-xs text-text-muted py-6 justify-center">
               <Loader2 size={14} className="animate-spin" /> Carregando...
             </div>
           ) : stepIndex === 0 ? (
-            <div className="space-y-2">
-              <p className="text-xs text-text-muted dark:text-stone-500">
+            <div className="space-y-3">
+              <p className="text-xs sm:text-sm text-text-muted dark:text-stone-500">
                 Grupo inicial — todas as opções abaixo estão disponíveis como ponto de partida.
                 Para adicionar ou remover, use a lista de grupos/opções.
               </p>
-              <p className="text-xs font-semibold text-text-primary dark:text-stone-100">{groups[0]?.name}</p>
-              <div className="flex flex-wrap gap-1.5">
-                {groups[0]?.options.map(o => (
-                  <span key={o.id} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-primary-50 dark:bg-primary/10 text-primary">
-                    {o.value}
-                  </span>
-                ))}
+              <div className="rounded-xl border border-border dark:border-border-dark p-4">
+                <p className="text-xs font-medium text-text-muted dark:text-stone-500 mb-2">Grupo base</p>
+                <p className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-3">{groups[0]?.name}</p>
+                <div className="flex flex-wrap gap-2">
+                  {groups[0]?.options.map(o => (
+                    <span key={o.id} className="px-3 py-1.5 rounded-full text-xs font-medium bg-primary-50 dark:bg-primary/10 text-primary">
+                      {o.value}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           ) : currentGroup && currentConfig ? (
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1.5">
-                  {currentGroup.name} — depende de qual grupo?
-                </label>
-                <select
-                  value={currentConfig.parentGroupId}
-                  onChange={e => setParentGroup(e.target.value)}
-                  className="input text-xs h-9"
-                >
-                  {groups.slice(0, stepIndex).map(g => (
-                    <option key={g.id} value={g.id}>{g.name}</option>
-                  ))}
-                </select>
+            <div className="space-y-4">
+              <div className="rounded-xl border border-border dark:border-border-dark p-4 space-y-3">
+                <div>
+                  <p className="text-xs font-medium text-text-muted dark:text-stone-500">Configurando o grupo</p>
+                  <p className="text-base font-semibold text-text-primary dark:text-stone-100">{currentGroup.name}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1.5">
+                    Escolha o grupo pai
+                  </label>
+                  <select
+                    value={currentConfig.parentGroupId}
+                    onChange={e => setParentGroup(e.target.value)}
+                    className="input text-sm w-full"
+                  >
+                    {groups.slice(0, stepIndex).map(g => (
+                      <option key={g.id} value={g.id}>{g.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
-              {parentGroup?.options.map(parentOption => (
-                <div key={parentOption.id} className="rounded-xl border border-border dark:border-border-dark p-3">
-                  <p className="text-xs font-semibold text-text-primary dark:text-stone-100 mb-2">{parentOption.value}</p>
-                  <div className="space-y-1.5">
-                    {currentGroup.options.map(opt => (
-                      <label key={opt.id} className="flex items-center gap-2 text-xs text-text-secondary dark:text-stone-300">
-                        <input
-                          type="checkbox"
-                          checked={currentConfig.checks[opt.id]?.has(parentOption.id) ?? false}
-                          onChange={() => toggleCheck(opt.id, parentOption.id)}
-                          className="w-3.5 h-3.5 rounded accent-primary"
-                        />
-                        {opt.value}
-                      </label>
-                    ))}
+              <div
+                className="grid gap-3"
+                style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
+              >
+                {parentGroup?.options.map(parentOption => (
+                  <div key={parentOption.id} className="rounded-xl border border-border dark:border-border-dark p-4">
+                    <p className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-3">{parentOption.value}</p>
+                    <div className="space-y-2">
+                      {currentGroup.options.map(opt => (
+                        <label key={opt.id} className="flex items-center gap-2.5 text-sm text-text-secondary dark:text-stone-300">
+                          <input
+                            type="checkbox"
+                            checked={currentConfig.checks[opt.id]?.has(parentOption.id) ?? false}
+                            onChange={() => toggleCheck(opt.id, parentOption.id)}
+                            className="w-4 h-4 rounded accent-primary flex-shrink-0"
+                          />
+                          {opt.value}
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           ) : isPreviewStep ? (
-            <div className="space-y-2">
-              <p className="text-xs text-text-muted dark:text-stone-500">
+            <div className="space-y-3">
+              <p className="text-xs sm:text-sm text-text-muted dark:text-stone-500">
                 {newCombos.length === 0
                   ? 'Nenhuma combinação nova a gerar — todas já existem ou nenhuma regra permite uma combinação nova.'
                   : `${newCombos.length} combinação(ões) nova(s) serão criadas. Desmarque as que não quiser gerar.`}
               </p>
-              <div className="space-y-1">
+              <div
+                className="grid gap-2.5"
+                style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
+              >
                 {newCombos.map(combo => {
                   const key = comboKey(combo)
                   return (
-                    <label key={key} className="flex items-center gap-2 text-xs p-2 rounded-lg border border-border dark:border-border-dark">
+                    <label key={key} className="flex items-center gap-2.5 text-sm p-3 rounded-xl border border-border dark:border-border-dark">
                       <input
                         type="checkbox"
                         checked={!excluded.has(key)}
@@ -259,9 +279,9 @@ export function VariationRulesWizard({ productId, companyId, groups, existingCom
                           if (next.has(key)) next.delete(key); else next.add(key)
                           return next
                         })}
-                        className="w-3.5 h-3.5 rounded accent-primary"
+                        className="w-4 h-4 rounded accent-primary flex-shrink-0"
                       />
-                      {combo.map(optionLabel).join(' · ')}
+                      <span className="min-w-0 break-words">{combo.map(optionLabel).join(' · ')}</span>
                     </label>
                   )
                 })}
@@ -270,32 +290,32 @@ export function VariationRulesWizard({ productId, companyId, groups, existingCom
           ) : null}
         </div>
 
-        <div className="flex items-center justify-between gap-3 p-4 border-t border-border dark:border-border-dark flex-shrink-0">
+        <div className="flex items-center justify-between gap-3 p-4 sm:p-5 border-t border-border dark:border-border-dark flex-shrink-0">
           <button
             type="button"
             disabled={stepIndex === 0 || saving || generating}
             onClick={() => setStepIndex(i => i - 1)}
-            className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5 disabled:opacity-40"
+            className="btn-secondary text-xs sm:text-sm py-2 px-3 sm:px-4 flex items-center gap-1.5 disabled:opacity-40"
           >
-            <ChevronLeft size={13} /> Voltar
+            <ChevronLeft size={14} /> Voltar
           </button>
           {isPreviewStep ? (
             <button
               type="button"
               disabled={generating || newCombos.length === 0}
               onClick={handleGenerate}
-              className="btn-primary text-xs py-2 px-4 flex items-center gap-1.5 disabled:opacity-50"
+              className="btn-primary text-xs sm:text-sm py-2 px-4 sm:px-5 flex items-center gap-1.5 disabled:opacity-50"
             >
-              {generating && <Loader2 size={13} className="animate-spin" />} Gerar combinações
+              {generating && <Loader2 size={14} className="animate-spin" />} Gerar combinações
             </button>
           ) : (
             <button
               type="button"
               disabled={saving || groups.length === 0}
               onClick={handleNext}
-              className="btn-primary text-xs py-2 px-4 flex items-center gap-1.5 disabled:opacity-50"
+              className="btn-primary text-xs sm:text-sm py-2 px-4 sm:px-5 flex items-center gap-1.5 disabled:opacity-50"
             >
-              {saving && <Loader2 size={13} className="animate-spin" />} Avançar <ChevronRight size={13} />
+              {saving && <Loader2 size={14} className="animate-spin" />} Avançar <ChevronRight size={14} />
             </button>
           )}
         </div>
