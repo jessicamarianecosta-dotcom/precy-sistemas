@@ -3,6 +3,7 @@ import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { checkPlan, type PlanCheck } from '@/lib/subscription/check'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { canAccessCatalog } from '@/lib/catalog/betaAccess'
 
 type AuthResult =
   | { ok: true; userId: string; companyId: string; plan: PlanCheck }
@@ -19,6 +20,12 @@ export async function requireCatalogAccess(): Promise<AuthResult> {
   const { data: { user } } = await serverClient.auth.getUser()
   if (!user) {
     return { ok: false, response: NextResponse.json({ error: 'Não autenticado' }, { status: 401 }) }
+  }
+
+  // Beta privado: já bloqueado no middleware para /api/catalogo/*, mas nunca
+  // confiar só na interface/middleware — validar de novo aqui dentro.
+  if (!canAccessCatalog(user.email)) {
+    return { ok: false, response: NextResponse.json({ error: 'Catálogo Online ainda não está disponível para esta conta.' }, { status: 403 }) }
   }
 
   const plan = await checkPlan(user.id)

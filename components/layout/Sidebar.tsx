@@ -13,8 +13,9 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { clsx } from 'clsx'
 import { useSidebar } from '@/providers/SidebarProvider'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSubscription } from '@/hooks/useSubscription'
+import { canAccessCatalog } from '@/lib/catalog/betaAccess'
 
 /* ─── Menu ─── */
 const menuItems = [
@@ -31,7 +32,6 @@ const menuItems = [
       { href: '/produtos',    icon: Package,     label: 'Produtos'  },
       { href: '/estoque',     icon: Boxes,       label: 'Estoque'   },
       { href: '/pedidos',     icon: ShoppingCart,label: 'Pedidos'   },
-      { href: '/catalogo',    icon: Store,       label: 'Catálogo Online', pro: true },
       { href: '/agenda',      icon: CalendarDays,label: 'Agenda',   pro: true },
       { href: '/clientes',    icon: Users,       label: 'Clientes'  },
       { href: '/fornecedores',icon: Truck,       label: 'Fornecedores' },
@@ -55,7 +55,7 @@ const menuItems = [
   },
 ]
 
-const comingSoon = ['IA de Precificação', 'WhatsApp']
+const BASE_COMING_SOON = ['IA de Precificação', 'WhatsApp']
 
 /* ─── SidebarInner (shared between drawer and fixed) ─── */
 function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: () => void }) {
@@ -66,6 +66,19 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
   const supabase  = createClient()
   const sub = useSubscription()
   const isPro = sub?.data?.isPro ?? false
+
+  // Catálogo Online: beta privado — só quem está em CATALOG_BETA_USERS
+  // (lib/catalog/betaAccess.ts) vê o item normal; os demais veem "Em breve".
+  const { data: userEmail } = useQuery({
+    queryKey: ['auth-user-email'],
+    staleTime: 10 * 60 * 1000,
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      return user?.email ?? null
+    },
+  })
+  const hasCatalogAccess = canAccessCatalog(userEmail)
+  const comingSoon = hasCatalogAccess ? BASE_COMING_SOON : [...BASE_COMING_SOON, 'Catálogo Online']
 
   async function handleLogout() {
     queryClient.clear()   // Limpar dados sensíveis do cache antes do logout
@@ -146,6 +159,11 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
                   <NavLink href={item.href} icon={item.icon} label={item.label} pro={(item as any).pro} />
                 </li>
               ))}
+              {group.title === 'Negócio' && hasCatalogAccess && (
+                <li>
+                  <NavLink href="/catalogo" icon={Store} label="Catálogo Online" />
+                </li>
+              )}
             </ul>
           </div>
         ))}

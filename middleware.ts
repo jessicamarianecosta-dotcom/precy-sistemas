@@ -1,14 +1,20 @@
 import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
 import { NextResponse }           from 'next/server'
 import type { NextRequest }       from 'next/server'
+import { canAccessCatalog }       from '@/lib/catalog/betaAccess'
 
 /* ── Rotas públicas ── */
 const PUBLIC = ['/', '/login', '/cadastro', '/recuperar-senha', '/nova-senha',
                 '/termos', '/privacidade', '/reembolso', '/loja', '/api/loja']
 
 /* ── Rotas exclusivas PRO ── */
-const PRO_ROUTES = ['/agenda', '/financeiro', '/relatorios', '/conteudo', '/financeiro-avancado',
-                    '/catalogo', '/api/catalogo']
+const PRO_ROUTES = ['/agenda', '/financeiro', '/relatorios', '/conteudo', '/financeiro-avancado']
+
+/* ── Catálogo Online: beta privado, gate por e-mail (ver lib/catalog/betaAccess.ts)
+   substitui o gate de PRO enquanto durar o beta — /loja/[slug] (storefront
+   público) continua liberado, só a administração do catálogo é restrita ── */
+const CATALOG_ROUTES = ['/catalogo', '/api/catalogo']
+const CATALOG_SOON_ROUTE = '/catalogo-em-breve'
 
 /* ── Rota de bloqueio por inadimplência ── */
 const BLOCKED_ROUTE   = '/assinatura/bloqueada'
@@ -77,6 +83,16 @@ export async function middleware(req: NextRequest) {
   const isCheckoutApi      = pathname.startsWith('/api/stripe')
 
   if (isSubscriptionPage || isCheckoutApi) return res
+
+  /* ── Catálogo Online: beta privado — checa ANTES de tudo (independe de
+     plano/role), com match exato de segmento para não pegar /catalogo-em-breve ── */
+  const isCatalogRoute = CATALOG_ROUTES.some(r => pathname === r || pathname.startsWith(r + '/'))
+  if (isCatalogRoute && !canAccessCatalog(session.user.email)) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Catálogo Online ainda não está disponível para esta conta.' }, { status: 403 })
+    }
+    return NextResponse.redirect(new URL(CATALOG_SOON_ROUTE, req.url))
+  }
 
   /* ── Buscar plano da empresa (companies usa company_id do usuário) ── */
   const { data: company } = await supabase
