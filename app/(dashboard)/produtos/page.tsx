@@ -211,25 +211,49 @@ export default function ProdutosPage() {
   const saveMutation = useMutation({
     mutationFn: async (d: FormData) => {
       const payload = { ...d, catalog_category_id: d.catalog_category_id || null }
+      console.log('[produtos] dados do formulário:', d)
+      console.log('[produtos] payload a enviar:', payload, '| editingId:', editingId)
+
       if (editingId) {
-        const { error } = await (supabase.from('products') as any)
-          .update({ ...payload, updated_at: new Date().toISOString() }).eq('id', editingId)
+        // total_cost é a coluna que a Ficha Técnica e a listagem realmente exibem
+        // (vpTotalCost dá prioridade a ela). Sem recalculá-la aqui, editar o Custo
+        // de Material neste formulário rápido não se refletia em nenhum lugar da UI.
+        const current = qc.getQueryData<Product[]>(['products', companyId])?.find(p => p.id === editingId)
+        const laborCost = safeNum(current?.labor_cost)
+        const extraCost = safeNum(current?.extra_cost)
+        const totalCost = payload.material_cost + laborCost + extraCost
+
+        const { data, error } = await (supabase.from('products') as any)
+          .update({ ...payload, total_cost: totalCost, updated_at: new Date().toISOString() })
+          .eq('id', editingId)
+          .select()
+
+        console.log('[produtos] resposta do Supabase (update):', { data, error })
         if (error) throw error
+        if (!data || data.length === 0) {
+          // update sem erro mas 0 linhas afetadas: id inexistente ou RLS bloqueou
+          // silenciosamente (nenhuma linha satisfez a policy). Sem essa checagem,
+          // isso parecia um "salvamento" bem-sucedido que não persistia nada.
+          throw new Error('Nenhum produto foi atualizado — verifique se ele ainda existe ou se você tem permissão para editá-lo.')
+        }
       } else {
-        const { error } = await (supabase.from('products') as any)
-          .insert([{ ...payload, company_id: companyId!, is_active: true }]).select()
+        const { data, error } = await (supabase.from('products') as any)
+          .insert([{ ...payload, total_cost: payload.material_cost, company_id: companyId!, is_active: true }])
+          .select()
+        console.log('[produtos] resposta do Supabase (insert):', { data, error })
         if (error) throw error
       }
     },
     onSuccess: () => {
+      console.log('[produtos] produto salvo com sucesso, invalidando cache...')
       qc.invalidateQueries({ queryKey: ['products', companyId] })
       qc.invalidateQueries({ queryKey: ['dashboard', companyId] })
-      toast('success', editingId ? 'Produto atualizado!' : 'Produto cadastrado!')
+      toast('success', editingId ? 'Produto atualizado com sucesso.' : 'Produto cadastrado!')
       closeForm()
     },
     onError: (err: Error) => {
-      console.error('[produtos] save error:', err)
-      toast('error', `Erro ao salvar: ${err.message}`)
+      console.error('[produtos] erro ao salvar produto:', err)
+      toast('error', `Erro ao atualizar produto: ${err.message}`)
     },
   })
 
