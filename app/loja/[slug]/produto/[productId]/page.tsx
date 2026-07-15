@@ -108,8 +108,29 @@ export default function ProdutoLojaPage() {
     },
   })
 
+  // Regras de dependência (ex: "Triplex/Offset" só existe em 300g) — usadas
+  // pra desabilitar, em vez de deixar clicar e falhar, as opções que
+  // levariam a uma combinação que não existe de verdade.
+  const { data: depRows } = useQuery<{ option_id: string; depends_on_option_id: string }[]>({
+    queryKey: ['loja-product-variation-deps', productId],
+    queryFn: async () => {
+      const { data } = await (supabase.from('product_variation_dependencies') as any)
+        .select('option_id, depends_on_option_id').eq('product_id', productId)
+      return data ?? []
+    },
+  })
+
   const groups = useMemo(() => groupRows ?? [], [groupRows])
   const images = imageRows ?? []
+
+  const parentsByOption = useMemo(() => {
+    const map = new Map<string, Set<string>>()
+    for (const d of depRows ?? []) {
+      if (!map.has(d.option_id)) map.set(d.option_id, new Set())
+      map.get(d.option_id)!.add(d.depends_on_option_id)
+    }
+    return map
+  }, [depRows])
 
   // Normaliza optionIds na ordem dos grupos (necessário porque a query retorna pares group_id/option_id soltos)
   const variantsNormalized = useMemo<VariantRow[]>(() => {
@@ -119,18 +140,53 @@ export default function ProdutoLojaPage() {
     })
   }, [variantRows, groups])
 
-  // Seleciona a primeira opção de cada grupo automaticamente (comportamento padrão de e-commerce)
+  function isAllowedGiven(optionId: string, selection: Record<string, string>): boolean {
+    const parents = parentsByOption.get(optionId)
+    if (!parents || parents.size === 0) return true
+    const chosen = Object.values(selection)
+    return [...parents].some(p => chosen.includes(p))
+  }
+
+  function isOptionAllowed(optionId: string): boolean {
+    return isAllowedGiven(optionId, selectedOptions)
+  }
+
+  /**
+   * Recalcula a seleção grupo a grupo (na ordem de sort_order): mantém a
+   * escolha de `base` para um grupo só se ela ainda for válida dado o que já
+   * foi processado; senão troca pela primeira opção permitida. Usado tanto
+   * na seleção automática inicial quanto ao clicar numa opção — nesse caso,
+   * se ela invalidar a opção já escolhida de um grupo seguinte (ex: trocar
+   * o Papel para "Triplex/Offset" quando a Gramatura escolhida era 180g),
+   * o grupo seguinte é reajustado automaticamente em vez de ficar num estado
+   * de combinação inexistente.
+   */
+  function computeSelection(base: Record<string, string>): Record<string, string> {
+    const next: Record<string, string> = {}
+    for (const g of groups) {
+      const current = g.options.find(o => o.id === base[g.id])
+      if (current && isAllowedGiven(current.id, next)) {
+        next[g.id] = current.id
+      } else {
+        const firstAllowed = g.options.find(o => isAllowedGiven(o.id, next))
+        if (firstAllowed) next[g.id] = firstAllowed.id
+      }
+    }
+    return next
+  }
+
+  // Seleciona a primeira opção válida de cada grupo automaticamente
+  // (comportamento padrão de e-commerce) e corrige qualquer seleção que as
+  // regras de dependência tenham invalidado.
   useEffect(() => {
     if (groups.length === 0) return
     setSelectedOptions(prev => {
-      const next = { ...prev }
-      let changed = false
-      for (const g of groups) {
-        if (!next[g.id] && g.options.length > 0) { next[g.id] = g.options[0].id; changed = true }
-      }
-      return changed ? next : prev
+      const next = computeSelection(prev)
+      const same = groups.every(g => next[g.id] === prev[g.id]) && Object.keys(prev).length === Object.keys(next).length
+      return same ? prev : next
     })
-  }, [groups])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, parentsByOption])
 
   const selectedVariant = useMemo(() => {
     if (groups.length === 0) return null
@@ -308,13 +364,18 @@ export default function ProdutoLojaPage() {
                     <div className="flex flex-wrap gap-1.5">
                       {g.options.map(opt => {
                         const active = selectedOptions[g.id] === opt.id
+                        const allowed = isOptionAllowed(opt.id)
                         return (
                           <button
                             key={opt.id}
                             type="button"
-                            onClick={() => setSelectedOptions(prev => ({ ...prev, [g.id]: opt.id }))}
+                            disabled={!allowed}
+                            title={!allowed ? 'Combinação indisponível' : undefined}
+                            onClick={() => setSelectedOptions(prev => computeSelection({ ...prev, [g.id]: opt.id }))}
                             className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                              active
+                              !allowed
+                                ? 'bg-surface dark:bg-white/5 text-text-muted/40 dark:text-stone-600 border-border dark:border-border-dark cursor-not-allowed opacity-50'
+                                : active
                                 ? 'bg-primary text-white border-primary'
                                 : 'bg-surface dark:bg-white/5 text-text-secondary dark:text-stone-400 border-border dark:border-border-dark hover:border-primary/50'
                             }`}

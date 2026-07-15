@@ -358,6 +358,21 @@ export default function ProdutosPage() {
             if (newOption) optionIdMap.set(o.id, newOption.id)
           }
 
+          // Duplicar regras de dependência entre opções (ex: "Triplex/Offset" só em 300g)
+          const { data: deps } = await (supabase.from('product_variation_dependencies') as any)
+            .select('option_id, depends_on_option_id').eq('product_id', p.id)
+          if (deps && deps.length > 0) {
+            const depRows = (deps as { option_id: string; depends_on_option_id: string }[])
+              .map(d => ({
+                product_id: newProd.id,
+                company_id: companyId,
+                option_id: optionIdMap.get(d.option_id),
+                depends_on_option_id: optionIdMap.get(d.depends_on_option_id),
+              }))
+              .filter((r): r is { product_id: string; company_id: string; option_id: string; depends_on_option_id: string } => !!r.option_id && !!r.depends_on_option_id)
+            if (depRows.length > 0) await (supabase.from('product_variation_dependencies') as any).insert(depRows)
+          }
+
           const { data: variants } = await (supabase.from('product_variants') as any)
             .select('id, sku, price, stock_quantity, lead_time_days, weight_kg, sort_order, product_variant_option_values(option_id, group_id)')
             .eq('product_id', p.id)

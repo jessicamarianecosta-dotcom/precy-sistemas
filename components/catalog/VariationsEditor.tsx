@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, X, Loader2, AlertCircle } from 'lucide-react'
+import { Plus, X, Loader2, AlertCircle, Copy, ClipboardCopy, Trash2, Sparkles } from 'lucide-react'
+import { comboKey, type GroupRow } from '@/lib/catalog/variationCombos'
+import { VariationRulesWizard } from './VariationRulesWizard'
 
-interface OptionRow { id: string; group_id: string; value: string; sort_order: number }
-interface GroupRow { id: string; name: string; sort_order: number; options: OptionRow[] }
 interface VariantRow {
   id: string
   sku: string | null
@@ -24,23 +24,14 @@ interface Props {
   companyId: string
 }
 
-function comboKey(optionIds: string[]) { return optionIds.join('|') }
-
-function cartesian(groups: GroupRow[]): string[][] {
-  if (groups.length === 0 || groups.some(g => g.options.length === 0)) return []
-  return groups.reduce<string[][]>((acc, g) => {
-    if (acc.length === 0) return g.options.map(o => [o.id])
-    const next: string[][] = []
-    for (const combo of acc) for (const o of g.options) next.push([...combo, o.id])
-    return next
-  }, [])
-}
+const SETTINGS_FIELDS = ['price', 'stock_quantity', 'sku', 'lead_time_days', 'weight_kg', 'image_id'] as const
 
 /**
- * Editor de variações (Cor, Tamanho, Quantidade...): o lojista cria grupos
- * e opções livremente; o sistema gera automaticamente todas as combinações
- * como linhas em product_variants (mantendo dados já editados de combos que
- * continuam existindo, removendo os que não existem mais).
+ * Editor de variações (Papel, Gramatura, Impressão, Acabamento...). Grupos e
+ * opções são livres; combinações (product_variants) NUNCA são geradas ou
+ * apagadas automaticamente — a pessoa escolhe exatamente quais existem via
+ * o assistente "Gerenciar combinações" (com regras de dependência entre
+ * opções), "+ Nova combinação" manual, "Duplicar" ou "Copiar configuração".
  */
 export function VariationsEditor({ productId, companyId }: Props) {
   const supabase = createClient()
@@ -48,6 +39,10 @@ export function VariationsEditor({ productId, companyId }: Props) {
   const [newGroupName, setNewGroupName] = useState('')
   const [newOptionByGroup, setNewOptionByGroup] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
+  const [showWizard, setShowWizard] = useState(false)
+  const [variantForm, setVariantForm] = useState<{ selection: Record<string, string>; settings: Record<string, string> } | null>(null)
+  const [copySourceId, setCopySourceId] = useState<string | null>(null)
+  const [copyTargetId, setCopyTargetId] = useState<string>('')
 
   const groupsQuery = useQuery<GroupRow[]>({
     queryKey: ['product-variation-groups', productId],
@@ -102,47 +97,14 @@ export function VariationsEditor({ productId, companyId }: Props) {
     })
   }, [variantsQuery.data, groupsSorted])
 
+  const existingCombos = useMemo(() => new Set(variantsNormalized.map(v => comboKey(v.optionIds))), [variantsNormalized])
+
   function invalidateVariants() {
     qc.invalidateQueries({ queryKey: ['product-variants', productId] })
   }
   function invalidateGroups() {
     qc.invalidateQueries({ queryKey: ['product-variation-groups', productId] })
   }
-
-  const syncMutation = useMutation({
-    mutationFn: async ({ toInsert, toDelete }: { toInsert: string[][]; toDelete: string[] }) => {
-      if (toDelete.length > 0) {
-        await (supabase.from('product_variants') as any).delete().in('id', toDelete)
-      }
-      for (const combo of toInsert) {
-        const { data: newVariant, error: insErr } = await (supabase.from('product_variants') as any)
-          .insert({ product_id: productId, company_id: companyId })
-          .select('id').single()
-        if (insErr) throw insErr
-        const rows = combo.map((optionId, idx) => ({
-          variant_id: newVariant.id,
-          option_id: optionId,
-          group_id: groupsSorted[idx].id,
-        }))
-        await (supabase.from('product_variant_option_values') as any).insert(rows)
-      }
-    },
-    onSuccess: invalidateVariants,
-  })
-
-  // Gera/remove combinações automaticamente sempre que grupos/opções mudam.
-  useEffect(() => {
-    if (syncMutation.isPending) return
-    const combos = cartesian(groupsSorted)
-    const comboKeys = new Set(combos.map(comboKey))
-    const existingKeys = new Set(variantsNormalized.map(v => comboKey(v.optionIds)))
-    const toInsert = combos.filter(c => !existingKeys.has(comboKey(c)))
-    const toDelete = variantsNormalized.filter(v => !comboKeys.has(comboKey(v.optionIds))).map(v => v.id)
-    if (toInsert.length > 0 || toDelete.length > 0) {
-      syncMutation.mutate({ toInsert, toDelete })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupsSorted, variantsNormalized])
 
   const addGroupMutation = useMutation({
     mutationFn: async (name: string) => {
@@ -159,7 +121,7 @@ export function VariationsEditor({ productId, companyId }: Props) {
       const { error: err } = await (supabase.from('product_variation_groups') as any).delete().eq('id', id)
       if (err) throw err
     },
-    onSuccess: invalidateGroups,
+    onSuccess: () => { invalidateGroups(); invalidateVariants() },
   })
 
   const addOptionMutation = useMutation({
@@ -182,7 +144,7 @@ export function VariationsEditor({ productId, companyId }: Props) {
       const { error: err } = await (supabase.from('product_variation_options') as any).delete().eq('id', id)
       if (err) throw err
     },
-    onSuccess: invalidateGroups,
+    onSuccess: () => { invalidateGroups(); invalidateVariants() },
   })
 
   const updateVariantMutation = useMutation({
@@ -193,12 +155,133 @@ export function VariationsEditor({ productId, companyId }: Props) {
     onSuccess: invalidateVariants,
   })
 
+  const deleteVariantMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error: err } = await (supabase.from('product_variants') as any).delete().eq('id', id)
+      if (err) throw err
+    },
+    onSuccess: invalidateVariants,
+  })
+
+  /** Insere uma combinação a partir de uma seleção {groupId: optionId} + configurações opcionais. */
+  const createVariantMutation = useMutation({
+    mutationFn: async ({ selection, settings }: { selection: Record<string, string>; settings: Record<string, string> }) => {
+      const patch: Record<string, unknown> = {}
+      if (settings.price !== '') patch.price = Number(settings.price)
+      if (settings.stock_quantity !== '') patch.stock_quantity = Number(settings.stock_quantity)
+      if (settings.sku !== '') patch.sku = settings.sku
+      if (settings.lead_time_days !== '') patch.lead_time_days = Number(settings.lead_time_days)
+      if (settings.weight_kg !== '') patch.weight_kg = Number(settings.weight_kg)
+      if (settings.image_id !== '') patch.image_id = settings.image_id
+
+      const { data: newVariant, error: insErr } = await (supabase.from('product_variants') as any)
+        .insert({ product_id: productId, company_id: companyId, ...patch })
+        .select('id').single()
+      if (insErr) throw insErr
+
+      const rows = groupsSorted.map(g => ({ variant_id: newVariant.id, option_id: selection[g.id], group_id: g.id }))
+      const { error: valErr } = await (supabase.from('product_variant_option_values') as any).insert(rows)
+      if (valErr) throw valErr
+    },
+    onSuccess: () => { invalidateVariants(); setVariantForm(null); setError(null) },
+    onError: (err: Error) => setError(err.message),
+  })
+
+  /** Gera em lote as combinações escolhidas pelo assistente — nunca apaga as existentes. */
+  const bulkGenerateMutation = useMutation({
+    mutationFn: async (combos: string[][]) => {
+      for (const combo of combos) {
+        const { data: newVariant, error: insErr } = await (supabase.from('product_variants') as any)
+          .insert({ product_id: productId, company_id: companyId })
+          .select('id').single()
+        if (insErr) throw insErr
+        const rows = combo.map((optionId, idx) => ({
+          variant_id: newVariant.id, option_id: optionId, group_id: groupsSorted[idx].id,
+        }))
+        await (supabase.from('product_variant_option_values') as any).insert(rows)
+      }
+    },
+    onSuccess: () => { invalidateVariants(); setShowWizard(false) },
+  })
+
+  const copyConfigMutation = useMutation({
+    mutationFn: async ({ sourceId, targetId }: { sourceId: string; targetId: string }) => {
+      const source = variantsNormalized.find(v => v.id === sourceId)
+      if (!source) return
+      const patch: Record<string, unknown> = {}
+      for (const f of SETTINGS_FIELDS) patch[f] = (source as any)[f]
+      const { error: err } = await (supabase.from('product_variants') as any).update(patch).eq('id', targetId)
+      if (err) throw err
+    },
+    onSuccess: () => { invalidateVariants(); setCopySourceId(null); setCopyTargetId('') },
+  })
+
   function numOrNull(v: string): number | null {
     return v === '' ? null : Number(v)
   }
 
-  const syncing = syncMutation.isPending
-  const fullVariants = variantsNormalized.filter(v => v.optionIds.length === groupsSorted.length)
+  function optionValue(groupId: string, optionId?: string): string {
+    const g = groupsSorted.find(g => g.id === groupId)
+    return g?.options.find(o => o.id === optionId)?.value ?? '—'
+  }
+
+  async function confirmRemoveOption(id: string) {
+    const { count } = await (supabase.from('product_variant_option_values') as any)
+      .select('variant_id', { count: 'exact', head: true }).eq('option_id', id)
+    const msg = count && count > 0
+      ? `Esta opção é usada em ${count} combinação(ões) já cadastrada(s). Excluí-la também excluirá essas combinações. Deseja continuar?`
+      : 'Excluir esta opção?'
+    if (confirm(msg)) removeOptionMutation.mutate(id)
+  }
+
+  async function confirmRemoveGroup(id: string) {
+    const group = groupsSorted.find(g => g.id === id)
+    const optionIds = group?.options.map(o => o.id) ?? []
+    let count = 0
+    if (optionIds.length > 0) {
+      const res = await (supabase.from('product_variant_option_values') as any)
+        .select('variant_id', { count: 'exact', head: true }).in('option_id', optionIds)
+      count = res.count ?? 0
+    }
+    const msg = count > 0
+      ? `Este grupo é usado em ${count} combinação(ões) já cadastrada(s). Removê-lo também excluirá essas combinações. Deseja continuar?`
+      : 'Remover este grupo?'
+    if (confirm(msg)) removeGroupMutation.mutate(id)
+  }
+
+  function openNewVariantForm() {
+    setVariantForm({
+      selection: Object.fromEntries(groupsSorted.map(g => [g.id, g.options[0]?.id ?? ''])),
+      settings: { price: '', stock_quantity: '', sku: '', lead_time_days: '', weight_kg: '', image_id: '' },
+    })
+  }
+
+  function openDuplicateForm(v: VariantRow) {
+    setVariantForm({
+      selection: Object.fromEntries(groupsSorted.map((g, idx) => [g.id, v.optionIds[idx] ?? g.options[0]?.id ?? ''])),
+      settings: {
+        price: v.price?.toString() ?? '', stock_quantity: v.stock_quantity?.toString() ?? '',
+        sku: v.sku ?? '', lead_time_days: v.lead_time_days?.toString() ?? '',
+        weight_kg: v.weight_kg?.toString() ?? '', image_id: v.image_id ?? '',
+      },
+    })
+  }
+
+  function submitVariantForm() {
+    if (!variantForm) return
+    if (groupsSorted.some(g => !variantForm.selection[g.id])) {
+      setError('Selecione uma opção para cada grupo.')
+      return
+    }
+    const optionIds = groupsSorted.map(g => variantForm.selection[g.id])
+    if (existingCombos.has(comboKey(optionIds))) {
+      setError('Essa combinação já existe.')
+      return
+    }
+    createVariantMutation.mutate(variantForm)
+  }
+
+  const busy = createVariantMutation.isPending || bulkGenerateMutation.isPending
 
   return (
     <div className="space-y-4">
@@ -208,14 +291,14 @@ export function VariationsEditor({ productId, companyId }: Props) {
           <div key={group.id} className="rounded-xl border border-border dark:border-border-dark p-3">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold text-text-primary dark:text-stone-100">{group.name}</span>
-              <button type="button" onClick={() => removeGroupMutation.mutate(group.id)}
+              <button type="button" onClick={() => confirmRemoveGroup(group.id)}
                 className="text-[11px] text-error hover:underline">Remover grupo</button>
             </div>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {group.options.map(opt => (
                 <span key={opt.id} className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-primary-50 dark:bg-primary/10 text-primary">
                   {opt.value}
-                  <button type="button" onClick={() => removeOptionMutation.mutate(opt.id)} className="hover:text-error">
+                  <button type="button" onClick={() => confirmRemoveOption(opt.id)} className="hover:text-error">
                     <X size={11} />
                   </button>
                 </span>
@@ -251,7 +334,7 @@ export function VariationsEditor({ productId, companyId }: Props) {
             type="text"
             value={newGroupName}
             onChange={e => setNewGroupName(e.target.value)}
-            placeholder="Nome do grupo (ex: Cor, Tamanho, Quantidade)"
+            placeholder="Nome do grupo (ex: Papel, Gramatura, Impressão)"
             className="input text-xs h-9 flex-1"
           />
           <button type="submit" className="btn-primary text-xs h-9 px-3 flex items-center gap-1.5 flex-shrink-0">
@@ -266,39 +349,48 @@ export function VariationsEditor({ productId, companyId }: Props) {
         )}
       </div>
 
-      {/* Tabela de variantes geradas */}
+      {/* Ações de combinação */}
+      {groupsSorted.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setShowWizard(true)}
+            className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5">
+            <Sparkles size={13} /> Gerenciar combinações
+          </button>
+          <button type="button" onClick={openNewVariantForm}
+            className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5">
+            <Plus size={13} /> Nova combinação
+          </button>
+        </div>
+      )}
+
+      {/* Tabela de combinações existentes */}
       {groupsSorted.length === 0 ? (
         <p className="text-xs text-text-muted dark:text-stone-500 text-center py-2">
-          Adicione um grupo de variação para gerar as combinações automaticamente.
+          Adicione um grupo de variação para começar a criar combinações.
         </p>
-      ) : syncing ? (
-        <div className="flex items-center gap-2 text-xs text-text-muted py-3">
-          <Loader2 size={13} className="animate-spin" /> Gerando combinações...
-        </div>
-      ) : fullVariants.length === 0 ? (
+      ) : variantsNormalized.length === 0 ? (
         <p className="text-xs text-text-muted dark:text-stone-500 text-center py-2">
-          Adicione ao menos uma opção em cada grupo para gerar as variações.
+          Nenhuma combinação cadastrada ainda. Use &ldquo;Gerenciar combinações&rdquo; ou &ldquo;Nova combinação&rdquo; acima.
         </p>
       ) : (
         <div className="overflow-x-auto -mx-1">
-          <table className="w-full text-xs min-w-[640px]">
+          <table className="w-full text-xs min-w-[720px]">
             <thead>
               <tr className="border-b border-border dark:border-border-dark">
                 {groupsSorted.map(g => (
                   <th key={g.id} className="text-left font-semibold text-text-muted uppercase tracking-wider p-2">{g.name}</th>
                 ))}
-                {['Preço', 'Estoque', 'SKU', 'Prazo (dias)', 'Peso (kg)', 'Imagem'].map(h => (
+                {['Preço', 'Estoque', 'SKU', 'Prazo (dias)', 'Peso (kg)', 'Imagem', 'Ações'].map(h => (
                   <th key={h} className="text-left font-semibold text-text-muted uppercase tracking-wider p-2">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {fullVariants.map(v => (
+              {variantsNormalized.map(v => (
                 <tr key={v.id} className="border-b border-border dark:border-border-dark last:border-0">
-                  {v.optionIds.map((optId, idx) => {
-                    const opt = groupsSorted[idx]?.options.find(o => o.id === optId)
-                    return <td key={optId} className="p-2 text-text-primary dark:text-stone-200">{opt?.value ?? '—'}</td>
-                  })}
+                  {groupsSorted.map((g, idx) => (
+                    <td key={g.id} className="p-2 text-text-primary dark:text-stone-200">{optionValue(g.id, v.optionIds[idx])}</td>
+                  ))}
                   <td className="p-2">
                     <input type="number" step="0.01" defaultValue={v.price ?? ''} placeholder="Padrão"
                       onBlur={e => updateVariantMutation.mutate({ id: v.id, patch: { price: numOrNull(e.target.value) } })}
@@ -336,10 +428,150 @@ export function VariationsEditor({ productId, companyId }: Props) {
                       ))}
                     </select>
                   </td>
+                  <td className="p-2">
+                    <div className="flex items-center gap-1">
+                      <button type="button" title="Duplicar combinação" onClick={() => openDuplicateForm(v)}
+                        className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5">
+                        <Copy size={13} />
+                      </button>
+                      <button type="button" title="Copiar configuração para outra combinação" onClick={() => setCopySourceId(v.id)}
+                        className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5">
+                        <ClipboardCopy size={13} />
+                      </button>
+                      <button type="button" title="Excluir combinação"
+                        onClick={() => { if (confirm('Excluir esta combinação?')) deleteVariantMutation.mutate(v.id) }}
+                        className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light dark:hover:bg-error/10">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Assistente de dependência */}
+      {showWizard && (
+        <VariationRulesWizard
+          productId={productId}
+          companyId={companyId}
+          groups={groupsSorted}
+          existingCombos={existingCombos}
+          onClose={() => setShowWizard(false)}
+          onGenerate={combos => bulkGenerateMutation.mutateAsync(combos)}
+        />
+      )}
+
+      {/* Formulário de combinação manual / duplicar */}
+      {variantForm && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setVariantForm(null)} />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-md max-h-[90vh] overflow-y-auto p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">Nova combinação</h2>
+              <button onClick={() => setVariantForm(null)} className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted">
+                <X size={15} />
+              </button>
+            </div>
+            <div className="space-y-3">
+              {groupsSorted.map(g => (
+                <div key={g.id}>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">{g.name}</label>
+                  <select
+                    value={variantForm.selection[g.id] ?? ''}
+                    onChange={e => setVariantForm(f => f && ({ ...f, selection: { ...f.selection, [g.id]: e.target.value } }))}
+                    className="input text-xs h-9"
+                  >
+                    {g.options.map(o => <option key={o.id} value={o.id}>{o.value}</option>)}
+                  </select>
+                </div>
+              ))}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Preço</label>
+                  <input type="number" step="0.01" placeholder="Padrão" value={variantForm.settings.price}
+                    onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, price: e.target.value } }))}
+                    className="input text-xs h-9" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Estoque</label>
+                  <input type="number" step="1" placeholder="Ilimitado" value={variantForm.settings.stock_quantity}
+                    onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, stock_quantity: e.target.value } }))}
+                    className="input text-xs h-9" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">SKU</label>
+                  <input type="text" value={variantForm.settings.sku}
+                    onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, sku: e.target.value } }))}
+                    className="input text-xs h-9" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Prazo (dias)</label>
+                  <input type="number" step="1" placeholder="Padrão" value={variantForm.settings.lead_time_days}
+                    onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, lead_time_days: e.target.value } }))}
+                    className="input text-xs h-9" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Peso (kg)</label>
+                  <input type="number" step="0.001" placeholder="0,000" value={variantForm.settings.weight_kg}
+                    onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, weight_kg: e.target.value } }))}
+                    className="input text-xs h-9" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Imagem</label>
+                  <select value={variantForm.settings.image_id}
+                    onChange={e => setVariantForm(f => f && ({ ...f, settings: { ...f.settings, image_id: e.target.value } }))}
+                    className="input text-xs h-9">
+                    <option value="">Padrão</option>
+                    {productImages.map((img, i) => <option key={img.id} value={img.id}>Foto {i + 1}</option>)}
+                  </select>
+                </div>
+              </div>
+              {error && (
+                <p className="flex items-center gap-1 text-[11px] text-error dark:text-red-400">
+                  <AlertCircle size={11} /> {error}
+                </p>
+              )}
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setVariantForm(null)} className="btn-secondary flex-1 text-xs py-2">Cancelar</button>
+                <button type="button" disabled={busy} onClick={submitVariantForm}
+                  className="btn-primary flex-1 text-xs py-2 flex items-center justify-center gap-1.5 disabled:opacity-50">
+                  {busy && <Loader2 size={12} className="animate-spin" />} Salvar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Copiar configuração */}
+      {copySourceId && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCopySourceId(null)} />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm p-4">
+            <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-3">Copiar configuração para...</h2>
+            <select value={copyTargetId} onChange={e => setCopyTargetId(e.target.value)} className="input text-xs h-9 w-full mb-3">
+              <option value="">Selecione a combinação de destino</option>
+              {variantsNormalized.filter(v => v.id !== copySourceId).map(v => (
+                <option key={v.id} value={v.id}>
+                  {groupsSorted.map((g, idx) => optionValue(g.id, v.optionIds[idx])).join(' · ')}
+                </option>
+              ))}
+            </select>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setCopySourceId(null)} className="btn-secondary flex-1 text-xs py-2">Cancelar</button>
+              <button
+                type="button"
+                disabled={!copyTargetId || copyConfigMutation.isPending}
+                onClick={() => copyConfigMutation.mutate({ sourceId: copySourceId, targetId: copyTargetId })}
+                className="btn-primary flex-1 text-xs py-2 flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                {copyConfigMutation.isPending && <Loader2 size={12} className="animate-spin" />} Copiar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
