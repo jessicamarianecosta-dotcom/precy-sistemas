@@ -40,15 +40,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Empresa não encontrada' }, { status: 404 })
     }
 
-    // ── Verificar se já tem assinatura ativa deste plano ──
-    if (company.subscription_status === 'active' && company.stripe_subscription_id) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://precyplus.com.br'
+
+    // ── Já tem uma assinatura ativa/em trial? Trocar o plano NELA, nunca
+    // criar uma segunda assinatura. Antes, um cliente Basic pagante que
+    // clicasse em "Assinar Pro" criava uma nova Checkout Session (nova
+    // assinatura no Stripe) em vez de trocar a existente — resultando em
+    // duas assinaturas simultâneas e cobrança duplicada. ──
+    if (company.stripe_subscription_id && ['active', 'trialing'].includes(company.subscription_status)) {
       try {
         const existing = await stripe.subscriptions.retrieve(company.stripe_subscription_id)
-        const existingPriceId = existing.items.data[0]?.price.id
-        if (existingPriceId === planConfig.price_id && existing.status === 'active') {
-          return NextResponse.json({ error: 'Você já possui este plano ativo.' }, { status: 409 })
+        if (existing.status !== 'canceled') {
+          const existingPriceId = existing.items.data[0]?.price.id
+          if (existingPriceId === planConfig.price_id) {
+            return NextResponse.json({ error: 'Você já possui este plano ativo.' }, { status: 409 })
+          }
+          await stripe.subscriptions.update(company.stripe_subscription_id, {
+            items: [{ id: existing.items.data[0].id, price: planConfig.price_id }],
+            proration_behavior: 'create_prorations',
+            metadata: { user_id: session.user.id, company_id: company.id, plan },
+          })
+          // customer.subscription.updated (webhook) já atualiza current_plan/
+          // subscription_status/current_period_end a partir do novo price_id.
+          return NextResponse.json({ url: `${appUrl}/dashboard?planChanged=success` })
         }
-      } catch { /* subscription não existe mais — prosseguir */ }
+      } catch (err: any) {
+        console.error('[stripe/checkout] erro ao trocar plano da assinatura existente:', err?.message)
+        return NextResponse.json({ error: 'Erro ao trocar de plano. Tente novamente ou use o portal de assinatura.' }, { status: 500 })
+      }
     }
 
     // ── Garantir Stripe Customer (sem duplicar) ──
@@ -71,8 +90,6 @@ export async function POST(req: NextRequest) {
         .update({ stripe_customer_id: customerId })
         .eq('id', company.id)
     }
-
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://precyplus.com.br'
 
     // ── Criar Checkout Session ──
     const checkoutSession = await stripe.checkout.sessions.create({
