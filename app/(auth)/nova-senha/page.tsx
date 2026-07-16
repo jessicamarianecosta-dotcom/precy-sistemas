@@ -32,15 +32,37 @@ export default function NovaSenhaPage() {
     resolver: zodResolver(schema),
   })
 
-  /* ── Verificar sessão do link de recuperação ── */
+  /* ── Verificar sessão do link de recuperação ──
+     Em vez de um delay fixo (frágil em conexões lentas — podia marcar
+     "link inválido" mesmo com token válido só por checar cedo demais),
+     ouve o evento PASSWORD_RECOVERY/SIGNED_IN que o Supabase dispara
+     assim que termina de processar o hash da URL, com um fallback de
+     checagem imediata para quando a sessão já estiver pronta. */
   useEffect(() => {
-    async function checkSession() {
-      // Supabase processa o hash (#access_token=...) automaticamente
-      const { data: { session } } = await supabase.auth.getSession()
-      setValidToken(!!session)
+    let cancelled = false
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!cancelled && session) setValidToken(true)
+    })
+
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled) return
+      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
+        setValidToken(true)
+      }
+    })
+
+    // Fallback: se depois de um tempo razoável nenhuma sessão apareceu,
+    // considera o link realmente inválido/expirado.
+    const timeout = setTimeout(() => {
+      if (!cancelled) setValidToken(prev => prev ?? false)
+    }, 3000)
+
+    return () => {
+      cancelled = true
+      listener.subscription.unsubscribe()
+      clearTimeout(timeout)
     }
-    // Pequeno delay para o Supabase processar o hash da URL
-    setTimeout(checkSession, 500)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function onSubmit(data: Form) {

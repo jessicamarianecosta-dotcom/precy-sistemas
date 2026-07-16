@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getPaymentAdapter } from '@/lib/catalog/payments'
 import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
 
 interface CheckoutItem { productId: string; variantId?: string | null; quantity: number }
 
@@ -18,6 +19,12 @@ interface CheckoutItem { productId: string; variantId?: string | null; quantity:
  * partir do banco — nunca confiar em valores vindos do carrinho do client.
  */
 export async function POST(request: Request) {
+  // Rota pública sem sessão — limita por IP para reduzir spam de pedidos
+  // falsos (não impede uso legítimo, só abuso automatizado).
+  if (!checkRateLimit(`loja-checkout:${getClientIp(request)}`, 20, 10 * 60 * 1000)) {
+    return NextResponse.json({ error: 'Muitas solicitações. Tente novamente em alguns minutos.' }, { status: 429 })
+  }
+
   const body = await request.json().catch(() => null)
   const slug = String(body?.slug ?? '')
   const items: CheckoutItem[] = Array.isArray(body?.items) ? body.items : []
@@ -234,8 +241,8 @@ export async function POST(request: Request) {
   }
 
   /* ── Criar cobrança no adapter de pagamento (InfinityPay ou mock) ── */
-  const adapter = getPaymentAdapter()
   try {
+    const adapter = getPaymentAdapter()
     const charge = await adapter.createCharge({
       ref: checkoutRef,
       amount: total,

@@ -335,6 +335,19 @@ function PrecificacaoPage() {
     },
   })
 
+  // Alíquota de imposto configurada em Financeiro Avançado (companies.tax_rate)
+  // — mesma queryKey usada lá para reaproveitar cache.
+  const { data: companyTax } = useQuery({
+    queryKey: ['company-tax-rate', companyId],
+    enabled:  !!companyId,
+    queryFn:  async () => {
+      const { data } = await (supabase.from('companies') as any)
+        .select('tax_rate').eq('id', companyId!).maybeSingle()
+      return data
+    },
+  })
+  const taxRate = Number(companyTax?.tax_rate ?? 6)
+
   const { data: finishingCatalog } = useQuery<{ id: string; name: string; category: string | null; calc_type: string; default_value: number }[]>({
     queryKey: ['finishing-catalog', companyId],
     enabled:  !!companyId,
@@ -429,18 +442,32 @@ function PrecificacaoPage() {
       ? mMaterialCost + finishingItems.reduce((s, i) => s + computeFinishingSubtotal(i, mAreaM2, mMaterialCost), 0) + laborCost + extraCost
       : purchaseCost + extraCost
 
-  const idealPrice   = baseCost > 0 ? baseCost * (1 + markup / 100) : 0
-  const profit       = idealPrice - baseCost
-  const margin       = idealPrice > 0 ? (profit / idealPrice) * 100 : 0
+  // Preço antes de imposto = custo + markup (lucro que a empresa de fato
+  // embolsa). O imposto é "por fora": soma-se ao preço final via gross-up
+  // para que o valor recolhido não corroa esse lucro — sem isso, configurar
+  // uma alíquota em Financeiro Avançado não tinha nenhum efeito no preço
+  // sugerido.
+  const priceBeforeTax = baseCost > 0 ? baseCost * (1 + markup / 100) : 0
+  const taxAmount    = priceBeforeTax > 0 && taxRate > 0 && taxRate < 100
+    ? priceBeforeTax * (taxRate / (100 - taxRate))
+    : 0
+  const idealPrice   = priceBeforeTax + taxAmount
+  const profit       = priceBeforeTax - baseCost
+  const margin       = priceBeforeTax > 0 ? (profit / priceBeforeTax) * 100 : 0
 
   const showPrintSections = pricingType === 'per_m2' || pricingType === 'per_linear_meter' || pricingType === 'custom'
+
+  const grossUpWithTax = (priceBeforeTaxValue: number) =>
+    priceBeforeTaxValue > 0 && taxRate > 0 && taxRate < 100
+      ? priceBeforeTaxValue / (1 - taxRate / 100)
+      : priceBeforeTaxValue
 
   const scenarios = useMemo(() => [
     {
       label: 'Conservador',
       sub:   'Preço competitivo, lucro menor',
       markup: Math.max(30, Math.round(markup * 0.5)),
-      price:  baseCost * (1 + Math.max(30, markup * 0.5) / 100),
+      price:  grossUpWithTax(baseCost * (1 + Math.max(30, markup * 0.5) / 100)),
     },
     {
       label: 'Ideal',
@@ -453,9 +480,10 @@ function PrecificacaoPage() {
       label: 'Premium',
       sub:   'Posicionamento premium',
       markup: Math.round(markup * 1.6),
-      price:  baseCost * (1 + (markup * 1.6) / 100),
+      price:  grossUpWithTax(baseCost * (1 + (markup * 1.6) / 100)),
     },
-  ], [markup, baseCost, idealPrice])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [markup, baseCost, idealPrice, taxRate])
 
   /* ── Material picker ── */
   const filteredInventory = (inventoryItems ?? []).filter(i =>
@@ -1479,6 +1507,9 @@ function PrecificacaoPage() {
 
               <Row label="Custo total" value={baseCost} color="bg-error-light text-error-dark" />
               <Row label={`Lucro (${markup}%)`} value={profit} color="bg-success-light text-success-dark" />
+              {taxAmount > 0 && (
+                <Row label={`Imposto (${taxRate}%)`} value={taxAmount} color="bg-stone-200 text-stone-700 dark:bg-stone-700 dark:text-stone-200" />
+              )}
 
               <div className="pt-2 border-t border-border dark:border-border-dark flex items-center justify-between">
                 <span className="text-sm font-semibold text-text-primary dark:text-stone-100">Preço Final</span>

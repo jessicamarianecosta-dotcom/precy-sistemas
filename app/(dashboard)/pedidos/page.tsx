@@ -727,6 +727,12 @@ export default function PedidosPage() {
           .update({ ...payload, updated_at: new Date().toISOString() })
           .eq('id', editingId)
         if (error) throw new Error(error.message)
+
+        // O total pode ter mudado (item removido/adicionado, desconto editado)
+        // — sem recalcular aqui, payment_status ficava desatualizado até o
+        // próximo recebimento ser registrado/editado/excluído.
+        const currentOrder = (orders ?? []).find((o: any) => o.id === editingId)
+        await recalcOrderPaymentStatus(supabase, editingId, companyId!, payload.total, currentOrder?.paid_at ?? null)
       } else {
         const { data: created, error } = await (supabase.from('orders') as any)
           .insert([{ ...payload, company_id: companyId!, order_number: '' }])
@@ -788,34 +794,24 @@ export default function PedidosPage() {
 
       const percentage = orderTotalValue > 0 ? (amount / orderTotalValue) * 100 : 0
 
-      /* 1. Inserir no payment_history — SEMPRE INSERT, nunca UPDATE */
-      const { data: phData, error: phError } = await (supabase.from('payment_history') as any).insert([{
-        order_id: editingId,
-        customer_id: orderRecord.customer_id,
-        company_id: companyId,
-        amount,
-        payment_date: paymentData.payment_date,
-        payment_method: paymentData.payment_method || null,
-        observation: paymentData.observation || null,
-        percentage,
-        created_by: (await supabase.auth.getUser()).data.user?.id,
-      }]).select('id').single()
-      if (phError) throw new Error(`Erro ao registrar recebimento: ${phError.message}`)
-
-      /* 2. Inserir lançamento INDIVIDUAL no financeiro — nunca atualizar anterior */
-      const { error: ftError } = await (supabase.from('financial_transactions') as any).insert([{
-        company_id: companyId,
-        order_id: editingId,
-        payment_history_id: phData?.id ?? null,
-        type: 'income',
-        category: 'vendas',
-        amount,
-        description: `Recebimento — Pedido ${orderRecord.order_number || ''} · ${orderRecord.service_name || 'Serviço'}${paymentData.observation ? ' · ' + paymentData.observation : ''}`,
-        date: paymentData.payment_date,
-        status: 'received',
-        client_name: orderRecord.customers?.name || null,
-      }])
-      if (ftError) throw new Error(`Erro ao lançar no financeiro: ${ftError.message}`)
+      /* Registra recebimento + lançamento financeiro atomicamente (RPC
+         register_order_payment) — se um dos dois inserts falhar, o Postgres
+         desfaz os dois, evitando dessincronia entre os módulos. */
+      const { error: rpcError } = await (supabase.rpc as any)('register_order_payment', {
+        p_order_id: editingId,
+        p_company_id: companyId,
+        p_customer_id: orderRecord.customer_id,
+        p_amount: amount,
+        p_payment_date: paymentData.payment_date,
+        p_payment_method: paymentData.payment_method || null,
+        p_observation: paymentData.observation || null,
+        p_percentage: percentage,
+        p_order_number: orderRecord.order_number || '',
+        p_service_name: orderRecord.service_name || 'Serviço',
+        p_client_name: orderRecord.customers?.name || null,
+        p_created_by: (await supabase.auth.getUser()).data.user?.id,
+      })
+      if (rpcError) throw new Error(`Erro ao registrar recebimento: ${rpcError.message}`)
 
       /* 3. Recalcular payment_status/paid_at a partir do SUM do payment_history */
       const newPaymentStatus = await recalcOrderPaymentStatus(supabase, editingId, companyId, orderTotalValue, orderRecord.paid_at ?? null)
@@ -879,28 +875,18 @@ export default function PedidosPage() {
 
       const percentage = orderTotalValue > 0 ? (amount / orderTotalValue) * 100 : 0
 
-      /* 1. Atualizar payment_history */
-      const { error: phError } = await (supabase.from('payment_history') as any)
-        .update({
-          amount,
-          payment_date: paymentData.payment_date,
-          payment_method: paymentData.payment_method || null,
-          observation: paymentData.observation || null,
-          percentage,
-        })
-        .eq('id', editingPaymentId)
-      if (phError) throw new Error(`Erro ao editar recebimento: ${phError.message}`)
-
-      /* 2. Atualizar o lançamento vinculado no financeiro */
-      const { error: ftError } = await (supabase.from('financial_transactions') as any)
-        .update({
-          amount,
-          date: paymentData.payment_date,
-          description: `Recebimento — Pedido ${orderRecord.order_number || ''} · ${orderRecord.service_name || 'Serviço'}${paymentData.observation ? ' · ' + paymentData.observation : ''}`,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('payment_history_id', editingPaymentId)
-      if (ftError) throw new Error(`Erro ao atualizar lançamento no financeiro: ${ftError.message}`)
+      /* Atualiza recebimento + lançamento financeiro atomicamente (RPC
+         update_order_payment). */
+      const { error: rpcError } = await (supabase.rpc as any)('update_order_payment', {
+        p_payment_id: editingPaymentId,
+        p_amount: amount,
+        p_payment_date: paymentData.payment_date,
+        p_payment_method: paymentData.payment_method || null,
+        p_observation: paymentData.observation || null,
+        p_percentage: percentage,
+        p_description: `Recebimento — Pedido ${orderRecord.order_number || ''} · ${orderRecord.service_name || 'Serviço'}${paymentData.observation ? ' · ' + paymentData.observation : ''}`,
+      })
+      if (rpcError) throw new Error(`Erro ao editar recebimento: ${rpcError.message}`)
 
       /* 3. Recalcular payment_status/paid_at e total_purchases */
       await recalcOrderPaymentStatus(supabase, editingId, companyId, orderTotalValue, orderRecord.paid_at ?? null)
@@ -938,17 +924,12 @@ export default function PedidosPage() {
       const orderRecord = (orders ?? []).find((o: any) => o.id === editingId) as any
       if (!orderRecord) throw new Error('Pedido não encontrado')
 
-      /* 1. Remover o lançamento vinculado no financeiro */
-      const { error: ftError } = await (supabase.from('financial_transactions') as any)
-        .delete()
-        .eq('payment_history_id', paymentId)
-      if (ftError) throw new Error(`Erro ao remover lançamento do financeiro: ${ftError.message}`)
-
-      /* 2. Remover o recebimento */
-      const { error: phError } = await (supabase.from('payment_history') as any)
-        .delete()
-        .eq('id', paymentId)
-      if (phError) throw new Error(`Erro ao excluir recebimento: ${phError.message}`)
+      /* Remove lançamento financeiro + recebimento atomicamente (RPC
+         delete_order_payment). */
+      const { error: rpcError } = await (supabase.rpc as any)('delete_order_payment', {
+        p_payment_id: paymentId,
+      })
+      if (rpcError) throw new Error(`Erro ao excluir recebimento: ${rpcError.message}`)
 
       /* 3. Recalcular payment_status/paid_at e total_purchases */
       await recalcOrderPaymentStatus(supabase, editingId, companyId, Number(orderRecord.total), orderRecord.paid_at ?? null)
@@ -2295,10 +2276,23 @@ export default function PedidosPage() {
                 <div>
                   <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Desconto</label>
                   <input
-                    type="number" min="0" step="0.01" className="input text-sm"
+                    type="number" min="0" step="0.01"
+                    max={editingItem.discount_type === 'percentage' ? 100 : undefined}
+                    className="input text-sm"
                     value={editingItem.discount}
                     onChange={e => setEditingItem(p => p ? { ...p, discount: Number(e.target.value) } : null)}
                   />
+                  {(() => {
+                    const gross = editingItem.quantity * editingItem.unit_price
+                    const discValue = editingItem.discount_type === 'percentage'
+                      ? gross * (editingItem.discount / 100)
+                      : editingItem.discount
+                    return discValue > gross && gross > 0 ? (
+                      <p className="mt-1 text-[11px] text-warning">
+                        Desconto maior que o valor do item — será limitado a {fmtGlobal(gross)}.
+                      </p>
+                    ) : null
+                  })()}
                 </div>
               </div>
 

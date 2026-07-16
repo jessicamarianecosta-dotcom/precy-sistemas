@@ -341,10 +341,12 @@ function CentroCustosTab({
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase.from('cost_centers') as any)
+      const { data, error } = await (supabase.from('cost_centers') as any)
         .update({ is_active: false, updated_at: new Date().toISOString() })
         .eq('id', id)
+        .select()
       if (error) throw error
+      if (!data || data.length === 0) throw new Error('Centro de custo não encontrado ou sem permissão para remover.')
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cost-centers', companyId] })
@@ -463,8 +465,8 @@ function CentroCustosTab({
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeModal} />
-          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-md animate-scaleIn">
-            <div className="p-5 pb-3 border-b border-border dark:border-border-dark flex items-center justify-between">
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-md animate-scaleIn max-h-[92dvh] sm:max-h-[90vh] flex flex-col">
+            <div className="p-5 pb-3 border-b border-border dark:border-border-dark flex items-center justify-between flex-shrink-0">
               <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">
                 {editing ? 'Editar centro de custo' : 'Novo centro de custo'}
               </h3>
@@ -473,7 +475,7 @@ function CentroCustosTab({
               </button>
             </div>
 
-            <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="p-5 space-y-4">
+            <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="overflow-y-auto p-5 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Nome</label>
                 <input className="input" placeholder="Ex: Matéria-prima" {...register('name')} />
@@ -754,10 +756,12 @@ function RecorrentesTab({
           .eq('recurring_bill_id', id)
           .in('status', pendingStatuses)
       }
-      const { error } = await (supabase.from('recurring_bills') as any)
+      const { data, error } = await (supabase.from('recurring_bills') as any)
         .update({ is_active: false, updated_at: new Date().toISOString() })
         .eq('id', id)
+        .select()
       if (error) throw error
+      if (!data || data.length === 0) throw new Error('Conta recorrente não encontrada ou sem permissão para remover.')
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recurring-bills', companyId] })

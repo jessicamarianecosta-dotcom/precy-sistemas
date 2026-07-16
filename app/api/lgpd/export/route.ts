@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { checkRateLimit } from '@/lib/rateLimit'
 
 /**
  * GET /api/lgpd/export
@@ -16,6 +17,12 @@ export async function GET() {
     const serverClient = createServerComponentClient({ cookies })
     const { data: { user } } = await serverClient.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
+
+    // Gera um dump completo dos dados da empresa — limita a 5 exportações
+    // a cada 5 minutos por usuário para evitar chamadas em loop.
+    if (!checkRateLimit(`lgpd-export:${user.id}`, 5, 5 * 60 * 1000)) {
+      return NextResponse.json({ error: 'Muitas exportações em pouco tempo. Tente novamente em alguns minutos.' }, { status: 429 })
+    }
 
     const { data: company } = await (supabaseAdmin.from('companies') as any)
       .select('*').eq('user_id', user.id).maybeSingle()

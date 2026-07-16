@@ -243,11 +243,15 @@ export default function EstoquePage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase.from('inventory') as any)
+      const { data, error } = await (supabase.from('inventory') as any)
         .delete()
         .eq('id', id)
+        .select()
 
       if (error) throw error
+      if (!data || data.length === 0) {
+        throw new Error('Nenhum item foi excluído — verifique se ele ainda existe ou se você tem permissão.')
+      }
     },
 
     onSuccess: () => {
@@ -310,6 +314,8 @@ export default function EstoquePage() {
     try {
       const { data: newItem, error } = await (supabase.from('inventory') as any)
         .insert([{
+          // Sem total_paid/notes: campos de UI, não existem na tabela
+          // inventory (mesmo cuidado já tomado no saveMutation acima).
           company_id:       companyId,
           name:             `Cópia de ${item.name}`,
           category:         item.category         ?? 'geral',
@@ -317,9 +323,7 @@ export default function EstoquePage() {
           quantity:         Number(item.quantity)  ?? 0,
           minimum_quantity: Number(item.minimum_quantity) ?? 0,
           cost_per_unit:    Number(item.cost_per_unit)    ?? 0,
-          total_paid:       Number(item.cost_per_unit) * Number(item.quantity),
           supplier:         item.supplier          ?? null,
-          notes:            item.notes             ?? null,
         }])
         .select()
         .single()
@@ -642,11 +646,11 @@ export default function EstoquePage() {
             onClick={closeModal}
           />
 
-          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-2xl animate-scaleIn">
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-2xl animate-scaleIn max-h-[92dvh] sm:max-h-[90vh] flex flex-col">
 
             {/* Header */}
 
-            <div className="p-4 sm:p-6 border-b border-border dark:border-border-dark flex items-center justify-between">
+            <div className="p-4 sm:p-6 border-b border-border dark:border-border-dark flex items-center justify-between flex-shrink-0">
 
               <h2 className="text-lg font-semibold text-text-primary dark:text-stone-100">
                 {editingId
@@ -665,10 +669,11 @@ export default function EstoquePage() {
             {/* Form */}
 
             <form
+              id="estoque-form"
               onSubmit={handleSubmit(d =>
                 saveMutation.mutate(d)
               )}
-              className="p-6 space-y-4"
+              className="flex-1 overflow-y-auto p-6 space-y-4"
             >
 
               <div className="grid grid-cols-2 gap-4">
@@ -865,39 +870,40 @@ export default function EstoquePage() {
                     {...register('supplier')}
                   />
                 </div></div>
-
-              {/* Footer */}
-
-              <div className="flex flex-col sm:flex-row gap-3 pt-2">
-
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="btn-secondary flex-1"
-                >
-                  Cancelar
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={
-                    saveMutation.isPending
-                  }
-                  className="btn-primary flex-1 flex items-center justify-center gap-2"
-                >
-                  {saveMutation.isPending && (
-                    <Loader2
-                      size={15}
-                      className="animate-spin"
-                    />
-                  )}
-
-                  {saveMutation.isPending
-                    ? 'Salvando...'
-                    : 'Salvar'}
-                </button>
-              </div>
             </form>
+
+            {/* Footer */}
+
+            <div className="flex flex-col sm:flex-row gap-3 p-6 pt-4 border-t border-border dark:border-border-dark flex-shrink-0">
+
+              <button
+                type="button"
+                onClick={closeModal}
+                className="btn-secondary flex-1"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="submit"
+                form="estoque-form"
+                disabled={
+                  saveMutation.isPending
+                }
+                className="btn-primary flex-1 flex items-center justify-center gap-2"
+              >
+                {saveMutation.isPending && (
+                  <Loader2
+                    size={15}
+                    className="animate-spin"
+                  />
+                )}
+
+                {saveMutation.isPending
+                  ? 'Salvando...'
+                  : 'Salvar'}
+              </button>
+            </div>
           </div>
         </div>
       )}

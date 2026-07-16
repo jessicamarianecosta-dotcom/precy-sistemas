@@ -138,7 +138,26 @@ export default function ClientesPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      await (supabase.from('customers') as any).delete().eq('id', id)
+      // orders/budgets.customer_id são obrigatórios (NOT NULL) — excluir um
+      // cliente com pedidos ou orçamentos associados violaria essa
+      // constraint no banco. Melhor avisar com uma mensagem clara aqui do
+      // que deixar o erro cru do Postgres subir para a usuária.
+      const [{ count: ordersCount }, { count: budgetsCount }] = await Promise.all([
+        supabase.from('orders').select('id', { count: 'exact', head: true }).eq('customer_id', id),
+        supabase.from('budgets').select('id', { count: 'exact', head: true }).eq('customer_id', id),
+      ])
+      if ((ordersCount ?? 0) > 0 || (budgetsCount ?? 0) > 0) {
+        const parts = []
+        if (ordersCount) parts.push(`${ordersCount} pedido(s)`)
+        if (budgetsCount) parts.push(`${budgetsCount} orçamento(s)`)
+        throw new Error(`Não é possível excluir: este cliente tem ${parts.join(' e ')} associado(s). Exclua-os primeiro ou deixe o cliente inativo.`)
+      }
+
+      const { data, error } = await (supabase.from('customers') as any).delete().eq('id', id).select()
+      if (error) throw error
+      if (!data || data.length === 0) {
+        throw new Error('Nenhum cliente foi excluído — verifique se ele ainda existe ou se você tem permissão.')
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers', companyId] })

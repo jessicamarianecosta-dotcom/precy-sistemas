@@ -7,6 +7,7 @@ import { useToast } from '@/components/ui/Toaster'
 import { formatCurrency } from '@/lib/utils/format'
 import { ArrowLeft, Minus, Plus, Trash2, Loader2, Upload } from 'lucide-react'
 import Link from 'next/link'
+import Image from 'next/image'
 
 export default function CheckoutLojaPage() {
   const { slug } = useParams<{ slug: string }>()
@@ -105,8 +106,8 @@ export default function CheckoutLojaPage() {
             <div className="card divide-y divide-border dark:divide-border-dark">
               {items.map(item => (
                 <div key={`${item.productId}:${item.variantId ?? ''}`} className="flex items-center gap-3 p-3">
-                  <div className="w-12 h-12 rounded-lg bg-surface dark:bg-white/5 overflow-hidden flex-shrink-0">
-                    {item.photo && <img src={item.photo} alt="" className="w-full h-full object-cover" />}
+                  <div className="relative w-12 h-12 rounded-lg bg-surface dark:bg-white/5 overflow-hidden flex-shrink-0">
+                    {item.photo && <Image src={item.photo} alt="" fill sizes="48px" className="object-cover" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{item.name}</p>

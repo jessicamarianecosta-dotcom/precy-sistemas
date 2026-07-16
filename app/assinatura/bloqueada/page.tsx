@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { ShieldAlert, Loader2, LogOut, CreditCard, RefreshCw, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter }    from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 
 export default function BloqueadaPage() {
   const [loadingCheckout, setLoadingCheckout] = useState(false)
@@ -10,6 +11,7 @@ export default function BloqueadaPage() {
   const [errMsg,          setErrMsg]          = useState('')
   const supabase = createClient()
   const router   = useRouter()
+  const queryClient = useQueryClient()
 
   async function handleRenovar() {
     setLoadingCheckout(true)
@@ -35,6 +37,7 @@ export default function BloqueadaPage() {
   }
 
   async function handleLogout() {
+    queryClient.clear()
     await supabase.auth.signOut()
     router.push('/login')
   }

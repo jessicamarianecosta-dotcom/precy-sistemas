@@ -33,11 +33,18 @@ export const runtime = 'nodejs'
  */
 export async function POST(req: NextRequest) {
   const rawBody = await req.text()
-  const adapter = getPaymentAdapter()
+
+  let adapter
+  try {
+    adapter = getPaymentAdapter()
+  } catch (err: any) {
+    console.error('[webhook/infinitypay] adapter indisponível:', err?.message)
+    return NextResponse.json({ error: err?.message ?? 'Pagamentos indisponíveis' }, { status: 500 })
+  }
 
   // Modo mock não verifica assinatura de verdade (qualquer POST com um ref
-  // válido confirma o pagamento) — aceitável para testes com o ref
-  // (UUID) não sendo público, mas nunca deve ficar ligado em produção real.
+  // válido confirma o pagamento) — só é alcançável fora de produção
+  // (getPaymentAdapter já falha explicitamente em produção sem credenciais).
   if (!process.env.INFINITYPAY_API_KEY) {
     console.warn('[webhook/infinitypay] INFINITYPAY_API_KEY ausente — rodando em modo mock, sem verificação real de assinatura')
   }
@@ -68,48 +75,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true, warning: 'Pedido não encontrado' })
   }
 
-  /* 1. payment_history — o INSERT com catalog_checkout_ref único É a trava de idempotência */
-  const { data: paymentHistory, error: phError } = await (supabaseAdmin.from('payment_history') as any)
-    .insert([{
-      order_id: order.id,
-      customer_id: order.customer_id,
-      company_id: order.company_id,
-      amount: order.total,
-      payment_date: new Date().toISOString().slice(0, 10),
-      payment_method: event.paymentMethod ?? 'infinitypay',
-      observation: 'Pagamento via Catálogo Online',
-      percentage: 100,
-      catalog_checkout_ref: event.ref,
-    }])
-    .select('id')
-    .single()
+  /* payment_history + financial_transactions atomicamente (RPC
+     register_order_payment) — o INSERT com catalog_checkout_ref único
+     dentro da função É a trava de idempotência; se um reenvio do gateway
+     cair aqui de novo, a violação de unique constraint aborta a função
+     inteira (nenhum lançamento financeiro duplicado é criado). */
+  const { error: rpcError } = await (supabaseAdmin.rpc as any)('register_order_payment', {
+    p_order_id: order.id,
+    p_company_id: order.company_id,
+    p_customer_id: order.customer_id,
+    p_amount: order.total,
+    p_payment_date: new Date().toISOString().slice(0, 10),
+    p_payment_method: event.paymentMethod ?? 'infinitypay',
+    p_observation: 'Pagamento via Catálogo Online',
+    p_percentage: 100,
+    p_order_number: order.order_number || '',
+    p_service_name: 'Catálogo Online',
+    p_client_name: order.customers?.name ?? null,
+    p_created_by: null,
+    p_catalog_checkout_ref: event.ref,
+  })
 
-  if (phError) {
-    if (phError.code === '23505') {
+  if (rpcError) {
+    if (rpcError.code === '23505') {
       return NextResponse.json({ received: true, alreadyProcessed: true })
     }
-    console.error('[webhook/infinitypay] payment_history error:', phError.message)
+    console.error('[webhook/infinitypay] register_order_payment error:', rpcError.message)
     return NextResponse.json({ error: 'Erro ao registrar pagamento' }, { status: 500 })
   }
 
   try {
-    /* financial_transactions — mesma forma do "Registrar Recebimento" em Pedidos */
-    const { error: ftError } = await (supabaseAdmin.from('financial_transactions') as any)
-      .insert([{
-        company_id: order.company_id,
-        order_id: order.id,
-        payment_history_id: paymentHistory?.id ?? null,
-        type: 'income',
-        category: 'vendas',
-        amount: order.total,
-        description: `Recebimento — Pedido ${order.order_number || ''} · Catálogo Online`,
-        date: new Date().toISOString().slice(0, 10),
-        status: 'received',
-        client_name: order.customers?.name ?? null,
-      }])
-    if (ftError) throw new Error(`financial_transactions: ${ftError.message}`)
-
-    /* 2. Recalcular payment_status/paid_at do pedido e total_purchases do cliente */
+    /* Recalcular payment_status/paid_at do pedido e total_purchases do cliente */
     await recalcOrderPaymentStatus(supabaseAdmin, order.id, order.company_id, Number(order.total), order.paid_at)
     if (order.customer_id) {
       await recalcCustomerTotalPurchases(supabaseAdmin, order.customer_id, order.company_id)

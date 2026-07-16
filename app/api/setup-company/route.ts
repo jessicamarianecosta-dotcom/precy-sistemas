@@ -2,6 +2,7 @@ import { NextResponse }             from 'next/server'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies }                  from 'next/headers'
 import { supabaseAdmin }            from '@/lib/supabase/admin'
+import { PLANS }                    from '@/lib/stripe/plans'
 
 /**
  * POST /api/setup-company
@@ -39,6 +40,11 @@ export async function POST() {
       user.email?.split('@')[0] ||
       'Meu Negócio'
 
+    // Trial de 7 dias (mesmo prazo do plano Basic) — sem isso, isTrialExpired()
+    // no middleware nunca teria uma data para comparar e o acesso PRO do
+    // período de trial nunca expiraria.
+    const trialEnd = new Date(Date.now() + PLANS.basic.trialDays * 24 * 60 * 60 * 1000).toISOString()
+
     const { data: company, error: createError } = await (supabaseAdmin as any).from('companies').insert({
         user_id:              user.id,
         name:                 companyName,
@@ -47,6 +53,9 @@ export async function POST() {
         fixed_costs:          0,
         currency:             'BRL',
         timezone:             'America/Sao_Paulo',
+        current_plan:         'basic',
+        subscription_status:  'trialing',
+        trial_end:            trialEnd,
       })
       .select('id')
       .single()

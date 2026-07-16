@@ -163,10 +163,10 @@ export async function middleware(req: NextRequest) {
   // trial válido → acesso PRO completo; trial expirado → reverte para plan do banco
   const effectivePlan: string = (!trialExpired && status === 'trialing') ? 'pro' : plan
 
-  const isProRoute = PRO_ROUTES.some(r => pathname.startsWith(r))
+  const isProRoute = PRO_ROUTES.some(r => pathname === r || pathname.startsWith(r + '/'))
   if (isProRoute && effectivePlan !== 'pro') {
     if (pathname.startsWith('/api/')) {
-      return NextResponse.json({ error: 'Catálogo Online é exclusivo do Plano PRO' }, { status: 403 })
+      return NextResponse.json({ error: 'Este recurso é exclusivo do Plano PRO' }, { status: 403 })
     }
     const url = new URL(UPGRADE_ROUTE, req.url)
     url.searchParams.set('from', pathname)

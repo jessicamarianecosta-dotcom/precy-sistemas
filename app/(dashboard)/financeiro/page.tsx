@@ -628,11 +628,13 @@ export default function FinanceiroPage() {
   const deleteMutation = useMutation({
     mutationFn: async ({ id, scope, groupId }: { id: string; scope: 'one' | 'all'; groupId?: string | null }) => {
       if (scope === 'all' && groupId) {
-        const { error } = await (supabase.from('financial_transactions') as any).delete().eq('expense_group_id', groupId)
+        const { data, error } = await (supabase.from('financial_transactions') as any).delete().eq('expense_group_id', groupId).select()
         if (error) throw error
+        if (!data || data.length === 0) throw new Error('Nenhuma parcela foi excluída — verifique se elas ainda existem ou se você tem permissão.')
       } else {
-        const { error } = await (supabase.from('financial_transactions') as any).delete().eq('id', id)
+        const { data, error } = await (supabase.from('financial_transactions') as any).delete().eq('id', id).select()
         if (error) throw error
+        if (!data || data.length === 0) throw new Error('Nenhum lançamento foi excluído — verifique se ele ainda existe ou se você tem permissão.')
       }
     },
     onSuccess: () => {
@@ -758,14 +760,23 @@ export default function FinanceiroPage() {
       const siblingsSum = rows.reduce((s, r) => s + Number(r.amount), 0)
       const base = Math.floor((siblingsSum / rows.length) * 100) / 100
       let allocated = 0
-      await Promise.all(rows.map((r, i) => {
+      const results = await Promise.all(rows.map((r, i) => {
         const isLast = i === rows.length - 1
         const amount = isLast ? Math.round((siblingsSum - allocated) * 100) / 100 : base
         allocated += amount
         return (supabase.from('financial_transactions') as any)
           .update({ amount, updated_at: new Date().toISOString() })
           .eq('id', r.id)
+          .select()
       }))
+      // Promise.all resolve mesmo se uma das atualizações falhar (erro do
+      // Supabase não rejeita a Promise) — sem checar cada resultado, o toast
+      // de sucesso aparecia mesmo com uma parcela não atualizada, quebrando
+      // a soma silenciosamente.
+      const failed = results.find(r => r.error || !r.data || r.data.length === 0)
+      if (failed) {
+        throw new Error(failed.error?.message ?? 'Uma das parcelas não pôde ser atualizada — recalcule novamente.')
+      }
     },
     onSuccess: () => {
       invalidateFinancialQueries()

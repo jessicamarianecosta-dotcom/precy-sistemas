@@ -7,10 +7,13 @@ import { PLANS }        from '@/lib/stripe'
  * Retorna um relatório de status sem expor chaves sensíveis.
  */
 export async function GET(req: Request) {
-  // Proteger com um token simples para evitar leakage de config
+  // Proteger com um token simples para evitar leakage de config.
+  // Fail-closed: se VERIFY_TOKEN não estiver configurado, a rota fica
+  // bloqueada (nunca aberta) — antes, ausência da env var pulava a
+  // checagem inteira e deixava a rota pública.
   const token = req.headers.get('x-verify-token')
-  const expected = process.env.VERIFY_TOKEN ?? ''
-  if (expected && token !== expected) {
+  const expected = process.env.VERIFY_TOKEN
+  if (!expected || token !== expected) {
     return new Response('Unauthorized', { status: 401 })
   }
   const checks = {

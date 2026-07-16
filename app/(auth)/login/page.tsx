@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -16,8 +16,25 @@ const loginSchema = z.object({
 
 type LoginForm = z.infer<typeof loginSchema>
 
+function getSafeRedirect(raw: string | null): string {
+  // Só aceita caminho relativo interno (evita open redirect via ?redirect=//evil.com
+  // ou ?redirect=https://evil.com).
+  if (!raw) return '/dashboard'
+  if (!raw.startsWith('/') || raw.startsWith('//')) return '/dashboard'
+  return raw
+}
+
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  )
+}
+
+function LoginForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -46,7 +63,7 @@ export default function LoginPage() {
         return
       }
 
-      router.push('/dashboard')
+      router.push(getSafeRedirect(searchParams.get('redirect')))
       router.refresh()
     } catch {
       setError('Erro inesperado. Tente novamente.')

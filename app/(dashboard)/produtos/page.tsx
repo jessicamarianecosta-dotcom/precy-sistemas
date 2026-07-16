@@ -189,6 +189,36 @@ export default function ProdutosPage() {
     },
   })
 
+  /* Custo/hora — mesma fonte e fórmula da Precificação (queryKeys compartilhadas
+     para reaproveitar cache), usado para recalcular labor_cost quando
+     production_time_hours é editado aqui na edição rápida. */
+  const { data: pricingCompany } = useQuery({
+    queryKey: ['company-pricing', companyId],
+    enabled:  !!companyId,
+    queryFn:  async () => {
+      const res: any = await supabase.from('companies')
+        .select('work_hours_per_month, fixed_costs, prolabore').eq('id', companyId!).single()
+      return res?.data
+    },
+  })
+  const { data: fixedCostsData } = useQuery({
+    queryKey: ['fixed_costs-pricing', companyId],
+    enabled:  !!companyId,
+    queryFn:  async () => {
+      const { data } = await (supabase.from('fixed_costs') as any)
+        .select('amount').eq('company_id', companyId!).eq('is_active', true)
+      return (data ?? []) as { amount: number }[]
+    },
+  })
+  const hourlyRate = (() => {
+    const workHours = Number(pricingCompany?.work_hours_per_month ?? 160)
+    const fixedFromTable = (fixedCostsData ?? []).reduce((s, c) => s + Number(c.amount), 0)
+    const fixedLegacy    = Number(pricingCompany?.fixed_costs ?? 0)
+    const fixedTotal     = fixedFromTable > 0 ? fixedFromTable : fixedLegacy
+    const prolabore      = Number(pricingCompany?.prolabore ?? 0)
+    return workHours > 0 ? (fixedTotal + prolabore) / workHours : 0
+  })()
+
   /* Materiais do produto selecionado */
   const { data: productMaterials } = useQuery<ProductMaterial[]>({
     queryKey: ['product-materials', viewProduct?.id],
@@ -219,12 +249,22 @@ export default function ProdutosPage() {
         // (vpTotalCost dá prioridade a ela). Sem recalculá-la aqui, editar o Custo
         // de Material neste formulário rápido não se refletia em nenhum lugar da UI.
         const current = qc.getQueryData<Product[]>(['products', companyId])?.find(p => p.id === editingId)
-        const laborCost = safeNum(current?.labor_cost)
         const extraCost = safeNum(current?.extra_cost)
+
+        // Mesmo bug já corrigido para material_cost/total_cost: se as horas de
+        // produção mudarem aqui na edição rápida, labor_cost precisa ser
+        // recalculado com a mesma fórmula da Precificação (custo/hora × horas),
+        // senão a Ficha Técnica mostra horas novas com custo de mão de obra
+        // desatualizado.
+        const hoursChanged = safeNum(current?.production_time_hours) !== payload.production_time_hours
+        const appliesLabor = current?.product_type === 'produced' || current?.product_type === 'meter_product'
+        const laborCost = hoursChanged && appliesLabor
+          ? hourlyRate * payload.production_time_hours
+          : safeNum(current?.labor_cost)
         const totalCost = payload.material_cost + laborCost + extraCost
 
         const { data, error } = await (supabase.from('products') as any)
-          .update({ ...payload, total_cost: totalCost, updated_at: new Date().toISOString() })
+          .update({ ...payload, labor_cost: laborCost, total_cost: totalCost, updated_at: new Date().toISOString() })
           .eq('id', editingId)
           .select()
 

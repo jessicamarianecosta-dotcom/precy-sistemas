@@ -12,6 +12,7 @@ import { useToast } from '@/components/ui/Toaster'
 import { StoreFooter } from '@/components/catalog/storefront/StoreFooter'
 import type { StorefrontSettings } from '@/components/catalog/storefront/types'
 import Link from 'next/link'
+import Image from 'next/image'
 
 interface ProductDetail {
   id: string; name: string; description: string | null; final_price: number
@@ -296,8 +297,8 @@ export default function ProdutoLojaPage() {
               {displayPhotos.length > 1 && (
                 <div className="flex gap-2">
                   {displayPhotos.map((p, i) => (
-                    <button key={p + i} onClick={() => setActivePhoto(i)} className={`w-14 h-14 rounded-lg overflow-hidden border-2 transition-colors ${activePhoto === i ? 'border-primary' : 'border-transparent'}`}>
-                      <img src={p} alt="" className="w-full h-full object-cover" />
+                    <button key={p + i} onClick={() => setActivePhoto(i)} className={`relative w-14 h-14 rounded-lg overflow-hidden border-2 transition-colors ${activePhoto === i ? 'border-primary' : 'border-transparent'}`}>
+                      <Image src={p} alt="" fill sizes="56px" className="object-cover" />
                     </button>
                   ))}
                 </div>

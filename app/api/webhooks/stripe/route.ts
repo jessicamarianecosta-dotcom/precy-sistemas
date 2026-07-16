@@ -98,10 +98,15 @@ export async function POST(req: NextRequest) {
 
         const priceId  = sub.items.data[0]?.price.id ?? ''
         const plan     = getPlanFromPriceId(priceId)
-        const isCanceledAtEnd = sub.cancel_at_period_end
 
+        // Importante: mesmo com cancel_at_period_end=true (cliente agendou
+        // cancelamento pelo Portal), o plano contratado continua ativo até
+        // o período pago realmente terminar — Stripe dispara
+        // customer.subscription.deleted (que já faz o downgrade para
+        // basic) só quando isso acontece de verdade. Fazer o downgrade
+        // aqui cortaria o acesso de um cliente que já pagou o período.
         await updateCompany(companyId, {
-          current_plan:          isCanceledAtEnd ? 'basic' : plan,
+          current_plan:          plan,
           subscription_status:   sub.status,
           current_period_end:    new Date((sub as any).current_period_end * 1000).toISOString(),
           trial_end:             (sub as any).trial_end

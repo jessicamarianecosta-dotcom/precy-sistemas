@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
 
 /**
  * POST /api/loja/orcamento
@@ -10,6 +11,12 @@ import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
  * Orçamentos já existente — o lojista continua o atendimento por lá.
  */
 export async function POST(request: Request) {
+  // Rota pública sem sessão — limita por IP para reduzir spam de
+  // orçamentos falsos (não impede uso legítimo, só abuso automatizado).
+  if (!checkRateLimit(`loja-orcamento:${getClientIp(request)}`, 20, 10 * 60 * 1000)) {
+    return NextResponse.json({ error: 'Muitas solicitações. Tente novamente em alguns minutos.' }, { status: 429 })
+  }
+
   const body = await request.json().catch(() => null)
   const slug = String(body?.slug ?? '')
   const productId = String(body?.productId ?? '')

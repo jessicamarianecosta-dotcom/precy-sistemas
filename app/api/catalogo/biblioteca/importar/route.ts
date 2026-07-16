@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { requireCatalogAccess } from '@/lib/catalog/server-auth'
+import { checkUsageLimit } from '@/lib/subscription/check'
 
 /**
  * POST /api/catalogo/biblioteca/importar
@@ -22,6 +23,22 @@ export async function POST(request: Request) {
   const ids: string[] = Array.isArray(body?.ids) ? body.ids : []
   if (ids.length === 0) {
     return NextResponse.json({ error: 'Selecione ao menos um produto da biblioteca' }, { status: 400 })
+  }
+
+  // Mesma checagem de limite de plano do fluxo de criação manual de produto
+  // (requireCatalogAccess já exige PRO, e hoje PLAN_LIMITS.pro.products é
+  // ilimitado — mas isso protege a rota caso esse limite mude no futuro,
+  // em vez de o import em massa ser o único caminho sem checagem).
+  const usage = await checkUsageLimit(auth.companyId, 'products', auth.plan.plan)
+  if (!usage.allowed) {
+    return NextResponse.json({
+      error: `Limite de ${usage.limit} produtos do plano ${auth.plan.plan === 'pro' ? 'PRO' : 'Basic'} atingido.`,
+    }, { status: 403 })
+  }
+  if (Number.isFinite(usage.limit) && usage.current + ids.length > usage.limit) {
+    return NextResponse.json({
+      error: `Importar ${ids.length} produtos ultrapassaria o limite de ${usage.limit} do plano. Você tem ${usage.current} produto(s) e pode importar até ${Math.max(0, usage.limit - usage.current)}.`,
+    }, { status: 403 })
   }
 
   const { data: libraryItems, error: libError } = await (supabaseAdmin.from('library_products') as any)

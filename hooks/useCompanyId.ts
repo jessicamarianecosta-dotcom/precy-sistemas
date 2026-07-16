@@ -62,6 +62,8 @@ export function useCompanyId() {
           user.email?.split('@')[0] ||
           'Meu Negócio'
 
+        const trialEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+
         const { data: newCo, error: createErr } = await (supabase.from('companies') as any)
           .insert({
             user_id:              user.id,
@@ -71,6 +73,9 @@ export function useCompanyId() {
             fixed_costs:          0,
             currency:             'BRL',
             timezone:             'America/Sao_Paulo',
+            current_plan:         'basic',
+            subscription_status:  'trialing',
+            trial_end:            trialEnd,
           })
           .select('id')
           .single()

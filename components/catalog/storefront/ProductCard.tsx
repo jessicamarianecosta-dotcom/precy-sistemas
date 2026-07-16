@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion'
 import Link from 'next/link'
+import Image from 'next/image'
 import { Store } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils/format'
 import type { StorefrontProduct } from './types'
@@ -38,7 +39,7 @@ export function ProductCard({ product, href, isBestseller }: Props) {
       >
         <div className="relative aspect-square bg-surface dark:bg-white/5 flex items-center justify-center overflow-hidden">
           {photo ? (
-            <img src={photo} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+            <Image src={photo} alt={product.name} fill sizes="(max-width: 640px) 50vw, 300px" className="object-cover group-hover:scale-105 transition-transform duration-300" />
           ) : (
             <Store size={32} className="text-text-muted" />
           )}

@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import Image from 'next/image'
 import { Store, MessageCircle, Instagram, Share2, Link2, Heart, MapPin, ShieldCheck, Zap } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useToast } from '@/components/ui/Toaster'
@@ -56,7 +57,7 @@ export function StoreHero({ settings, storeName, categories = [] }: Props) {
       {/* Foto de fundo em tela cheia — cresce junto com o conteúdo, nunca corta o texto */}
       <div className="absolute inset-0 overflow-hidden">
         {settings.banner_url ? (
-          <img src={settings.banner_url} alt="" className="w-full h-full object-cover" />
+          <Image src={settings.banner_url} alt="" fill sizes="100vw" priority className="object-cover" />
         ) : (
           <div className="w-full h-full" style={{ background: `linear-gradient(135deg, ${settings.theme_color}, ${settings.theme_color}66)` }} />
         )}
@@ -71,8 +72,8 @@ export function StoreHero({ settings, storeName, categories = [] }: Props) {
             <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-5 sm:gap-6 items-start">
               {/* Coluna 1 — Logo (permanece exatamente onde está) */}
               <div className="flex justify-center sm:justify-start">
-                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white shadow-lg overflow-hidden flex items-center justify-center flex-shrink-0 border-2 border-white">
-                  {settings.logo_url ? <img src={settings.logo_url} alt={storeName} className="w-full h-full object-cover" /> : <Store size={28} className="text-text-muted" />}
+                <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white shadow-lg overflow-hidden flex items-center justify-center flex-shrink-0 border-2 border-white">
+                  {settings.logo_url ? <Image src={settings.logo_url} alt={storeName} fill sizes="80px" className="object-cover" /> : <Store size={28} className="text-text-muted" />}
                 </div>
               </div>
 

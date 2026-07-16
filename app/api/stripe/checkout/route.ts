@@ -3,6 +3,7 @@ import { stripe, PLANS, PlanId }     from '@/lib/stripe'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { supabaseAdmin }             from '@/lib/supabase/admin'
 import { cookies }                   from 'next/headers'
+import { checkRateLimit }            from '@/lib/rateLimit'
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,6 +11,10 @@ export async function POST(req: NextRequest) {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session?.user) {
       return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
+    }
+
+    if (!checkRateLimit(`stripe-checkout:${session.user.id}`, 10, 5 * 60 * 1000)) {
+      return NextResponse.json({ error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' }, { status: 429 })
     }
 
     const body = await req.json()

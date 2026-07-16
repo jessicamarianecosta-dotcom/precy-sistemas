@@ -543,6 +543,7 @@ export default function ConfiguracoesPage() {
 
   /* ─── Auth ─── */
   async function handleLogout() {
+    queryClient.clear()
     await supabase.auth.signOut()
     router.push('/login')
   }

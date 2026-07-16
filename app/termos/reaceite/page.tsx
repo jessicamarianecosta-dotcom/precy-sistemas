@@ -4,10 +4,12 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { FileText, Loader2, CheckCircle, LogOut } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useQueryClient } from '@tanstack/react-query'
 
 export default function ReaceiteTermosPage() {
   const router = useRouter()
   const supabase = createClient()
+  const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -30,6 +32,7 @@ export default function ReaceiteTermosPage() {
   }
 
   async function handleLogout() {
+    queryClient.clear()
     await supabase.auth.signOut()
     router.push('/login')
   }
