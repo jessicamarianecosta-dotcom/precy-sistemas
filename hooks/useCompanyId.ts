@@ -50,19 +50,41 @@ export function useCompanyId() {
           return
         }
 
-        /* ── 3. Sem empresa → tentar criar com cliente autenticado ── */
+        /* ── 3. Sem empresa → criar via /api/setup-company (server-side) ──
+           Essa rota é a única que decide o trial de 7 dias com checagem
+           antiabuso (device_id/IP — ver lib/trial/antiAbuse.ts). Um insert
+           direto pelo client, como este hook fazia antes, contornava
+           completamente essa checagem — qualquer conta nova ganhava o
+           bônus de trial sem nenhuma verificação. */
         if (createAttempted.current) {
           if (!cancelled) setLoading(false)
           return
         }
         createAttempted.current = true
 
+        try {
+          const res = await fetch('/api/setup-company', { method: 'POST' })
+          if (res.ok) {
+            const body = await res.json()
+            if (!cancelled && body.companyId) {
+              setCompanyId(body.companyId)
+              return
+            }
+          }
+          throw new Error('setup-company falhou')
+        } catch (apiErr) {
+          console.error('[useCompanyId] /api/setup-company falhou, usando fallback direto (sem bônus de trial):', apiErr)
+        }
+
+        // Fallback de último recurso (rota da API indisponível) — cria a
+        // empresa sem conceder o bônus de trial de 7 dias, já que aqui não
+        // há como rodar a checagem antiabuso no servidor. A conta funciona
+        // normalmente no plano Basic; o trial pode ser reavaliado depois
+        // pelo suporte, se for o caso.
         const companyName =
           (user.user_metadata?.company_name as string) ||
           user.email?.split('@')[0] ||
           'Meu Negócio'
-
-        const trialEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
 
         const { data: newCo, error: createErr } = await (supabase.from('companies') as any)
           .insert({
@@ -75,26 +97,13 @@ export function useCompanyId() {
             timezone:             'America/Sao_Paulo',
             current_plan:         'basic',
             subscription_status:  'trialing',
-            trial_end:            trialEnd,
+            trial_end:            new Date().toISOString(),
           })
           .select('id')
           .single()
 
         if (createErr) {
           console.error('[useCompanyId] company create error:', createErr)
-          // Tenta via API route como fallback (usa service role)
-          try {
-            const res = await fetch('/api/setup-company', { method: 'POST' })
-            if (res.ok) {
-              const body = await res.json()
-              if (!cancelled && body.companyId) {
-                setCompanyId(body.companyId)
-                return
-              }
-            }
-          } catch (apiErr) {
-            console.error('[useCompanyId] API fallback error:', apiErr)
-          }
           if (!cancelled) setCompanyId(null)
           return
         }
