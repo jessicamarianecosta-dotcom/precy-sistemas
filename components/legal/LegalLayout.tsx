@@ -1,10 +1,10 @@
 import Link from 'next/link'
 
 interface Props {
-  title: string; subtitle: string; updated: string; children: React.ReactNode
+  title: string; subtitle: string; updated: string; version?: string; children: React.ReactNode
 }
 
-export function LegalLayout({ title, subtitle, updated, children }: Props) {
+export function LegalLayout({ title, subtitle, updated, version, children }: Props) {
   return (
     <div className="min-h-screen" style={{ background: '#0F0B08', color: '#d4c4b4', fontFamily: "'Helvetica Neue', sans-serif" }}>
       {/* Header */}
@@ -14,8 +14,8 @@ export function LegalLayout({ title, subtitle, updated, children }: Props) {
             <div style={{ width: 28, height: 28, borderRadius: 8, background: '#8B6C4F', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700 }}>P+</div>
             <span style={{ fontSize: 14, fontWeight: 700, color: '#f0ece6' }}>Precy+</span>
           </Link>
-          <div style={{ display: 'flex', gap: '20px' }}>
-            {[['Termos','/termos'],['Privacidade','/privacidade'],['Reembolso','/reembolso']].map(([l,h]) => (
+          <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+            {[['Termos','/termos'],['Privacidade','/privacidade'],['Reembolso','/reembolso'],['Cancelamento','/cancelamento'],['Suporte','/suporte']].map(([l,h]) => (
               <Link key={h} href={h} style={{ fontSize: 12, color: '#7a6855', textDecoration: 'none' }}>{l}</Link>
             ))}
           </div>
@@ -27,7 +27,14 @@ export function LegalLayout({ title, subtitle, updated, children }: Props) {
         <div style={{ maxWidth: '760px', margin: '0 auto' }}>
           <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '2.5px', textTransform: 'uppercase', color: '#8B6C4F', marginBottom: 8 }}>{subtitle}</p>
           <h1 style={{ fontSize: 30, fontWeight: 700, color: '#f0ece6', marginBottom: 10 }}>{title}</h1>
-          <p style={{ fontSize: 13, color: '#6a5a4a' }}>Última atualização: {updated}</p>
+          <p style={{ fontSize: 13, color: '#6a5a4a' }}>
+            Última atualização: {updated}
+            {version && (
+              <span style={{ marginLeft: 10, fontSize: 11, fontWeight: 700, color: '#C4A47B', background: 'rgba(139,108,79,0.15)', padding: '2px 8px', borderRadius: 999 }}>
+                Versão {version}
+              </span>
+            )}
+          </p>
         </div>
       </div>
 

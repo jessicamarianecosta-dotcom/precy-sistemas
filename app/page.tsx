@@ -476,8 +476,11 @@ export default function LandingPage() {
             <div>
               <h4 className="text-sm font-semibold text-[#2C2018] dark:text-stone-100 mb-3">Legal</h4>
               <ul className="space-y-2">
-                <li><Link href="/termos" className="text-sm text-[#7A6855] dark:text-stone-400 hover:text-[#8B6C4F] transition-colors">Termos de uso</Link></li>
-                <li><Link href="/privacidade" className="text-sm text-[#7A6855] dark:text-stone-400 hover:text-[#8B6C4F] transition-colors">Privacidade</Link></li>
+                <li><Link href="/termos" className="text-sm text-[#7A6855] dark:text-stone-400 hover:text-[#8B6C4F] transition-colors">Termos de Uso</Link></li>
+                <li><Link href="/privacidade" className="text-sm text-[#7A6855] dark:text-stone-400 hover:text-[#8B6C4F] transition-colors">Política de Privacidade</Link></li>
+                <li><Link href="/cancelamento" className="text-sm text-[#7A6855] dark:text-stone-400 hover:text-[#8B6C4F] transition-colors">Política de Cancelamento</Link></li>
+                <li><Link href="/suporte" className="text-sm text-[#7A6855] dark:text-stone-400 hover:text-[#8B6C4F] transition-colors">Suporte</Link></li>
+                <li><a href="mailto:suporte@precyplus.com.br" className="text-sm text-[#7A6855] dark:text-stone-400 hover:text-[#8B6C4F] transition-colors">Contato</a></li>
               </ul>
             </div>
           </div>

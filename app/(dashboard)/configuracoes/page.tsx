@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { Header } from '@/components/layout/Header'
@@ -8,7 +9,7 @@ import {
   Building2, DollarSign, CreditCard, Trash2, Plus,
   CheckCircle, Loader2, LogOut, Key, Upload, Instagram,
   Phone, MapPin, Hash, Clock, TrendingUp, Zap, Star,
-  AlertCircle, Scissors, Edit2, X,
+  AlertCircle, Scissors, Edit2, X, FileText, Download, ShieldAlert,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { formatCurrency } from '@/lib/utils/format'
@@ -123,6 +124,7 @@ export default function ConfiguracoesPage() {
   const [savingColors,   setSavingColors]  = useState(false)
   const [savingRoutine,  setSavingRoutine] = useState(false)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
+  const [upgradeAgreed,  setUpgradeAgreed]  = useState(false)
 
   /* ── Acabamentos ── */
   const [editingFinishing, setEditingFinishing] = useState<Partial<FinishingCatalogItem> | null>(null)
@@ -168,6 +170,53 @@ export default function ConfiguracoesPage() {
         .select('*').eq('id', companyId!).maybeSingle()
       return data
     },
+  })
+
+  const { data: latestConsent } = useQuery({
+    queryKey: ['latest-consent', userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data } = await (supabase.from('user_consents') as any)
+        .select('terms_version, privacy_version, accepted_at, accepted_ip')
+        .eq('user_id', userId!)
+        .order('accepted_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      return data
+    },
+  })
+
+  const { data: lgpdRequests } = useQuery({
+    queryKey: ['lgpd-requests', userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data } = await (supabase.from('lgpd_requests') as any)
+        .select('id, request_type, status, requested_at')
+        .eq('user_id', userId!)
+        .order('requested_at', { ascending: false })
+      return data ?? []
+    },
+  })
+
+  const [confirmLgpd, setConfirmLgpd] = useState<'deletion' | 'anonymization' | null>(null)
+
+  const lgpdRequestMutation = useMutation({
+    mutationFn: async (requestType: 'deletion' | 'anonymization') => {
+      const res = await fetch('/api/lgpd/request', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestType }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error ?? 'Erro ao registrar solicitação.')
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lgpd-requests', userId] })
+      toast('success', 'Solicitação registrada. Será processada conforme nossa Política de Privacidade.')
+      setConfirmLgpd(null)
+    },
+    onError: (err: Error) => { showError(err.message); setConfirmLgpd(null) },
   })
 
   const { data: fixedCosts } = useQuery({
@@ -470,6 +519,11 @@ export default function ConfiguracoesPage() {
   async function handleUpgradeClick() {
     setCheckoutLoading(true)
     try {
+      // Aceitar no checkout também conta como aceite válido da versão atual.
+      await fetch('/api/legal/accept', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accepted: true }),
+      })
       const res  = await fetch('/api/stripe/checkout', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plan: 'pro' }),
@@ -1145,9 +1199,23 @@ export default function ConfiguracoesPage() {
                     <span className="text-2xl font-bold text-primary">R$ 47</span>
                     <span className="text-text-muted mb-1">/mês</span>
                   </div>
+                  <label className="flex items-start gap-2 mb-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={upgradeAgreed}
+                      onChange={e => setUpgradeAgreed(e.target.checked)}
+                      className="mt-0.5 w-3.5 h-3.5 rounded accent-primary flex-shrink-0"
+                    />
+                    <span className="text-[11px] text-text-muted dark:text-stone-500 leading-relaxed">
+                      Ao concluir sua assinatura você confirma que leu e concorda com os{' '}
+                      <Link href="/termos" target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">Termos de Uso</Link>
+                      {' '}e a{' '}
+                      <Link href="/privacidade" target="_blank" rel="noopener noreferrer" className="underline hover:text-primary">Política de Privacidade</Link>.
+                    </span>
+                  </label>
                   <button
                     onClick={handleUpgradeClick}
-                    disabled={checkoutLoading}
+                    disabled={checkoutLoading || !upgradeAgreed}
                     className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-60"
                   >
                     {checkoutLoading ? <Loader2 size={15} className="animate-spin" /> : <Star size={15} />}
@@ -1176,6 +1244,96 @@ export default function ConfiguracoesPage() {
               </button>
             </div>
 
+            <div className="card">
+              <SectionTitle icon={FileText} title="Documentos legais" subtitle="Seu aceite dos Termos de Uso e Política de Privacidade" />
+              {latestConsent ? (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 text-sm">
+                  <div>
+                    <p className="text-xs text-text-muted dark:text-stone-400">Versão aceita</p>
+                    <p className="font-medium text-text-primary dark:text-stone-100">
+                      Termos v{latestConsent.terms_version} · Privacidade v{latestConsent.privacy_version}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted dark:text-stone-400">Data de aceite</p>
+                    <p className="font-medium text-text-primary dark:text-stone-100">
+                      {new Date(latestConsent.accepted_at).toLocaleString('pt-BR')}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted dark:text-stone-400">IP do aceite</p>
+                    <p className="font-medium text-text-primary dark:text-stone-100">{latestConsent.accepted_ip ?? '—'}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-text-secondary dark:text-stone-400 mb-4">Nenhum aceite registrado ainda.</p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Link href="/termos" target="_blank" rel="noopener noreferrer" className="btn-secondary flex items-center gap-2 text-sm">
+                  <FileText size={14} /> Visualizar Termos
+                </Link>
+                <Link href="/privacidade" target="_blank" rel="noopener noreferrer" className="btn-secondary flex items-center gap-2 text-sm">
+                  <FileText size={14} /> Visualizar Política
+                </Link>
+              </div>
+            </div>
+
+            <div className="card">
+              <SectionTitle icon={ShieldAlert} title="Privacidade e seus dados" subtitle="Autoatendimento LGPD (Art. 18)" />
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <p className="text-sm font-medium text-text-primary dark:text-stone-100">Baixar meus dados</p>
+                    <p className="text-xs text-text-muted dark:text-stone-400">Exporta um arquivo JSON com todos os seus dados no Precy+.</p>
+                  </div>
+                  <a href="/api/lgpd/export" className="btn-secondary flex items-center gap-2 text-sm flex-shrink-0">
+                    <Download size={14} /> Baixar meus dados
+                  </a>
+                </div>
+
+                <div className="h-px bg-border dark:bg-border-dark" />
+
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <p className="text-sm font-medium text-text-primary dark:text-stone-100">Solicitar exclusão da conta</p>
+                    <p className="text-xs text-text-muted dark:text-stone-400">Registra um pedido de exclusão definitiva dos seus dados.</p>
+                  </div>
+                  <button type="button" onClick={() => setConfirmLgpd('deletion')}
+                    className="flex-shrink-0 px-4 py-2 rounded-xl text-sm font-medium text-error border border-error/30 hover:bg-error-light transition-colors">
+                    Solicitar exclusão
+                  </button>
+                </div>
+
+                <div className="h-px bg-border dark:bg-border-dark" />
+
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <p className="text-sm font-medium text-text-primary dark:text-stone-100">Solicitar anonimização</p>
+                    <p className="text-xs text-text-muted dark:text-stone-400">Registra um pedido para anonimizar seus dados pessoais.</p>
+                  </div>
+                  <button type="button" onClick={() => setConfirmLgpd('anonymization')} className="btn-secondary flex-shrink-0 text-sm">
+                    Solicitar anonimização
+                  </button>
+                </div>
+
+                {(lgpdRequests ?? []).length > 0 && (
+                  <div className="pt-2 border-t border-border dark:border-border-dark space-y-1.5">
+                    <p className="text-xs font-semibold text-text-muted dark:text-stone-400 uppercase tracking-wide">Solicitações registradas</p>
+                    {(lgpdRequests ?? []).map((r: any) => (
+                      <div key={r.id} className="flex items-center justify-between text-xs">
+                        <span className="text-text-secondary dark:text-stone-400">
+                          {r.request_type === 'deletion' ? 'Exclusão de conta' : 'Anonimização'} — {new Date(r.requested_at).toLocaleDateString('pt-BR')}
+                        </span>
+                        <span className={clsx('font-medium', r.status === 'pending' ? 'text-warning-dark' : r.status === 'completed' ? 'text-success-dark' : 'text-error-dark')}>
+                          {r.status === 'pending' ? 'Pendente' : r.status === 'completed' ? 'Concluída' : 'Rejeitada'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="card border-error/20">
               <div className="flex items-center gap-3 mb-4 pb-4 border-b border-border dark:border-border-dark">
                 <div className="p-2 rounded-xl bg-error-light flex-shrink-0">
@@ -1196,6 +1354,39 @@ export default function ConfiguracoesPage() {
       </div>
 
       <SavedToast visible={saved} />
+
+      {confirmLgpd && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => !lgpdRequestMutation.isPending && setConfirmLgpd(null)} />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm animate-scaleIn p-6 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-error-light flex items-center justify-center mx-auto mb-4">
+              <ShieldAlert size={20} className="text-error" />
+            </div>
+            <h3 className="text-base font-semibold text-text-primary dark:text-stone-100 mb-2">
+              {confirmLgpd === 'deletion' ? 'Solicitar exclusão da conta?' : 'Solicitar anonimização dos dados?'}
+            </h3>
+            <p className="text-sm text-text-secondary dark:text-stone-400 mb-1">Esta ação é irreversível assim que processada.</p>
+            <p className="text-xs text-text-muted dark:text-stone-500 mb-6">
+              Sua solicitação será registrada e processada por nossa equipe, conforme nossa{' '}
+              <Link href="/privacidade" target="_blank" rel="noopener noreferrer" className="text-primary underline">Política de Privacidade</Link>.
+              Nada é apagado ou alterado imediatamente.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmLgpd(null)} disabled={lgpdRequestMutation.isPending} className="btn-secondary flex-1">
+                Cancelar
+              </button>
+              <button
+                onClick={() => lgpdRequestMutation.mutate(confirmLgpd)}
+                disabled={lgpdRequestMutation.isPending}
+                className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-error hover:opacity-90 disabled:opacity-50"
+              >
+                {lgpdRequestMutation.isPending && <Loader2 size={14} className="animate-spin" />}
+                Confirmar solicitação
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,10 +1,11 @@
 import { LegalLayout } from '@/components/legal/LegalLayout'
+import { PRIVACY_VERSION, PRIVACY_UPDATED_AT } from '@/lib/legal/versions'
 
 export const metadata = { title: 'Política de Privacidade — Precy+', description: 'Como coletamos, usamos e protegemos seus dados no Precy+.' }
 
 export default function PrivacidadePage() {
   return (
-    <LegalLayout title="Política de Privacidade" subtitle="Transparência e proteção de dados" updated="Junho de 2026">
+    <LegalLayout title="Política de Privacidade" subtitle="Transparência e proteção de dados" updated={PRIVACY_UPDATED_AT} version={PRIVACY_VERSION}>
       <div className="highlight"><p>O Precy+ é comprometido com a privacidade e segurança dos seus dados. Esta política está em conformidade com a <strong>Lei Geral de Proteção de Dados (LGPD — Lei 13.709/2018)</strong>.</p></div>
 
       <h2>1. Quem somos</h2>
@@ -62,7 +63,13 @@ export default function PrivacidadePage() {
         <li><strong>Revogação</strong> — revogar consentimentos dados anteriormente</li>
         <li><strong>Oposição</strong> — opor-se ao processamento em determinadas situações</li>
       </ul>
-      <p>Para exercer qualquer direito: <a href="mailto:privacidade@precyplus.com.br">privacidade@precyplus.com.br</a></p>
+      <p>
+        Acesso e portabilidade (baixar seus dados) estão disponíveis a qualquer momento em{' '}
+        <strong>Configurações → Conta &amp; Plano → Privacidade e seus dados</strong>. Exclusão e
+        anonimização podem ser solicitadas na mesma tela — o pedido é registrado e processado por
+        nossa equipe, sem execução automática imediata. Para os demais direitos ou dúvidas:{' '}
+        <a href="mailto:privacidade@precyplus.com.br">privacidade@precyplus.com.br</a>
+      </p>
 
       <h2>9. Retenção de dados</h2>
       <p>Seus dados são mantidos enquanto sua conta estiver ativa. Após cancelamento, dados pessoais são removidos em até 90 dias, salvo obrigação legal de retenção.</p>

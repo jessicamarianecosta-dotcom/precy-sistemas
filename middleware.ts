@@ -2,10 +2,17 @@ import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
 import { NextResponse }           from 'next/server'
 import type { NextRequest }       from 'next/server'
 import { canAccessCatalog }       from '@/lib/catalog/betaAccess'
+import { TERMS_VERSION, PRIVACY_VERSION } from '@/lib/legal/versions'
 
 /* ── Rotas públicas ── */
 const PUBLIC = ['/', '/login', '/cadastro', '/recuperar-senha', '/nova-senha',
-                '/termos', '/privacidade', '/reembolso', '/loja', '/api/loja']
+                '/termos', '/privacidade', '/reembolso', '/cancelamento', '/suporte',
+                '/loja', '/api/loja']
+
+/* ── Gate de re-aceite de Termos/Privacidade: liberado mesmo sem aceite
+   atual, para não gerar loop de redirecionamento ── */
+const LEGAL_GATE_ALLOWLIST = ['/termos/reaceite', '/api/legal/accept']
+const REACCEPT_ROUTE = '/termos/reaceite'
 
 /* ── Rotas exclusivas PRO ── */
 const PRO_ROUTES = ['/agenda', '/financeiro', '/relatorios', '/conteudo', '/financeiro-avancado']
@@ -76,6 +83,31 @@ export async function middleware(req: NextRequest) {
     const url = new URL('/login', req.url)
     url.searchParams.set('redirect', pathname)
     return NextResponse.redirect(url)
+  }
+
+  /* ── Termos/Privacidade: gate mais fundamental, antes de qualquer outra
+     coisa — bloqueia acesso a QUALQUER rota autenticada até re-aceitar a
+     versão atual (nunca confia só no frontend/checkbox de cadastro) ── */
+  const isLegalGateExempt = LEGAL_GATE_ALLOWLIST.some(r => pathname === r || pathname.startsWith(r + '/'))
+  if (!isLegalGateExempt) {
+    const { data: consent } = await supabase
+      .from('user_consents')
+      .select('terms_version, privacy_version')
+      .eq('user_id', session.user.id)
+      .order('accepted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const needsReaccept = !consent
+      || consent.terms_version !== TERMS_VERSION
+      || consent.privacy_version !== PRIVACY_VERSION
+
+    if (needsReaccept) {
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json({ error: 'É necessário aceitar os Termos de Uso e a Política de Privacidade atualizados.' }, { status: 403 })
+      }
+      return NextResponse.redirect(new URL(REACCEPT_ROUTE, req.url))
+    }
   }
 
   /* ── Página de bloqueio: permite acesso + checkout/portal ── */

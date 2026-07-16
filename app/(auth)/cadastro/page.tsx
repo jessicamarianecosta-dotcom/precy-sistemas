@@ -15,9 +15,13 @@ const cadastroSchema = z.object({
   email:           z.string().email('E-mail inválido'),
   password:        z.string().min(6, 'Senha deve ter ao menos 6 caracteres'),
   confirmPassword: z.string(),
+  termsAccepted:   z.boolean(),
 }).refine(data => data.password === data.confirmPassword, {
   message: 'As senhas não coincidem',
   path: ['confirmPassword'],
+}).refine(data => data.termsAccepted === true, {
+  message: 'Você precisa aceitar os Termos de Uso e a Política de Privacidade para criar sua conta.',
+  path: ['termsAccepted'],
 })
 
 type CadastroForm = z.infer<typeof cadastroSchema>
@@ -87,6 +91,18 @@ export default function CadastroPage() {
         const body = await res.json().catch(() => ({}))
         console.error('[cadastro] setup-company error:', body)
         // Não é fatal — useCompanyId vai retentar depois
+      }
+
+      /* ── 3b. Registrar aceite jurídico dos Termos/Privacidade ── */
+      setStep('Registrando aceite dos termos...')
+      const acceptRes = await fetch('/api/legal/accept', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accepted: true }),
+      })
+      if (!acceptRes.ok) {
+        console.error('[cadastro] legal/accept error:', await acceptRes.json().catch(() => ({})))
+        // Não bloqueia o fluxo — o middleware vai barrar no próximo acesso
+        // e pedir para aceitar de novo em /termos/reaceite se isso falhar.
       }
 
       /* ── 4. Redirecionar ── */
@@ -182,6 +198,31 @@ export default function CadastroPage() {
           {errors.confirmPassword && <p className="mt-1 text-xs text-error">{errors.confirmPassword.message}</p>}
         </div>
 
+        {/* Aceite de Termos/Privacidade */}
+        <div>
+          <label className="flex items-start gap-2.5 text-sm text-text-secondary dark:text-stone-400 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5 w-4 h-4 rounded accent-primary flex-shrink-0"
+              {...register('termsAccepted')}
+            />
+            <span>
+              Li e concordo com os{' '}
+              <Link href="/termos" target="_blank" rel="noopener noreferrer" className="text-primary font-medium hover:underline">
+                Termos de Uso
+              </Link>
+              {' '}e a{' '}
+              <Link href="/privacidade" target="_blank" rel="noopener noreferrer" className="text-primary font-medium hover:underline">
+                Política de Privacidade
+              </Link>
+              .
+            </span>
+          </label>
+          {errors.termsAccepted && (
+            <p className="mt-1.5 text-xs text-error">{errors.termsAccepted.message}</p>
+          )}
+        </div>
+
         {error && (
           <div className="bg-error-light text-error-dark text-sm px-4 py-3 rounded-xl border border-error/20">
             {error}
@@ -205,11 +246,7 @@ export default function CadastroPage() {
       </div>
 
       <p className="mt-3 text-center text-xs text-text-muted dark:text-stone-500">
-        Ao criar sua conta, você concorda com nossos{' '}
-        <Link href="/termos" className="text-primary hover:underline">Termos de Uso</Link>
-        {' '}e{' '}
-        <Link href="/privacidade" className="text-primary hover:underline">Política de Privacidade</Link>
-        {' '}· <Link href="/reembolso" className="text-primary hover:underline">Reembolso</Link>
+        <Link href="/reembolso" className="text-primary hover:underline">Política de Reembolso</Link>
       </p>
     </div>
   )

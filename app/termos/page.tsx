@@ -1,10 +1,11 @@
 import { LegalLayout } from '@/components/legal/LegalLayout'
+import { TERMS_VERSION, TERMS_UPDATED_AT } from '@/lib/legal/versions'
 
 export const metadata = { title: 'Termos de Uso — Precy+', description: 'Termos e condições de uso da plataforma Precy+.' }
 
 export default function TermosPage() {
   return (
-    <LegalLayout title="Termos de Uso" subtitle="Condições da plataforma" updated="Junho de 2026">
+    <LegalLayout title="Termos de Uso" subtitle="Condições da plataforma" updated={TERMS_UPDATED_AT} version={TERMS_VERSION}>
       <div className="highlight">
         <p><strong>Aviso importante:</strong> O Precy+ é uma ferramenta auxiliar de gestão e precificação. Não substitui contador, ERP fiscal, emissor de notas fiscais ou assessoria jurídica. Todos os valores e cálculos devem ser validados pelo usuário.</p>
       </div>

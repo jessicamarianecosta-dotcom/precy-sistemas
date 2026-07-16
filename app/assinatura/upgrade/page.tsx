@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import Link from 'next/link'
 import { Crown, CheckCircle, Loader2, ArrowLeft, AlertCircle } from 'lucide-react'
 import { useSearchParams, useRouter }              from 'next/navigation'
 import { Suspense } from 'react'
@@ -19,6 +20,7 @@ const PRO_FEATURES = [
 function UpgradeContent() {
   const [loading, setLoading] = useState(false)
   const [errMsg,  setErrMsg]  = useState('')
+  const [agreed,  setAgreed]  = useState(false)
   const searchParams = useSearchParams()
   const router       = useRouter()
   const from         = searchParams.get('from') ?? '/dashboard'
@@ -26,6 +28,11 @@ function UpgradeContent() {
   async function handleUpgrade() {
     setLoading(true)
     try {
+      // Aceitar no checkout também conta como aceite válido da versão atual.
+      await fetch('/api/legal/accept', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accepted: true }),
+      })
       const res  = await fetch('/api/stripe/checkout', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plan: 'pro' }),
@@ -78,7 +85,22 @@ function UpgradeContent() {
               <span className="text-[10px] text-stone-600 ml-1">≈ R$ 1,56/dia</span>
             </div>
 
-            <button onClick={handleUpgrade} disabled={loading}
+            <label className="flex items-start gap-2 mb-4 text-left cursor-pointer">
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={e => setAgreed(e.target.checked)}
+                className="mt-0.5 w-3.5 h-3.5 rounded accent-primary flex-shrink-0"
+              />
+              <span className="text-[11px] text-stone-500 leading-relaxed">
+                Ao concluir sua assinatura você confirma que leu e concorda com os{' '}
+                <Link href="/termos" target="_blank" rel="noopener noreferrer" className="underline hover:text-stone-300">Termos de Uso</Link>
+                {' '}e a{' '}
+                <Link href="/privacidade" target="_blank" rel="noopener noreferrer" className="underline hover:text-stone-300">Política de Privacidade</Link>.
+              </span>
+            </label>
+
+            <button onClick={handleUpgrade} disabled={loading || !agreed}
               className="w-full py-3.5 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 disabled:opacity-50 hover:opacity-90 transition-opacity"
               style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)', boxShadow: '0 4px 20px rgba(139,108,79,0.4)' }}>
               {loading ? <Loader2 size={15} className="animate-spin" /> : <Crown size={15} />}
