@@ -103,6 +103,52 @@ function finishingLabel(item: FinishingItem, area: number, materialCost: number)
   }
 }
 
+/* ─────────────────────────── Custos extras (fixo / percentual) ─── */
+type ExtraCostCalcType = 'fixed' | 'percent'
+type ExtraCostBase = 'materials' | 'labor' | 'materials_labor' | 'direct_costs'
+
+interface ExtraCostItem {
+  id:         string
+  name:       string
+  value:      number
+  calc_type?: ExtraCostCalcType
+  calc_base?: ExtraCostBase
+}
+
+const EXTRA_COST_BASES: { value: ExtraCostBase; label: string }[] = [
+  { value: 'materials',       label: 'Custo dos materiais' },
+  { value: 'labor',           label: 'Mão de obra' },
+  { value: 'materials_labor', label: 'Materiais + mão de obra' },
+  { value: 'direct_costs',    label: 'Total dos custos diretos' },
+]
+
+function computeExtraCostValue(
+  item: ExtraCostItem,
+  index: number,
+  allItems: ExtraCostItem[],
+  materialsBase: number,
+  laborBase: number,
+): number {
+  const calcType = item.calc_type ?? 'fixed'
+  if (calcType === 'fixed') return Number(item.value) || 0
+
+  let base = 0
+  switch (item.calc_base ?? 'materials') {
+    case 'materials':       base = materialsBase; break
+    case 'labor':           base = laborBase; break
+    case 'materials_labor': base = materialsBase + laborBase; break
+    case 'direct_costs':
+      // Soma materiais + mão de obra + custos extras anteriores do tipo Valor Fixo
+      // (percentuais ainda não entram na base, para evitar cálculo circular).
+      base = materialsBase + laborBase + allItems
+        .slice(0, index)
+        .filter(i => (i.calc_type ?? 'fixed') === 'fixed')
+        .reduce((s, i) => s + (Number(i.value) || 0), 0)
+      break
+  }
+  return base * (Number(item.value) || 0) / 100
+}
+
 /* ─────────────────────────── Slider ─── */
 function MarginSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   const pct = Math.min(100, ((value - 10) / (500 - 10)) * 100)
@@ -194,17 +240,13 @@ function PrecificacaoPage() {
   const [pricePerM2,       setPricePerM2]       = useState<number>(0)
   const [finishingItems,   setFinishingItems]   = useState<FinishingItem[]>([])
   const [finishingModal,   setFinishingModal]   = useState<FinishingModal>(null)
-  const [extraCosts, setExtraCosts] = useState<
-    {
-      id: string
-      name: string
-      value: number
-    }[]
-  >([
+  const [extraCosts, setExtraCosts] = useState<ExtraCostItem[]>([
     {
       id: crypto.randomUUID(),
       name: '',
       value: 0,
+      calc_type: 'fixed',
+      calc_base: 'materials',
     },
   ])
   const [materials,        setMaterials]        = useState<MaterialLine[]>([])
@@ -277,9 +319,13 @@ function PrecificacaoPage() {
     }
     // Custos extras: salvo em extra_costs JSONB ou reconstituído de extra_cost
     if (p.extra_costs && Array.isArray(p.extra_costs)) {
-      setExtraCosts(p.extra_costs)
+      setExtraCosts(p.extra_costs.map((c: any) => ({
+        ...c,
+        calc_type: c.calc_type ?? 'fixed',
+        calc_base: c.calc_base ?? 'materials',
+      })))
     } else if (Number(p.extra_cost) > 0) {
-      setExtraCosts([{ id: crypto.randomUUID(), name: 'Custo extra', value: Number(p.extra_cost) }])
+      setExtraCosts([{ id: crypto.randomUUID(), name: 'Custo extra', value: Number(p.extra_cost), calc_type: 'fixed', calc_base: 'materials' }])
     }
     // Materiais: reconstituir MaterialLine dos product_materials salvos
     // Buscar custo atualizado do estoque (inventory) para cada material
@@ -415,11 +461,6 @@ function PrecificacaoPage() {
   const laborCost    = (productType === 'produced' || productType === 'meter_product') ? hourlyRate * productionHours : 0
   const materialCost = materials.reduce((s, m) => s + m.subtotal, 0)
 
-  const extraCost = extraCosts.reduce(
-    (acc, item) => acc + Number(item.value || 0),
-    0
-  )
-
   // ── Cálculos para Produto por metro ──
   const mAreaM2 = productType === 'meter_product'
     ? (mUnit === 'cm'
@@ -435,6 +476,26 @@ function PrecificacaoPage() {
     ? mAreaM2 * pricePerM2
     : 0
   const pricePerCm2 = pricePerM2 > 0 ? pricePerM2 / 10000 : 0
+
+  // Base "materiais" / "mão de obra" usada pelos custos extras percentuais
+  const extraMaterialsBase = productType === 'produced'
+    ? materialCost
+    : productType === 'meter_product'
+      ? mMaterialCost
+      : purchaseCost
+  const extraLaborBase = laborCost
+
+  const extraCostsWithValue = extraCosts.map((item, index) => ({
+    ...item,
+    _computed: computeExtraCostValue(item, index, extraCosts, extraMaterialsBase, extraLaborBase),
+  }))
+  const extraCost = extraCostsWithValue.reduce((acc, item) => acc + item._computed, 0)
+  const extraCostFixedTotal = extraCostsWithValue
+    .filter(i => (i.calc_type ?? 'fixed') === 'fixed')
+    .reduce((s, i) => s + i._computed, 0)
+  const extraCostPercentTotal = extraCostsWithValue
+    .filter(i => i.calc_type === 'percent')
+    .reduce((s, i) => s + i._computed, 0)
 
   const baseCost     = productType === 'produced'
     ? materialCost + laborCost + extraCost
@@ -1192,6 +1253,8 @@ function PrecificacaoPage() {
                         id: crypto.randomUUID(),
                         name: '',
                         value: 0,
+                        calc_type: 'fixed',
+                        calc_base: 'materials',
                       },
                     ])
                   }
@@ -1203,69 +1266,121 @@ function PrecificacaoPage() {
               </div>
 
               <div className="space-y-3">
-                {extraCosts.map((cost, index) => (
-                  <div
-                    key={cost.id}
-                    className="grid grid-cols-12 gap-3 items-end"
-                  >
-                    <div className="col-span-7">
-                      <label className="block text-xs font-medium text-text-muted mb-1">
-                        Nome do custo
-                      </label>
+                {extraCosts.map((cost, index) => {
+                  const calcType = cost.calc_type ?? 'fixed'
+                  const result = computeExtraCostValue(cost, index, extraCosts, extraMaterialsBase, extraLaborBase)
+                  return (
+                    <div
+                      key={cost.id}
+                      className="p-3 rounded-xl border border-border dark:border-border-dark space-y-3"
+                    >
+                      <div className="grid grid-cols-12 gap-3 items-end">
+                        <div className="col-span-11">
+                          <label className="block text-xs font-medium text-text-muted mb-1">
+                            Nome do custo
+                          </label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="Ex: Embalagem"
+                            value={cost.name}
+                            onChange={e => {
+                              const updated = [...extraCosts]
+                              updated[index] = { ...updated[index], name: e.target.value }
+                              setExtraCosts(updated)
+                            }}
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setExtraCosts(prev =>
+                                prev.filter((_, i) => i !== index)
+                              )
+                            }}
+                            className="w-10 h-10 rounded-xl border border-border dark:border-border-dark flex items-center justify-center hover:border-error hover:text-error transition-colors"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      </div>
 
-                      <input
-                        type="text"
-                        className="input"
-                        placeholder="Ex: Embalagem"
-                        value={cost.name}
-                        onChange={e => {
-                          const updated = [...extraCosts]
+                      {/* Tipo de cálculo */}
+                      <div className="grid grid-cols-2 gap-2">
+                        {([
+                          { value: 'fixed' as ExtraCostCalcType, label: 'Valor fixo (R$)' },
+                          { value: 'percent' as ExtraCostCalcType, label: 'Percentual (%)' },
+                        ]).map(opt => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => {
+                              const updated = [...extraCosts]
+                              updated[index] = { ...updated[index], calc_type: opt.value }
+                              setExtraCosts(updated)
+                            }}
+                            className={clsx(
+                              'py-2 rounded-lg text-xs font-medium border transition-all',
+                              calcType === opt.value
+                                ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary'
+                                : 'border-border dark:border-border-dark text-text-muted hover:border-primary/40'
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
 
-                          updated[index].name = e.target.value
+                      <div className={clsx('grid gap-3', calcType === 'percent' ? 'grid-cols-2' : 'grid-cols-1')}>
+                        <div>
+                          <label className="block text-xs font-medium text-text-muted mb-1">
+                            {calcType === 'percent' ? 'Percentual (%)' : 'Valor (R$)'}
+                          </label>
+                          <input
+                            type="number"
+                            step={calcType === 'percent' ? 0.1 : 0.01}
+                            min={0}
+                            className="input"
+                            placeholder={calcType === 'percent' ? '0' : '0,00'}
+                            value={cost.value || ''}
+                            onChange={e => {
+                              const updated = [...extraCosts]
+                              updated[index] = { ...updated[index], value: parseFloat(e.target.value) || 0 }
+                              setExtraCosts(updated)
+                            }}
+                          />
+                        </div>
 
-                          setExtraCosts(updated)
-                        }}
-                      />
+                        {calcType === 'percent' && (
+                          <div>
+                            <label className="block text-xs font-medium text-text-muted mb-1">
+                              Aplicar sobre
+                            </label>
+                            <select
+                              className="input"
+                              value={cost.calc_base ?? 'materials'}
+                              onChange={e => {
+                                const updated = [...extraCosts]
+                                updated[index] = { ...updated[index], calc_base: e.target.value as ExtraCostBase }
+                                setExtraCosts(updated)
+                              }}
+                            >
+                              {EXTRA_COST_BASES.map(b => (
+                                <option key={b.value} value={b.value}>{b.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-[11px] text-text-muted dark:text-stone-400">Resultado</span>
+                        <span className="text-sm font-bold text-primary">{fmt(result)}</span>
+                      </div>
                     </div>
-
-                    <div className="col-span-4">
-                      <label className="block text-xs font-medium text-text-muted mb-1">
-                        Valor (R$)
-                      </label>
-
-                      <input
-                        type="number"
-                        step={0.01}
-                        min={0}
-                        className="input"
-                        placeholder="0,00"
-                        value={cost.value || ''}
-                        onChange={e => {
-                          const updated = [...extraCosts]
-
-                          updated[index].value =
-                            parseFloat(e.target.value) || 0
-
-                          setExtraCosts(updated)
-                        }}
-                      />
-                    </div>
-
-                    <div className="col-span-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setExtraCosts(prev =>
-                            prev.filter((_, i) => i !== index)
-                          )
-                        }}
-                        className="w-10 h-10 rounded-xl border border-border dark:border-border-dark flex items-center justify-center hover:border-error hover:text-error transition-colors"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
 
               <div className="p-3 rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20">
@@ -1501,8 +1616,11 @@ function PrecificacaoPage() {
                 <Row label="Custo de compra" value={purchaseCost} color="bg-info-light text-info-dark" />
               )}
 
-              {extraCost > 0 && (
-                <Row label="Extras / embalagem" value={extraCost} color="bg-primary-50 text-primary" />
+              {extraCostFixedTotal > 0 && (
+                <Row label="Custos extras fixos" value={extraCostFixedTotal} color="bg-primary-50 text-primary" />
+              )}
+              {extraCostPercentTotal > 0 && (
+                <Row label="Custos extras percentuais" value={extraCostPercentTotal} color="bg-primary-50 text-primary" />
               )}
 
               <Row label="Custo total" value={baseCost} color="bg-error-light text-error-dark" />
