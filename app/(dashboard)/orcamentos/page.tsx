@@ -9,7 +9,7 @@ import { Header } from '@/components/layout/Header'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { clsx } from 'clsx'
-import { format } from 'date-fns'
+import { format, addDays, differenceInCalendarDays, startOfDay } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { formatCurrency } from '@/lib/utils/format'
 import {
@@ -43,6 +43,12 @@ const STATUS_CONFIG: Record<string,{label:string;badge:string;icon:React.Element
 }
 function fmt(v:number){ return formatCurrency(v) }
 function uid(){ return Math.random().toString(36).slice(2,10) }
+// Contagem de prazo sempre começa no dia seguinte à emissão
+function prazoVencimento(issueDate:Date, days:number){ return addDays(startOfDay(issueDate), Math.max(1,days)) }
+function prazoEquivDays(issueDate:Date, dateStr:string){
+  if(!dateStr) return 0
+  return Math.max(0, differenceInCalendarDays(startOfDay(new Date(dateStr+'T00:00:00')), startOfDay(issueDate)))
+}
 
 const STEP_META=[
   {step:1,label:'Cliente',  icon:User      },
@@ -90,6 +96,10 @@ export default function OrcamentosPage() {
   const [signalAmt,setSignalAmt]=useState(0)
   const [signalMode,setSignalMode]=useState<'value'|'percent'>('value')
   const [signalPct,setSignalPct]=useState(50)
+  const [prazoType,setPrazoType]=useState<'dias'|'data'>('dias')
+  const [prazoDays,setPrazoDays]=useState(30)
+  const [prazoDate,setPrazoDate]=useState('')
+  const [issueDate,setIssueDate]=useState<Date>(new Date())
   const [deliveryType,setDelivType]=useState('pickup')
   const [deliveryFee,setDelivFee]=useState(0)
   const [deliveryAddr,setDelivAddr]=useState('')
@@ -145,6 +155,10 @@ export default function OrcamentosPage() {
   function canProceed(){
     if(step===1)return clientMode==='existing'?!!clientId:newClient.name.trim().length>0
     if(step===2)return items.length>0
+    if(step===3&&payCondition==='prazo'){
+      if(prazoType==='dias')return prazoDays>=1
+      return !!prazoDate&&prazoDate>=format(new Date(),'yyyy-MM-dd')
+    }
     return true
   }
   function openWizard(){
@@ -152,6 +166,7 @@ export default function OrcamentosPage() {
     setStep(1);setItems([]);setClientId('');setClientSearch('');setNewClient({name:'',phone:'',email:''})
     setClientMode('existing');setGlobalDisc(0);setPayMethod('');setPayCond('avista')
     setInstall(2);setSignalAmt(0);setSignalMode('value');setSignalPct(50)
+    setPrazoType('dias');setPrazoDays(30);setPrazoDate('');setIssueDate(new Date())
     setDelivType('pickup');setDelivFee(0);setDelivAddr('');setValidUntil('')
     setProdDays('');setDelivDays('');setNotes('');setStatus('draft');setShowWizard(true)
   }
@@ -190,9 +205,14 @@ export default function OrcamentosPage() {
     setGlobalDisc(Number(b.discount)||0)
     // Pagamento
     setPayMethod((b as any).payment_method||'')
-    setPayCond('avista')
+    setPayCond(((b as any).pay_condition as typeof payCondition)||'avista')
+    setInstall(Number((b as any).installments)||2)
     setSignalAmt(Number((b as any).signal_amount)||0)
     setSignalMode('value');setSignalPct(50)
+    setPrazoType(((b as any).prazo_type as 'dias'|'data')||'dias')
+    setPrazoDays(Number((b as any).prazo_dias)||30)
+    setPrazoDate((b as any).prazo_due_date?String((b as any).prazo_due_date).split('T')[0]:'')
+    setIssueDate(b.created_at?new Date(b.created_at):new Date())
     // Entrega
     setDelivType('pickup');setDelivFee(0);setDelivAddr('')
     // Prazos
@@ -274,6 +294,13 @@ export default function OrcamentosPage() {
             : signalAmt
           return v>0 ? v : null
         })(),
+        prazo_type:      payCondition==='prazo' ? prazoType : null,
+        prazo_dias:      payCondition!=='prazo' ? null : (
+          prazoType==='dias' ? Math.max(1,prazoDays) : prazoEquivDays(issueDate,prazoDate)
+        ),
+        prazo_due_date:  payCondition!=='prazo' ? null : (
+          prazoType==='data' ? (prazoDate||null) : format(prazoVencimento(issueDate,prazoDays),'yyyy-MM-dd')
+        ),
         delivery_type:   deliveryType||null,
         delivery_fee:    deliveryFee||0,
         delivery_addr:   deliveryAddr||null,
@@ -1002,6 +1029,67 @@ export default function OrcamentosPage() {
                             <div className="h-full bg-success-dark dark:bg-success transition-all duration-300" style={{width:`${Math.min(100,entradaPct)}%`}}/>
                           </div>
                         </div>
+                      </div>
+                    )
+                  })()}
+                  {payCondition==='prazo'&&(()=>{
+                    const vencDate=prazoVencimento(issueDate,prazoDays)
+                    const equivDays=prazoEquivDays(issueDate,prazoDate)
+                    const todayStr=format(new Date(),'yyyy-MM-dd')
+                    return (
+                      <div className="p-4 rounded-xl bg-primary-50/50 dark:bg-primary/5 border border-primary/20 space-y-3">
+                        <div className="flex rounded-xl border border-border dark:border-stone-600 overflow-hidden w-fit">
+                          <button type="button" onClick={()=>setPrazoType('dias')}
+                            className={clsx('px-3 py-1.5 text-xs font-semibold transition-all',prazoType==='dias'?'bg-primary text-white':'text-text-secondary dark:text-stone-400 hover:bg-primary-50 dark:hover:bg-white/5')}>
+                            Informar em dias
+                          </button>
+                          <button type="button" onClick={()=>setPrazoType('data')}
+                            className={clsx('px-3 py-1.5 text-xs font-semibold transition-all',prazoType==='data'?'bg-primary text-white':'text-text-secondary dark:text-stone-400 hover:bg-primary-50 dark:hover:bg-white/5')}>
+                            Escolher data
+                          </button>
+                        </div>
+                        {prazoType==='dias' ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {[7,15,30,45,60,90].map(d=>(
+                                <button key={d} type="button" onClick={()=>setPrazoDays(d)}
+                                  className={clsx('text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all',
+                                    prazoDays===d?'border-primary bg-primary text-white':'border-border dark:border-stone-600 text-text-muted hover:border-primary hover:text-primary')}>
+                                  {d} dias
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm text-text-secondary dark:text-stone-400 flex-1">Prazo (dias)</span>
+                              <input type="number" min="1" step="1" className="input w-24 text-sm text-right py-1.5"
+                                value={prazoDays||''}
+                                onChange={e=>setPrazoDays(Math.max(1,Number(e.target.value)||1))}/>
+                            </div>
+                            <div className="rounded-xl overflow-hidden border border-primary/15">
+                              <div className="flex items-center justify-between px-3 py-2 bg-white dark:bg-surface-dark">
+                                <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Vencimento</span>
+                                <span className="text-sm font-bold text-primary">{format(vencDate,"dd/MM/yyyy (EEEE)",{locale:ptBR})}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div>
+                              <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Data de vencimento</label>
+                              <input type="date" min={todayStr} className="input text-sm"
+                                value={prazoDate}
+                                onChange={e=>setPrazoDate(e.target.value)}/>
+                            </div>
+                            {prazoDate&&(
+                              <div className="rounded-xl overflow-hidden border border-primary/15">
+                                <div className="flex items-center justify-between px-3 py-2 bg-white dark:bg-surface-dark">
+                                  <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Prazo equivalente</span>
+                                  <span className="text-sm font-bold text-primary">{equivDays} {equivDays===1?'dia':'dias'}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )
                   })()}

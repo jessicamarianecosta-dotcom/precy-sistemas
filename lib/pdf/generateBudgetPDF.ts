@@ -55,6 +55,9 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
   const bDelAdr = X(b.delivery_addr   ?? '')
   const bDelDay = X(b.delivery_days   ?? '')
   const bPrdDay = X(b.production_days ?? '')
+  const bPrazoType = X(b.prazo_type    ?? '')   // dias | data
+  const bPrazoDias = Number(b.prazo_dias) || 0
+  const bPrazoDue  = D(b.prazo_due_date as string | undefined)
 
   /* ── Financeiro ── */
   const bSub  = Number(b.subtotal) || items.reduce((s,i) => s + (Number(i.subtotal)||0), 0)
@@ -395,10 +398,18 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
             const pct = bTot > 0 ? Math.round((bSig/bTot)*100*10)/10 : 0
             return (base ? base + ' — ' : '') + 'Entrada de ' + R(bSig) + ' (' + pct + '%)'
           }
-          if (bPayCond === 'prazo')
-            return (base ? base + ' — ' : '') + 'A prazo'
+          if (bPayCond === 'prazo') {
+            if (bPrazoType === 'data' && bPrazoDue) return 'Até ' + bPrazoDue
+            if (bPrazoDias > 0) return bPrazoDias + ' dias'
+            return 'A prazo'
+          }
           return base || bPayCond
         })()}</span>
+      </div>` : ''}
+      ${(bPayCond === 'prazo' && bPrazoType !== 'data' && bPrazoDue) ? `
+      <div class="crow">
+        <span class="ck">Vencimento</span>
+        <span class="cv">${bPrazoDue}</span>
       </div>` : ''}
       ${bSig > 0 ? (() => {
         const pct = bTot > 0 ? Math.round((bSig/bTot)*100*10)/10 : 0
