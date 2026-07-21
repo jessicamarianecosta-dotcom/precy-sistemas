@@ -167,7 +167,7 @@ export default function OrcamentosPage() {
     setClientMode('existing');setGlobalDisc(0);setPayMethod('');setPayCond('avista')
     setInstall(2);setSignalAmt(0);setSignalMode('value');setSignalPct(50)
     setPrazoType('dias');setPrazoDays(30);setPrazoDate('');setIssueDate(new Date())
-    setDelivType('pickup');setDelivFee(0);setDelivAddr('');setValidUntil('')
+    setDelivType('pickup');setDelivFee(0);setDelivAddr('');setValidUntil(format(addDays(new Date(),20),'yyyy-MM-dd'))
     setProdDays('');setDelivDays('');setNotes('');setStatus('draft');setShowWizard(true)
   }
 
