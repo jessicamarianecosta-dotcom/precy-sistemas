@@ -271,6 +271,29 @@ export default function PedidosPage() {
     try { localStorage.setItem('precy_pedidos_mobile_view', v) } catch { /* ignore */ }
   }
 
+  /* Desktop view (Kanban x Lista) */
+  const [desktopView, setDesktopView] = useState<'kanban' | 'list'>('kanban')
+  const [listSort, setListSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'created_at', dir: 'desc' })
+  const [listStatusFilter, setListStatusFilter] = useState<string>('all')
+  const [listPage, setListPage] = useState(1)
+  const LIST_PAGE_SIZE = 20
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('precy_pedidos_desktop_view')
+      if (saved === 'list' || saved === 'kanban') setDesktopView(saved)
+    } catch { /* ignore */ }
+  }, [])
+
+  function handleSetDesktopView(v: 'kanban' | 'list') {
+    setDesktopView(v)
+    try { localStorage.setItem('precy_pedidos_desktop_view', v) } catch { /* ignore */ }
+  }
+
+  function toggleListSort(key: string) {
+    setListSort(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' })
+  }
+
   /* Cliente: cadastrado x novo */
   const [customerMode, setCustomerMode] = useState<'existing' | 'new'>('existing')
   const [customerSearch, setCustomerSearch] = useState('')
@@ -325,6 +348,23 @@ export default function PedidosPage() {
         .eq('company_id', companyId!)
         .order('created_at', { ascending: false })
       return response?.data ?? []
+    },
+  })
+
+  /* Soma de recebimentos por pedido — usada apenas na visão em Lista
+     (colunas Recebido/Saldo). Carregada sob demanda para não pesar o Kanban. */
+  const { data: paymentsByOrder } = useQuery({
+    queryKey: ['payments-by-order', companyId],
+    enabled: !!companyId && desktopView === 'list',
+    queryFn: async () => {
+      const { data } = await (supabase.from('payment_history') as any)
+        .select('order_id, amount')
+        .eq('company_id', companyId!)
+      const map: Record<string, number> = {}
+      ;(data ?? []).forEach((p: any) => {
+        map[p.order_id] = (map[p.order_id] || 0) + Number(p.amount)
+      })
+      return map
     },
   })
 
@@ -704,6 +744,7 @@ export default function PedidosPage() {
     mutationFn: async (data: FormData) => {
       if (items.length === 0) throw new Error('Adicione ao menos um produto ao pedido.')
 
+      const wasCreate = !editingId
       const payload = buildOrderPayload(data)
 
       if (!editingId && companyId && sub && !sub.isPro) {
@@ -743,19 +784,30 @@ export default function PedidosPage() {
       }
 
       await persistOrderItems(orderId!)
+
+      return { orderId: orderId as string, wasCreate }
     },
 
-    onSuccess: () => {
+    onSuccess: ({ orderId, wasCreate }) => {
       queryClient.invalidateQueries({ queryKey: ['orders', companyId] })
       queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
-      setShowModal(false)
-      reset()
-      setEditingId(null)
-      setEditingPaymentId(null)
-      setItems([])
-      setCustomerMode('existing')
-      setCustomerSearch('')
-      toast('success', editingId ? 'Pedido atualizado!' : 'Pedido criado!')
+
+      if (wasCreate) {
+        // Fluxo contínuo: após criar, mantém o modal aberto já em modo de
+        // edição do pedido recém-criado (sem fechar/reabrir e sem 2ª criação).
+        toast('success', 'Pedido criado com sucesso.')
+        setEditingId(orderId)
+        setEditingPaymentId(null)
+      } else {
+        setShowModal(false)
+        reset()
+        setEditingId(null)
+        setEditingPaymentId(null)
+        setItems([])
+        setCustomerMode('existing')
+        setCustomerSearch('')
+        toast('success', 'Pedido atualizado!')
+      }
     },
 
     onError: (err: Error) => {
@@ -1150,6 +1202,114 @@ export default function PedidosPage() {
   }) ?? []
 
   /* ─────────────────────────────────────────────
+     VISÃO EM LISTA — helpers, ordenação e paginação
+  ───────────────────────────────────────────── */
+
+  const PRODUCTION_LABEL: Record<string, string> = {
+    pending: 'Pendente', production: 'Produção', ready: 'Pronto', delivered: 'Entregue', cancelled: 'Cancelado',
+  }
+  const PRODUCTION_BADGE: Record<string, string> = {
+    pending: 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-300',
+    production: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+    ready: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    delivered: 'bg-primary-50 text-primary dark:bg-primary/10',
+    cancelled: 'bg-error-light text-error',
+  }
+  const PRIORITY_LABEL: Record<string, string> = { low: 'Baixa', normal: 'Normal', high: 'Alta', urgent: 'Urgente' }
+  const PRIORITY_BADGE: Record<string, string> = {
+    low: 'bg-stone-100 text-stone-500 dark:bg-stone-800 dark:text-stone-400',
+    normal: 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-300',
+    high: 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400',
+    urgent: 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400',
+  }
+
+  function getFinancialBadge(order: any): { label: string; cls: string } {
+    if (order.payment_status === 'paid') {
+      return { label: 'Pago', cls: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' }
+    }
+    const isOverdue = order.due_date
+      && new Date(order.due_date) < new Date(new Date().toDateString())
+      && order.status !== 'delivered' && order.status !== 'cancelled'
+    if (isOverdue) {
+      return { label: 'Atrasado', cls: 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' }
+    }
+    if (order.payment_status === 'partial') {
+      return { label: 'Parcial', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' }
+    }
+    return { label: 'Pendente', cls: 'bg-stone-100 text-stone-500 dark:bg-stone-800 dark:text-stone-400' }
+  }
+
+  function getOrigin(order: any): string {
+    if (order.source === 'catalog') return 'Catálogo Online'
+    if (order.quote_id) return 'Orçamento'
+    return 'Manual'
+  }
+
+  const listRows = filtered.map((o: any) => {
+    const total = Number(o.total) || 0
+    const received = paymentsByOrder?.[o.id] ?? 0
+    return {
+      ...o,
+      _received: received,
+      _saldo: Math.max(0, total - received),
+      _financial: getFinancialBadge(o),
+      _origin: getOrigin(o),
+    }
+  })
+
+  function getListSortValue(o: any, key: string): string | number {
+    switch (key) {
+      case 'order_number':    return o.order_number || ''
+      case 'customer':        return o.customers?.name || ''
+      case 'service_name':    return o.service_name || ''
+      case 'total':           return Number(o.total) || 0
+      case 'received':        return o._received || 0
+      case 'saldo':           return o._saldo || 0
+      case 'status':          return o.status || ''
+      case 'priority':        return ({ low: 0, normal: 1, high: 2, urgent: 3 } as any)[o.priority] ?? 1
+      case 'order_date':      return o.order_date || o.created_at || ''
+      case 'due_date':        return o.due_date || ''
+      case 'payment_method':  return o.payment_method || ''
+      case 'created_at':      return o.created_at || ''
+      default:                return ''
+    }
+  }
+
+  const filteredListRows = listStatusFilter === 'all'
+    ? listRows
+    : listRows.filter((o: any) => o.status === listStatusFilter)
+
+  const sortedListRows = [...filteredListRows].sort((a, b) => {
+    const dir = listSort.dir === 'asc' ? 1 : -1
+    const av = getListSortValue(a, listSort.key)
+    const bv = getListSortValue(b, listSort.key)
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir
+    return String(av).localeCompare(String(bv)) * dir
+  })
+
+  const listTotalPages = Math.max(1, Math.ceil(sortedListRows.length / LIST_PAGE_SIZE))
+  const pagedListRows = sortedListRows.slice((listPage - 1) * LIST_PAGE_SIZE, listPage * LIST_PAGE_SIZE)
+
+  useEffect(() => {
+    setListPage(1)
+  }, [search, listStatusFilter, desktopView])
+
+  function ListSortHeader({ sortKey, children }: { sortKey: string; children: React.ReactNode }) {
+    const active = listSort.key === sortKey
+    return (
+      <th
+        onClick={() => toggleListSort(sortKey)}
+        className="text-left font-semibold px-3 py-2.5 cursor-pointer select-none hover:text-primary transition-colors whitespace-nowrap"
+      >
+        <span className="inline-flex items-center gap-1">
+          {children}
+          {active && (listSort.dir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />)}
+        </span>
+      </th>
+    )
+  }
+
+  /* ─────────────────────────────────────────────
      RENDER
   ───────────────────────────────────────────── */
 
@@ -1162,15 +1322,47 @@ export default function PedidosPage() {
 
         {/* Toolbar */}
         <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-          <div className="relative flex-1 sm:max-w-xs">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-            <input
-              type="text"
-              placeholder="Buscar pedidos..."
-              className="input pl-9 w-full"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+          <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center flex-1">
+            <div className="relative flex-1 sm:max-w-xs">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+              <input
+                type="text"
+                placeholder="Buscar pedidos..."
+                className="input pl-9 w-full"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+
+            {/* Seletor de visualização — Desktop (Kanban x Lista) */}
+            <div className="hidden sm:flex items-center gap-1 bg-white dark:bg-surface-dark border border-border dark:border-border-dark rounded-2xl p-1 shadow-card flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => handleSetDesktopView('kanban')}
+                title="Visualizar em Kanban"
+                className={clsx(
+                  'flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-200',
+                  desktopView === 'kanban'
+                    ? 'bg-primary text-white shadow-btn'
+                    : 'text-text-secondary dark:text-stone-400 hover:bg-primary-50 dark:hover:bg-white/5'
+                )}
+              >
+                <LayoutGrid size={14} /> Kanban
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetDesktopView('list')}
+                title="Visualizar em Lista"
+                className={clsx(
+                  'flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-200',
+                  desktopView === 'list'
+                    ? 'bg-primary text-white shadow-btn'
+                    : 'text-text-secondary dark:text-stone-400 hover:bg-primary-50 dark:hover:bg-white/5'
+                )}
+              >
+                <LayoutList size={14} /> Lista
+              </button>
+            </div>
           </div>
 
           <button
@@ -1391,7 +1583,7 @@ export default function PedidosPage() {
             </div>
 
             {/* ── DESKTOP: Kanban ── */}
-            <div className="hidden sm:grid grid-cols-2 xl:grid-cols-4 gap-3">
+            <div className={clsx('hidden sm:grid grid-cols-2 xl:grid-cols-4 gap-3', desktopView === 'list' && 'sm:hidden')}>
               {STATUS_COLUMNS.map((col) => {
                 const colOrders = filtered.filter((o: any) => o.status === col.id)
                 return (
@@ -1518,6 +1710,174 @@ export default function PedidosPage() {
                 )
               })}
             </div>
+
+            {/* ── DESKTOP: Lista ── */}
+            {desktopView === 'list' && (
+              <div className="hidden sm:block space-y-3">
+                {/* Filtros rápidos por status de produção */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {[{ id: 'all', label: 'Todos' }, ...STATUS_COLUMNS_MOBILE.map(c => ({ id: c.id, label: c.label }))].map(f => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setListStatusFilter(f.id)}
+                      className={clsx(
+                        'px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
+                        listStatusFilter === f.id
+                          ? 'bg-primary text-white border-primary'
+                          : 'border-border dark:border-border-dark text-text-secondary dark:text-stone-400 hover:border-primary/40'
+                      )}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="rounded-2xl border border-border dark:border-border-dark overflow-x-auto bg-white dark:bg-surface-dark shadow-card">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-stone-50 dark:bg-stone-800/50 text-[10px] uppercase tracking-wide text-text-muted border-b border-border dark:border-border-dark">
+                        <ListSortHeader sortKey="order_number">Nº Pedido</ListSortHeader>
+                        <ListSortHeader sortKey="customer">Cliente</ListSortHeader>
+                        <ListSortHeader sortKey="service_name">Produtos</ListSortHeader>
+                        <th className="text-right font-semibold px-3 py-2.5 whitespace-nowrap cursor-pointer select-none hover:text-primary transition-colors" onClick={() => toggleListSort('total')}>
+                          <span className="inline-flex items-center gap-1 justify-end w-full">
+                            Valor Total
+                            {listSort.key === 'total' && (listSort.dir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />)}
+                          </span>
+                        </th>
+                        <th className="text-right font-semibold px-3 py-2.5 whitespace-nowrap cursor-pointer select-none hover:text-primary transition-colors" onClick={() => toggleListSort('received')}>
+                          <span className="inline-flex items-center gap-1 justify-end w-full">
+                            Recebido
+                            {listSort.key === 'received' && (listSort.dir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />)}
+                          </span>
+                        </th>
+                        <th className="text-right font-semibold px-3 py-2.5 whitespace-nowrap cursor-pointer select-none hover:text-primary transition-colors" onClick={() => toggleListSort('saldo')}>
+                          <span className="inline-flex items-center gap-1 justify-end w-full">
+                            Saldo
+                            {listSort.key === 'saldo' && (listSort.dir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />)}
+                          </span>
+                        </th>
+                        <th className="text-left font-semibold px-3 py-2.5 whitespace-nowrap">Status Financeiro</th>
+                        <ListSortHeader sortKey="status">Status Produção</ListSortHeader>
+                        <ListSortHeader sortKey="priority">Prioridade</ListSortHeader>
+                        <ListSortHeader sortKey="order_date">Data do Pedido</ListSortHeader>
+                        <ListSortHeader sortKey="due_date">Prazo de Entrega</ListSortHeader>
+                        <ListSortHeader sortKey="payment_method">Forma de Pagamento</ListSortHeader>
+                        <th className="text-left font-semibold px-3 py-2.5 whitespace-nowrap">Origem</th>
+                        <th className="text-left font-semibold px-3 py-2.5 whitespace-nowrap">Responsável</th>
+                        <th className="text-right font-semibold px-3 py-2.5 whitespace-nowrap">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pagedListRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={15} className="text-center py-8 text-text-muted">
+                            Nenhum pedido encontrado.
+                          </td>
+                        </tr>
+                      ) : pagedListRows.map((order: any, idx: number) => (
+                        <tr
+                          key={order.id}
+                          onClick={() => openOrder(order)}
+                          className={clsx(
+                            'cursor-pointer hover:bg-primary-50 dark:hover:bg-white/5 transition-colors',
+                            idx !== 0 && 'border-t border-border dark:border-border-dark'
+                          )}
+                        >
+                          <td className="px-3 py-2.5 whitespace-nowrap font-mono text-text-muted">{order.order_number || '—'}</td>
+                          <td className="px-3 py-2.5 max-w-[160px] truncate font-medium text-text-primary dark:text-stone-100" title={order.customers?.name || ''}>
+                            {order.customers?.name || 'Sem cliente'}
+                          </td>
+                          <td className="px-3 py-2.5 max-w-[180px] truncate text-text-muted" title={order.service_name || ''}>
+                            {order.service_name || '—'}
+                          </td>
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap font-bold text-primary">{formatCurrency(Number(order.total))}</td>
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap font-semibold text-green-700 dark:text-green-400">{formatCurrency(order._received)}</td>
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap font-semibold text-amber-700 dark:text-amber-400">{formatCurrency(order._saldo)}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full', order._financial.cls)}>
+                              {order._financial.label}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full', PRODUCTION_BADGE[order.status] ?? PRODUCTION_BADGE.pending)}>
+                              {PRODUCTION_LABEL[order.status] ?? order.status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full', PRIORITY_BADGE[order.priority] ?? PRIORITY_BADGE.normal)}>
+                              {PRIORITY_LABEL[order.priority] ?? 'Normal'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-text-muted">
+                            {order.order_date || order.created_at ? format(parseISO(order.order_date || order.created_at), 'dd/MM/yyyy', { locale: ptBR }) : '—'}
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-text-muted">
+                            {order.due_date ? format(parseISO(order.due_date), 'dd/MM/yyyy', { locale: ptBR }) : '—'}
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-text-muted">
+                            {order.payment_method ? formatMethod(order.payment_method) : '—'}
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-text-muted">{order._origin}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-text-muted/60">—</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleGeneratePDF(order) }}
+                                disabled={generatingPdfId === order.id}
+                                className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors"
+                                title="Gerar PDF"
+                              >
+                                {generatingPdfId === order.id ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); openOrder(order) }}
+                                className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors"
+                                title="Editar pedido"
+                              >
+                                <Edit2 size={12} />
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setConfirmDeleteOrderId(order.id) }}
+                                className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"
+                                title="Excluir"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Paginação */}
+                <div className="flex items-center justify-between px-1">
+                  <p className="text-xs text-text-muted">{sortedListRows.length} pedido{sortedListRows.length === 1 ? '' : 's'}</p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={listPage <= 1}
+                      onClick={() => setListPage(p => Math.max(1, p - 1))}
+                      className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Anterior
+                    </button>
+                    <span className="text-xs text-text-muted">Página {listPage} de {listTotalPages}</span>
+                    <button
+                      type="button"
+                      disabled={listPage >= listTotalPages}
+                      onClick={() => setListPage(p => Math.min(listTotalPages, p + 1))}
+                      className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Próxima
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
