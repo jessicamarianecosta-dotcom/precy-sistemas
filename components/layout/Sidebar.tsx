@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Package, Boxes, ShoppingCart,
   Users, FileText, DollarSign, Settings, Calculator,
-  ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays, BookOpen, BarChart2, Crown, TrendingUp, Truck, Store,
+  ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays, BarChart2, Crown, TrendingUp, Truck, Store,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { createClient } from '@/lib/supabase/client'
@@ -49,13 +49,12 @@ const menuItems = [
   {
     title: 'Sistema',
     items: [
-      { href: '/conteudo',      icon: BookOpen, label: 'Conteúdo',      pro: true },
       { href: '/configuracoes', icon: Settings, label: 'Configurações'  },
     ],
   },
 ]
 
-const BASE_COMING_SOON = ['IA de Precificação', 'WhatsApp']
+const BASE_COMING_SOON = ['Conteúdo', 'IA de Precificação', 'WhatsApp']
 
 /* ─── SidebarInner (shared between drawer and fixed) ─── */
 function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: () => void }) {
