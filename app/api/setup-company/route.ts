@@ -38,9 +38,15 @@ export async function POST(request: NextRequest) {
       return res
     }
 
-    // Verificar se já tem empresa (usando admin para evitar problemas de RLS)
+    // Verificar se já tem empresa (usando admin para evitar problemas de RLS).
+    // Checagem só informativa para decidir o nome/trial abaixo — a garantia
+    // real de "nunca duplicar" é a constraint UNIQUE(user_id) + upsert com
+    // ignoreDuplicates mais abaixo, não este SELECT (que sozinho é um
+    // check-then-insert sujeito a race condition entre requests concorrentes).
     const { data: existing } = await (supabaseAdmin as any).from('companies').select('id, name')
       .eq('user_id', user.id)
+      .order('created_at', { ascending: true })
+      .limit(1)
       .maybeSingle()
 
     if (existing?.id) {
@@ -73,7 +79,14 @@ export async function POST(request: NextRequest) {
       ? new Date().toISOString() // trial já "usado" — sem bônus, cai direto no Basic normal
       : new Date(Date.now() + PLANS.basic.trialDays * 24 * 60 * 60 * 1000).toISOString()
 
-    const { data: company, error: createError } = await (supabaseAdmin as any).from('companies').insert({
+    // Upsert com ignoreDuplicates: a garantia de "nunca duplicar" vem da
+    // constraint UNIQUE(user_id) no banco, não deste código — se duas
+    // requests concorrentes chegarem aqui ao mesmo tempo (dois componentes
+    // chamando useCompanyId, duas abas, etc.), o Postgres deixa só uma
+    // inserir de fato e a outra vira no-op, nunca duas linhas. Por isso o
+    // upsert não retorna a linha quando ignora — sempre buscamos de novo.
+    const { error: upsertError } = await (supabaseAdmin as any).from('companies').upsert(
+      {
         user_id:              user.id,
         name:                 companyName,
         email:                user.email ?? '',
@@ -84,13 +97,25 @@ export async function POST(request: NextRequest) {
         current_plan:         'basic',
         subscription_status:  'trialing',
         trial_end:            trialEnd,
-      })
+      },
+      { onConflict: 'user_id', ignoreDuplicates: true }
+    )
+
+    if (upsertError) {
+      console.error('[setup-company] create error:', upsertError)
+      return NextResponse.json({ error: upsertError.message }, { status: 500 })
+    }
+
+    const { data: company, error: fetchError } = await (supabaseAdmin as any).from('companies')
       .select('id')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true })
+      .limit(1)
       .single()
 
-    if (createError) {
-      console.error('[setup-company] create error:', createError)
-      return NextResponse.json({ error: createError.message }, { status: 500 })
+    if (fetchError || !company) {
+      console.error('[setup-company] post-upsert fetch error:', fetchError)
+      return NextResponse.json({ error: 'Erro ao localizar empresa após criação' }, { status: 500 })
     }
 
     await recordTrialFingerprint({

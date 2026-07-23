@@ -32,11 +32,17 @@ export function useCompanyId() {
 
         if (!cancelled) setUserId(user.id)
 
-        /* ── 2. Busca empresa ── */
+        /* ── 2. Busca empresa ──
+           Select simples + order/limit em vez de .maybeSingle(): essa
+           variante falha com erro se houver mais de uma linha para o
+           mesmo user_id, o que já causou (antes da constraint UNIQUE em
+           companies.user_id) usuários ficarem com companyId=null mesmo
+           tendo empresa cadastrada. */
         const { data: co, error: coErr } = await (supabase.from('companies') as any)
           .select('id')
           .eq('user_id', user.id)
-          .maybeSingle()
+          .order('created_at', { ascending: true })
+          .limit(1)
 
         if (coErr) {
           console.error('[useCompanyId] company fetch error:', coErr)
@@ -44,8 +50,8 @@ export function useCompanyId() {
           return
         }
 
-        if (co?.id) {
-          if (!cancelled) setCompanyId(co.id)
+        if (co?.[0]?.id) {
+          if (!cancelled) setCompanyId(co[0].id)
           setLoading(false)
           return
         }
@@ -86,8 +92,12 @@ export function useCompanyId() {
           user.email?.split('@')[0] ||
           'Meu Negócio'
 
-        const { data: newCo, error: createErr } = await (supabase.from('companies') as any)
-          .insert({
+        // Upsert com ignoreDuplicates (não insert simples): se este fallback
+        // rodar em paralelo em duas abas/efeitos, a constraint UNIQUE em
+        // companies.user_id garante que só uma inserção vinga — a outra
+        // vira no-op em vez de erro ou linha duplicada.
+        const { error: upsertErr } = await (supabase.from('companies') as any)
+          .upsert({
             user_id:              user.id,
             name:                 companyName,
             email:                user.email ?? '',
@@ -98,18 +108,28 @@ export function useCompanyId() {
             current_plan:         'basic',
             subscription_status:  'trialing',
             trial_end:            new Date().toISOString(),
-          })
-          .select('id')
-          .single()
+          }, { onConflict: 'user_id', ignoreDuplicates: true })
 
-        if (createErr) {
-          console.error('[useCompanyId] company create error:', createErr)
+        if (upsertErr) {
+          console.error('[useCompanyId] company create error:', upsertErr)
           if (!cancelled) setCompanyId(null)
           return
         }
 
-        if (!cancelled && newCo?.id) {
-          setCompanyId(newCo.id)
+        const { data: newCo, error: reFetchErr } = await (supabase.from('companies') as any)
+          .select('id')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: true })
+          .limit(1)
+
+        if (reFetchErr) {
+          console.error('[useCompanyId] company re-fetch error:', reFetchErr)
+          if (!cancelled) setCompanyId(null)
+          return
+        }
+
+        if (!cancelled && newCo?.[0]?.id) {
+          setCompanyId(newCo[0].id)
         }
       } catch (err) {
         console.error('[useCompanyId] unexpected error:', err)

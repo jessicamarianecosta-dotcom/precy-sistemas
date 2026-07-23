@@ -126,18 +126,33 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL(CATALOG_SOON_ROUTE, req.url))
   }
 
-  /* ── Buscar plano da empresa (companies usa company_id do usuário) ── */
-  const { data: company } = await supabase
+  /* ── Buscar plano da empresa (companies usa company_id do usuário) ──
+     IMPORTANTE: nunca usar .single()/.maybeSingle() aqui. Se por qualquer
+     motivo existir mais de uma linha para o mesmo user_id, essas variantes
+     retornam ERRO (PGRST116) e `company` vira undefined — e os valores
+     default abaixo tratavam isso como "trial infinito" (status='trialing'
+     + trial_end=null nunca expira), dando acesso PRO permanente e
+     irrevogável. Uma seleção simples + ORDER BY nunca falha por
+     quantidade de linhas e sempre resolve de forma determinística. */
+  const { data: companyRows } = await supabase
     .from('companies')
     .select('current_plan, subscription_status, trial_end, current_period_end, grace_period_end, role')
     .eq('user_id', session.user.id)
-    .single()
+    .order('created_at', { ascending: true })
+    .limit(1)
+
+  const company = companyRows?.[0] ?? null
 
   /* ── Desenvolvedor: ignora todas as restrições de assinatura ── */
   if (company?.role === 'developer') return res
 
-  const plan   = (company?.current_plan        ?? 'basic')   as string
-  const status = (company?.subscription_status ?? 'trialing') as string
+  /* Empresa ainda não provisionada (ex.: instante entre o cadastro e o
+     /api/setup-company criar o registro) → nunca conceder PRO por default.
+     status='none' não bate em nenhum branch de isTrialExpired/isBlocked
+     nem no `status === 'trialing'` do effectivePlan abaixo, então o
+     usuário fica em 'basic' (não bloqueado, sem PRO) até a empresa existir. */
+  const plan   = (company?.current_plan        ?? 'basic') as string
+  const status = (company?.subscription_status ?? 'none')  as string
   const trialEnd  = company?.trial_end         ?? null
   const periodEnd = company?.current_period_end ?? null
   const gracePE   = company?.grace_period_end   ?? null

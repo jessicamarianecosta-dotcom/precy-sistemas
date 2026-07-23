@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
         if (!companyId) { console.warn('[webhook] subscription.updated: company not found'); break }
 
         const priceId  = sub.items.data[0]?.price.id ?? ''
-        const plan     = getPlanFromPriceId(priceId)
+        const rawPlan  = getPlanFromPriceId(priceId)
 
         // Importante: mesmo com cancel_at_period_end=true (cliente agendou
         // cancelamento pelo Portal), o plano contratado continua ativo até
@@ -105,6 +105,20 @@ export async function POST(req: NextRequest) {
         // customer.subscription.deleted (que já faz o downgrade para
         // basic) só quando isso acontece de verdade. Fazer o downgrade
         // aqui cortaria o acesso de um cliente que já pagou o período.
+        //
+        // Mas para status que já significam "parou de pagar de verdade"
+        // (canceled/unpaid/incomplete_expired — Stripe manda esses via
+        // subscription.updated, não só via subscription.deleted, e pode
+        // levar dias entre um e outro nas tentativas automáticas de
+        // cobrança), current_plan precisa refletir isso imediatamente.
+        // Antes, current_plan continuava 'pro' nesses casos até o delete
+        // final — e como company_has_pro_access() tratava current_plan=
+        // 'pro' como acesso liberado independente do status, isso mantinha
+        // acesso completo às tabelas financeiras (financial_transactions,
+        // calendar_tasks, cost_centers, recurring_bills) mesmo inadimplente.
+        const INACTIVE_STATUSES = ['canceled', 'unpaid', 'incomplete_expired']
+        const plan = INACTIVE_STATUSES.includes(sub.status) ? 'basic' : rawPlan
+
         await updateCompany(companyId, {
           current_plan:          plan,
           subscription_status:   sub.status,
