@@ -23,6 +23,13 @@ const REACCEPT_ROUTE = '/termos/reaceite'
    no plano Basic; o gate da aba Financeiro fica dentro da própria página. */
 const PRO_ROUTES = ['/agenda', '/financeiro', '/conteudo', '/financeiro-avancado']
 
+/* ── Feedback: exclusivo de quem já paga (Basic ou PRO) ──
+   Diferente das rotas PRO acima: aqui quem está em trial NÃO tem acesso,
+   mesmo que o trial conceda PRO temporário em todo o resto do sistema.
+   O corte é "assinatura realmente ativa", não "plano contratado". */
+const PAID_ONLY_ROUTES = ['/feedback', '/api/feedback']
+const FEEDBACK_LOCKED_ROUTE = '/feedback-indisponivel'
+
 /* ── Catálogo Online: beta privado, gate por e-mail (ver lib/catalog/betaAccess.ts)
    substitui o gate de PRO enquanto durar o beta — /loja/[slug] (storefront
    público) continua liberado, só a administração do catálogo é restrita ── */
@@ -61,6 +68,16 @@ function isTrialExpired(status: string, trialEnd: string | null): boolean {
   if (status !== 'trialing') return false
   if (!trialEnd) return false
   return new Date() > new Date(trialEnd)
+}
+
+/* Espelha public.company_has_paid_plan() (Postgres) — mesma regra, checada
+   de novo aqui para bloquear a navegação antes mesmo de bater no banco via
+   RLS. 'trialing' nunca retorna true, mesmo com trial_end no futuro. */
+function hasPaidPlan(status: string, periodEnd: string | null, gracePeriodEnd: string | null): boolean {
+  if (status === 'active') return true
+  if (status === 'past_due' && gracePeriodEnd && new Date() < new Date(gracePeriodEnd)) return true
+  if (status === 'canceled' && periodEnd && new Date() < new Date(periodEnd)) return true
+  return false
 }
 
 export async function middleware(req: NextRequest) {
@@ -192,6 +209,15 @@ export async function middleware(req: NextRequest) {
     const url = new URL(UPGRADE_ROUTE, req.url)
     url.searchParams.set('from', pathname)
     return NextResponse.redirect(url)
+  }
+
+  /* ── Feedback: exige assinatura paga (Basic ou PRO); trial fica de fora ── */
+  const isPaidOnlyRoute = PAID_ONLY_ROUTES.some(r => pathname === r || pathname.startsWith(r + '/'))
+  if (isPaidOnlyRoute && pathname !== FEEDBACK_LOCKED_ROUTE && !hasPaidPlan(status, periodEnd, gracePE)) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Este recurso estará disponível após a assinatura de um plano pago.' }, { status: 403 })
+    }
+    return NextResponse.redirect(new URL(FEEDBACK_LOCKED_ROUTE, req.url))
   }
 
   return res

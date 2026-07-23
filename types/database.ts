@@ -278,6 +278,46 @@ export interface Database {
           subtotal?: number
         }
       }
+      feedbacks: {
+        Row: {
+          id: string
+          company_id: string
+          user_id: string | null
+          type: string
+          subject: string
+          message: string
+          priority: string
+          allow_contact: boolean
+          attachment_url: string | null
+          status: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          company_id: string
+          user_id?: string | null
+          type: string
+          subject: string
+          message: string
+          priority?: string
+          allow_contact?: boolean
+          attachment_url?: string | null
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          type?: string
+          subject?: string
+          message?: string
+          priority?: string
+          allow_contact?: boolean
+          attachment_url?: string | null
+          status?: string
+          updated_at?: string
+        }
+      }
       budgets: {
         Row: {
           id: string

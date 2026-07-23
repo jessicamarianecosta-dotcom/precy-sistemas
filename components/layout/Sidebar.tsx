@@ -7,6 +7,7 @@ import {
   LayoutDashboard, Package, Boxes, ShoppingCart,
   Users, FileText, DollarSign, Settings, Calculator,
   ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays, BarChart2, Crown, TrendingUp, Truck, Store,
+  MessageSquare,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { createClient } from '@/lib/supabase/client'
@@ -49,7 +50,8 @@ const menuItems = [
   {
     title: 'Sistema',
     items: [
-      { href: '/configuracoes', icon: Settings, label: 'Configurações'  },
+      { href: '/configuracoes', icon: Settings,       label: 'Configurações' },
+      { href: '/feedback',      icon: MessageSquare,  label: 'Feedback',      hideOnTrial: true },
     ],
   },
 ]
@@ -65,6 +67,7 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
   const supabase  = createClient()
   const sub = useSubscription()
   const isPro = sub?.data?.isPro ?? false
+  const isTrial = sub?.data?.isTrial ?? false
 
   // Catálogo Online: beta privado — só quem está em CATALOG_BETA_USERS
   // (lib/catalog/betaAccess.ts) vê o item normal; os demais veem "Em breve".
@@ -153,11 +156,13 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
               </p>
             )}
             <ul className="space-y-0.5">
-              {group.items.map(item => (
-                <li key={item.href}>
-                  <NavLink href={item.href} icon={item.icon} label={item.label} pro={(item as any).pro} />
-                </li>
-              ))}
+              {group.items
+                .filter(item => !((item as any).hideOnTrial && isTrial))
+                .map(item => (
+                  <li key={item.href}>
+                    <NavLink href={item.href} icon={item.icon} label={item.label} pro={(item as any).pro} />
+                  </li>
+                ))}
               {group.title === 'Negócio' && hasCatalogAccess && (
                 <li>
                   <NavLink href="/catalogo" icon={Store} label="Catálogo Online" />
