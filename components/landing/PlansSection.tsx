@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useRef, useState, useEffect } from 'react'
-import { CheckCircle, Lock, Zap, ArrowRight, Send, Loader2, Sparkles } from 'lucide-react'
+import { CheckCircle, Check, Lock, Zap, ArrowRight, Send, Loader2, Sparkles } from 'lucide-react'
 
 /* ── Types ─────────────────────────────── */
 type Visibility = boolean | string
@@ -304,7 +304,7 @@ export function PlansSection() {
 
           {/* Tabela comparativa por grupos */}
           <div
-            className="rounded-2xl overflow-hidden border"
+            className="rounded-2xl overflow-hidden border shadow-sm"
             style={{
               borderColor: '#EDE8E2',
               opacity: plansVisible ? 1 : 0,
@@ -313,47 +313,67 @@ export function PlansSection() {
             }}
           >
             {/* Header fixo */}
-            <div className="grid grid-cols-3 p-4 border-b" style={{ background: '#F5F0EB', borderColor: '#EDE8E2' }}>
-              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#B8A898' }}>Funcionalidade</p>
-              <p className="text-xs font-semibold text-center" style={{ color: '#7A6855' }}>Basic</p>
-              <p className="text-xs font-semibold text-center" style={{ color: '#8B6C4F' }}>Pro</p>
+            <div className="grid grid-cols-[1.7fr_1fr_1fr] sm:grid-cols-[2.2fr_1fr_1fr]" style={{ background: '#2C2018' }}>
+              <p className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider px-3 sm:px-4 py-4 flex items-end"
+                style={{ color: 'rgba(255,255,255,0.45)' }}>
+                Funcionalidade
+              </p>
+              <div className="flex flex-col items-center justify-center gap-0.5 py-3.5 border-l" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                <span className="text-[11px] sm:text-xs font-bold" style={{ color: '#D8CFC2' }}>🌱 Basic</span>
+                <span className="text-[9px]" style={{ color: 'rgba(255,255,255,0.35)' }}>R$17/mês</span>
+              </div>
+              <div className="flex flex-col items-center justify-center gap-0.5 py-3.5 border-l"
+                style={{
+                  borderColor: 'rgba(255,255,255,0.08)',
+                  background: 'linear-gradient(180deg, rgba(184,149,106,0.4), rgba(139,108,79,0.15))',
+                }}>
+                <span className="text-[11px] sm:text-xs font-black flex items-center gap-1" style={{ color: '#F3DFC0' }}>🚀 Pro</span>
+                <span className="text-[9px] font-semibold" style={{ color: '#C4A47B' }}>R$47/mês</span>
+              </div>
             </div>
 
             {COMPARE_GROUPS.map(group => (
               <div key={group.group}>
                 {/* Group header */}
-                <div className="px-4 py-2 border-b" style={{ background: 'rgba(139,108,79,0.04)', borderColor: '#EDE8E2' }}>
+                <div className="px-3 sm:px-4 py-2 border-b border-t" style={{ background: '#F5F0EB', borderColor: '#EDE8E2' }}>
                   <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#8B6C4F' }}>{group.group}</p>
                 </div>
                 {/* Group rows */}
                 {group.items.map((f, i) => (
                   <div key={f.label}
-                    className="grid grid-cols-3 px-4 py-2.5 items-center border-b last:border-0"
+                    className="grid grid-cols-[1.7fr_1fr_1fr] sm:grid-cols-[2.2fr_1fr_1fr] items-stretch border-b last:border-0 transition-colors hover:bg-black/[0.015]"
                     style={{
                       borderColor: '#EDE8E2',
-                      background: f.highlight ? 'rgba(139,108,79,0.03)' : i % 2 === 0 ? 'white' : 'rgba(139,108,79,0.01)',
+                      background: f.highlight ? 'rgba(139,108,79,0.045)' : i % 2 === 0 ? 'white' : 'rgba(139,108,79,0.012)',
                     }}>
-                    <span className="text-xs flex items-center gap-1.5" style={{ color: f.highlight ? '#2C2018' : '#5A4A3B' }}>
+                    <span className="text-xs px-3 sm:px-4 py-3 flex items-center" style={{ color: f.highlight ? '#2C2018' : '#5A4A3B', fontWeight: f.highlight ? 600 : 400 }}>
                       {f.label}
-                      {f.highlight && (
-                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full text-white"
-                          style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}>
-                          PRO
-                        </span>
-                      )}
                     </span>
                     {/* Basic */}
-                    <div className="text-center">
-                      {f.basic === true  && <span style={{ color: '#5C8B4F', fontSize: 15 }}>✓</span>}
-                      {f.basic === false && <span style={{ color: '#D8D0C8', fontSize: 12 }}>—</span>}
+                    <div className="flex items-center justify-center py-3 border-l" style={{ borderColor: '#EDE8E2' }}>
+                      {f.basic === true && (
+                        <span className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(92,139,79,0.14)' }}>
+                          <Check size={12} strokeWidth={3} style={{ color: '#5C8B4F' }} />
+                        </span>
+                      )}
+                      {f.basic === false && (
+                        <span title="Exclusivo do plano PRO">
+                          <Lock size={12} style={{ color: '#D0C4B4' }} />
+                        </span>
+                      )}
                       {typeof f.basic === 'string' && <span className="text-[10px] font-semibold" style={{ color: '#7A6855' }}>{f.basic}</span>}
                     </div>
                     {/* Pro */}
-                    <div className="text-center">
-                      {f.pro === true  && <span className="font-black" style={{ color: '#8B6C4F', fontSize: 15 }}>✓</span>}
+                    <div className="flex items-center justify-center py-3 border-l" style={{ borderColor: '#EDE8E2', background: 'rgba(139,108,79,0.04)' }}>
+                      {f.pro === true && (
+                        <span className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
+                          style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}>
+                          <Check size={12} strokeWidth={3} className="text-white" />
+                        </span>
+                      )}
                       {f.pro === false && <span style={{ color: '#D8D0C8', fontSize: 12 }}>—</span>}
                       {typeof f.pro === 'string' && (
-                        <span className="text-[10px] font-bold" style={{ color: '#8B6C4F' }}>{f.pro}</span>
+                        <span className="text-[10px] font-bold text-center px-1" style={{ color: '#8B6C4F' }}>{f.pro}</span>
                       )}
                     </div>
                   </div>
