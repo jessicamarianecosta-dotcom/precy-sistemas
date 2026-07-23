@@ -14,8 +14,14 @@ const PUBLIC = ['/', '/login', '/cadastro', '/recuperar-senha', '/nova-senha',
 const LEGAL_GATE_ALLOWLIST = ['/termos/reaceite', '/api/legal/accept']
 const REACCEPT_ROUTE = '/termos/reaceite'
 
-/* ── Rotas exclusivas PRO ── */
-const PRO_ROUTES = ['/agenda', '/financeiro', '/relatorios', '/conteudo', '/financeiro-avancado']
+/* ── Rotas exclusivas PRO ──
+   /relatorios NÃO entra aqui: a página tem abas Basic (Pedidos, Clientes,
+   Produtos, Estoque, Orçamentos — dados que o Basic já acessa nos módulos
+   originais) e uma aba PRO (Financeiro, cujos dados já são bloqueados por
+   RLS via company_has_pro_access em financial_transactions/cost_centers).
+   Bloquear a rota inteira contradizia a promessa de "Relatórios básicos"
+   no plano Basic; o gate da aba Financeiro fica dentro da própria página. */
+const PRO_ROUTES = ['/agenda', '/financeiro', '/conteudo', '/financeiro-avancado']
 
 /* ── Catálogo Online: beta privado, gate por e-mail (ver lib/catalog/betaAccess.ts)
    substitui o gate de PRO enquanto durar o beta — /loja/[slug] (storefront

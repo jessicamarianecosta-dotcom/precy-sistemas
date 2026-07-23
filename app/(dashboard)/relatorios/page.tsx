@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/hooks/useCompanyId'
+import { useSubscription } from '@/hooks/useSubscription'
 import { Header } from '@/components/layout/Header'
 import { clsx } from 'clsx'
 import {
@@ -14,7 +15,7 @@ import {
   TrendingUp, TrendingDown, DollarSign, ShoppingCart,
   Users, Package, FileText, BarChart3, ChevronDown,
   Download, AlertTriangle, CheckCircle, Clock, ArrowUpRight,
-  ArrowDownRight, Star, Loader2, Printer,
+  ArrowDownRight, Star, Loader2, Printer, Crown, Lock,
 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, subMonths, parseISO, addMonths } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -93,10 +94,20 @@ function Section({ title, icon: Icon, children }: { title: string; icon: React.E
 export default function RelatoriosPage() {
   const supabase      = createClient()
   const { companyId } = useCompanyId()
+  const { data: sub }  = useSubscription()
+  const isPro = sub?.isPro ?? false
   const [period, setPeriod] = useState<Period>('month')
   const [activeTab, setActiveTab] = useState<'financeiro'|'pedidos'|'clientes'|'produtos'|'estoque'|'orcamentos'>('financeiro')
   const [exporting, setExporting] = useState(false)
   const [costCenterFilter, setCostCenterFilter] = useState<string>('all')
+
+  /* Aba Financeiro é exclusiva PRO (mesmos dados já bloqueados por RLS
+     em financial_transactions/cost_centers) — assim que a assinatura
+     carrega, tira quem não é PRO de lá para não abrir numa aba vazia/
+     bloqueada por padrão. */
+  useEffect(() => {
+    if (sub && !isPro && activeTab === 'financeiro') setActiveTab('pedidos')
+  }, [sub, isPro, activeTab])
 
   /* ── Buscar dados da empresa para o PDF ── */
   const { data: companyData } = useQuery({
@@ -110,6 +121,7 @@ export default function RelatoriosPage() {
   })
 
   async function handleExportPDF(mode: 'pdf' | 'print' = 'pdf') {
+    if (activeTab === 'financeiro' && !isPro) return
     setExporting(true)
     try {
       const { generateReportPDF } = await import('@/lib/pdf/generateReportPDF')
@@ -142,7 +154,7 @@ export default function RelatoriosPage() {
   const q = { queryKey: [] as any[], enabled: !!companyId }
 
   const { data: finTx = [] } = useQuery<any[]>({
-    ...q, queryKey: ['rep-fin', companyId, start, end],
+    ...q, queryKey: ['rep-fin', companyId, start, end], enabled: !!companyId && isPro,
     queryFn: async () => {
       const { data } = await (supabase.from('financial_transactions') as any)
         .select('type, category, amount, date, status, cost_center_id')
@@ -153,7 +165,7 @@ export default function RelatoriosPage() {
 
   /* Centros de custo — carregados dinamicamente para o filtro */
   const { data: costCenters = [] } = useQuery<any[]>({
-    ...q, queryKey: ['cost-centers', companyId],
+    ...q, queryKey: ['cost-centers', companyId], enabled: !!companyId && isPro,
     queryFn: async () => {
       const { data } = await (supabase.from('cost_centers') as any)
         .select('id, name, icon')
@@ -340,39 +352,72 @@ export default function RelatoriosPage() {
             <p className="text-xs text-text-muted dark:text-stone-500">
               {start.split('-').reverse().join('/')} → {end.split('-').reverse().join('/')}
             </p>
-            <button onClick={() => handleExportPDF('pdf')} disabled={exporting}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 hover:opacity-90 transition-opacity shadow-sm"
-              style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}>
-              {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-              {exporting ? 'Gerando...' : 'Baixar PDF'}
-            </button>
-            <button onClick={() => handleExportPDF('print')} disabled={exporting}
-              title="Imprimir relatório"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border border-border dark:border-border-dark text-text-muted dark:text-stone-400 hover:border-primary hover:text-primary transition-all disabled:opacity-50">
-              <Printer size={13} />
-            </button>
+            {!(activeTab === 'financeiro' && !isPro) && (
+              <>
+                <button onClick={() => handleExportPDF('pdf')} disabled={exporting}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 hover:opacity-90 transition-opacity shadow-sm"
+                  style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}>
+                  {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                  {exporting ? 'Gerando...' : 'Baixar PDF'}
+                </button>
+                <button onClick={() => handleExportPDF('print')} disabled={exporting}
+                  title="Imprimir relatório"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border border-border dark:border-border-dark text-text-muted dark:text-stone-400 hover:border-primary hover:text-primary transition-all disabled:opacity-50">
+                  <Printer size={13} />
+                </button>
+              </>
+            )}
           </div>
         </div>
 
         {/* ── Tabs de módulo ── */}
         <div className="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar">
-          {TABS.map(({ key, label, icon: Icon }) => (
-            <button key={key} onClick={() => setActiveTab(key as typeof activeTab)}
-              className={clsx(
-                'flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-all flex-shrink-0',
-                activeTab === key
-                  ? 'bg-primary text-white border-primary shadow-sm'
-                  : 'border-border dark:border-border-dark text-text-muted dark:text-stone-400 hover:border-primary/50 hover:text-primary'
-              )}>
-              <Icon size={13} /> {label}
-            </button>
-          ))}
+          {TABS.map(({ key, label, icon: Icon }) => {
+            const locked = key === 'financeiro' && !isPro
+            return (
+              <button
+                key={key}
+                onClick={() => locked ? (window.location.href = '/assinatura/upgrade') : setActiveTab(key as typeof activeTab)}
+                className={clsx(
+                  'flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-all flex-shrink-0',
+                  locked
+                    ? 'border-border dark:border-border-dark text-text-muted/60 dark:text-stone-600 cursor-pointer'
+                    : activeTab === key
+                      ? 'bg-primary text-white border-primary shadow-sm'
+                      : 'border-border dark:border-border-dark text-text-muted dark:text-stone-400 hover:border-primary/50 hover:text-primary'
+                )}>
+                <Icon size={13} /> {label}
+                {locked && <Lock size={10} className="ml-0.5" />}
+              </button>
+            )
+          })}
         </div>
 
         {/* ══════════════════════════════
             TAB: FINANCEIRO
         ══════════════════════════════ */}
-        {activeTab === 'financeiro' && (
+        {activeTab === 'financeiro' && !isPro && (
+          <div className="card flex flex-col items-center text-center py-14 gap-3 animate-fadeIn">
+            <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
+              <Crown size={20} className="text-primary" />
+            </div>
+            <p className="text-sm font-semibold text-text-primary dark:text-stone-100">
+              Relatório financeiro é exclusivo do plano PRO
+            </p>
+            <p className="text-xs text-text-muted dark:text-stone-500 max-w-sm">
+              Faça upgrade para ver receitas, despesas, saldo e margem em tempo real, com exportação em PDF.
+            </p>
+            <a
+              href="/assinatura/upgrade"
+              className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-white px-4 py-2.5 rounded-xl hover:opacity-90 transition-opacity"
+              style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}
+            >
+              <Crown size={13} /> Fazer upgrade para PRO
+            </a>
+          </div>
+        )}
+
+        {activeTab === 'financeiro' && isPro && (
           <div className="space-y-4 animate-fadeIn">
             <div className="flex items-center justify-end">
               <select

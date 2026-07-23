@@ -63,10 +63,11 @@ const COMPARE_GROUPS: { group: string; items: Feature[] }[] = [
   {
     group: 'Relatórios 📊',
     items: [
-      { label: 'Relatórios financeiros completos', basic: false,   pro: true, highlight: true },
-      { label: 'Relatório de pedidos e clientes',  basic: false,    pro: true, highlight: true },
-      { label: 'Relatório de produtos/estoque',    basic: false,    pro: true, highlight: true },
-      { label: 'Exportação em PDF',                basic: false,    pro: true, highlight: true },
+      { label: 'Relatório de pedidos e clientes',   basic: true,     pro: true },
+      { label: 'Relatório de produtos/estoque',     basic: true,     pro: true },
+      { label: 'Relatório de orçamentos',           basic: true,     pro: true },
+      { label: 'Exportação em PDF',                 basic: true,     pro: true },
+      { label: 'Relatórios financeiros completos',  basic: false,    pro: true, highlight: true },
     ],
   },
   {
