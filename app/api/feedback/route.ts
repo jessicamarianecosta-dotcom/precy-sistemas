@@ -11,6 +11,10 @@ const MAX_SIZE          = 10 * 1024 * 1024 // 10MB
 const MESSAGE_MIN       = 30
 const MESSAGE_MAX       = 3000
 
+/** Destinatário da notificação por e-mail de cada feedback recebido —
+ * usado assim que a infraestrutura de envio (ver TODO abaixo) existir. */
+const FEEDBACK_NOTIFICATION_EMAIL = 'costajessicamariane@gmail.com'
+
 /** Espelha public.company_has_paid_plan() — trial nunca passa aqui, mesmo
  * com acesso PRO temporário concedido em outros módulos do sistema. */
 function hasPaidPlan(company: {
@@ -128,9 +132,9 @@ export async function POST(request: Request) {
 
     // TODO: quando a infraestrutura de e-mail transacional existir no
     // projeto (ver lib/email/), disparar aqui a notificação para
-    // jessicamarianecosta@gmail.com com os dados de company/user/feedback
-    // já resolvidos acima. Propositalmente não implementado agora — não
-    // há provedor de e-mail configurado neste projeto ainda.
+    // FEEDBACK_NOTIFICATION_EMAIL com os dados de company/user/feedback já
+    // resolvidos acima. Propositalmente não implementado agora — não há
+    // provedor de e-mail configurado neste projeto ainda.
 
     return NextResponse.json({ ok: true, feedback })
   } catch (err) {
