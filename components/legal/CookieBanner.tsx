@@ -5,6 +5,7 @@ import { X, Cookie, Shield } from 'lucide-react'
 
 const CONSENT_KEY = 'precy_cookie_consent'
 const CONSENT_VERSION = '1.0'
+const CONSENT_RESOLVED_EVENT = 'precy:cookie-consent-resolved'
 
 export function CookieBanner() {
   const [show, setShow] = useState(false)
@@ -31,6 +32,7 @@ export function CookieBanner() {
       }))
     } catch {}
     setShow(false)
+    window.dispatchEvent(new Event(CONSENT_RESOLVED_EVENT))
   }
 
   if (!show) return null

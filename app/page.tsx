@@ -5,6 +5,7 @@ import { PainSection } from '@/components/landing/PainSection'
 import { StatsSection } from '@/components/landing/StatsSection'
 import { LivePreview } from '@/components/landing/LivePreview'
 import { PlansSection } from '@/components/landing/PlansSection'
+import { AppCalloutSection } from '@/components/landing/AppCalloutSection'
 
 export const metadata: Metadata = {
   title: 'Precy+ Sistemas — Precificação e Gestão para Pequenos Negócios',
@@ -271,6 +272,9 @@ export default function LandingPage() {
           ))}
         </div>
       </section>
+
+      {/* ── APP CALLOUT ── */}
+      <AppCalloutSection />
 
       {/* ── PAIN SECTION ── */}
       <PainSection />

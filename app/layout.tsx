@@ -3,6 +3,8 @@ import { Inter } from 'next/font/google'
 import '../styles/globals.css'
 import { Providers } from '@/providers/Providers'
 import { CookieBanner } from '@/components/legal/CookieBanner'
+import { InstallAppBanner } from '@/components/pwa/InstallAppBanner'
+import { ServiceWorkerRegister } from '@/components/pwa/ServiceWorkerRegister'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -78,7 +80,9 @@ export default function RootLayout({
     <html lang="pt-BR" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans`}>
         <Providers>{children}</Providers>
+        <ServiceWorkerRegister />
         <CookieBanner />
+        <InstallAppBanner />
       </body>
     </html>
   )
