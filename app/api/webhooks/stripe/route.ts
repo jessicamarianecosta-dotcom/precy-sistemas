@@ -1,35 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { stripe, getPlanFromPriceId } from '@/lib/stripe'
+import { stripe }                     from '@/lib/stripe'
 import { supabaseAdmin }              from '@/lib/supabase/admin'
+import {
+  updateCompany, getCompanyId,
+  syncCompanyFromCheckoutSession, syncCompanyFromSubscription,
+} from '@/lib/stripe/syncSubscription'
 import Stripe from 'stripe'
 
 export const runtime = 'nodejs'
 
 const GRACE_DAYS = 5
-
-async function updateCompany(companyId: string, data: Record<string, unknown>) {
-  const { error } = await (supabaseAdmin.from('companies') as any)
-    .update({ ...data, updated_at: new Date().toISOString() })
-    .eq('id', companyId)
-  if (error) console.error('[webhook] updateCompany error:', JSON.stringify(error))
-  else console.log(`[webhook] updated company=${companyId}`, Object.keys(data))
-}
-
-async function findCompanyByCustomer(customerId: string): Promise<string | null> {
-  const { data } = await (supabaseAdmin.from('companies') as any)
-    .select('id')
-    .eq('stripe_customer_id', customerId)
-    .single()
-  return data?.id ?? null
-}
-
-async function getCompanyId(obj: { metadata?: Stripe.Metadata | null; customer?: string | Stripe.Customer | Stripe.DeletedCustomer | null }): Promise<string | null> {
-  const meta = obj.metadata
-  if (meta?.company_id) return meta.company_id
-  const customerId = typeof obj.customer === 'string' ? obj.customer : (obj.customer as any)?.id
-  if (customerId) return findCompanyByCustomer(customerId)
-  return null
-}
 
 export async function POST(req: NextRequest) {
   const body      = await req.text()
@@ -57,77 +37,39 @@ export async function POST(req: NextRequest) {
   try {
     switch (event.type) {
 
-      /* ── Checkout concluído ── */
+      /* ── Checkout concluído ──
+         Também é sincronizado de forma síncrona em /api/stripe/checkout-return
+         (redirect de volta do Checkout) — este case continua existindo como
+         fonte de verdade assíncrona e rede de segurança caso aquele
+         redirecionamento falhe ou o usuário feche a aba antes dele rodar. */
       case 'checkout.session.completed': {
         const cs = event.data.object as Stripe.Checkout.Session
-        if (cs.payment_status !== 'paid' && cs.mode !== 'subscription') break
-        const companyId = await getCompanyId(cs)
-        const plan      = cs.metadata?.plan ?? 'basic'
-        const subId     = cs.subscription as string | null
-        if (!companyId) { console.warn('[webhook] checkout.completed: company not found'); break }
-
-        const update: Record<string, unknown> = {
-          stripe_customer_id: cs.customer as string,
-          current_plan:       plan,
-          grace_period_end:   null,
-          blocked_at:         null,
-        }
-
-        if (subId) {
-          try {
-            const sub = await stripe.subscriptions.retrieve(subId)
-            update.stripe_subscription_id = subId
-            update.subscription_status    = sub.status
-            update.current_period_end     = new Date((sub as any).current_period_end * 1000).toISOString()
-            update.trial_end              = (sub as any).trial_end
-              ? new Date((sub as any).trial_end * 1000).toISOString() : null
-          } catch (e) { console.error('[webhook] retrieve sub failed:', e) }
-        } else {
-          update.subscription_status = 'active'
-        }
-
-        await updateCompany(companyId, update)
+        await syncCompanyFromCheckoutSession(cs, '[webhook]')
         break
       }
 
-      /* ── Assinatura atualizada ── */
+      /* ── Assinatura criada/atualizada ──
+         Importante: mesmo com cancel_at_period_end=true (cliente agendou
+         cancelamento pelo Portal), o plano contratado continua ativo até
+         o período pago realmente terminar — Stripe dispara
+         customer.subscription.deleted (que já faz o downgrade para basic)
+         só quando isso acontece de verdade. Fazer o downgrade aqui cortaria
+         o acesso de um cliente que já pagou o período.
+
+         Mas para status que já significam "parou de pagar de verdade"
+         (canceled/unpaid/incomplete_expired — Stripe manda esses via
+         subscription.updated, não só via subscription.deleted, e pode
+         levar dias entre um e outro nas tentativas automáticas de
+         cobrança), current_plan precisa refletir isso imediatamente — ver
+         syncCompanyFromSubscription. Antes, current_plan continuava 'pro'
+         nesses casos até o delete final — e como company_has_pro_access()
+         tratava current_plan='pro' como acesso liberado independente do
+         status, isso mantinha acesso completo às tabelas financeiras
+         mesmo inadimplente. */
+      case 'customer.subscription.created':
       case 'customer.subscription.updated': {
-        const sub       = event.data.object as Stripe.Subscription
-        const companyId = await getCompanyId(sub)
-        if (!companyId) { console.warn('[webhook] subscription.updated: company not found'); break }
-
-        const priceId  = sub.items.data[0]?.price.id ?? ''
-        const rawPlan  = getPlanFromPriceId(priceId)
-
-        // Importante: mesmo com cancel_at_period_end=true (cliente agendou
-        // cancelamento pelo Portal), o plano contratado continua ativo até
-        // o período pago realmente terminar — Stripe dispara
-        // customer.subscription.deleted (que já faz o downgrade para
-        // basic) só quando isso acontece de verdade. Fazer o downgrade
-        // aqui cortaria o acesso de um cliente que já pagou o período.
-        //
-        // Mas para status que já significam "parou de pagar de verdade"
-        // (canceled/unpaid/incomplete_expired — Stripe manda esses via
-        // subscription.updated, não só via subscription.deleted, e pode
-        // levar dias entre um e outro nas tentativas automáticas de
-        // cobrança), current_plan precisa refletir isso imediatamente.
-        // Antes, current_plan continuava 'pro' nesses casos até o delete
-        // final — e como company_has_pro_access() tratava current_plan=
-        // 'pro' como acesso liberado independente do status, isso mantinha
-        // acesso completo às tabelas financeiras (financial_transactions,
-        // calendar_tasks, cost_centers, recurring_bills) mesmo inadimplente.
-        const INACTIVE_STATUSES = ['canceled', 'unpaid', 'incomplete_expired']
-        const plan = INACTIVE_STATUSES.includes(sub.status) ? 'basic' : rawPlan
-
-        await updateCompany(companyId, {
-          current_plan:          plan,
-          subscription_status:   sub.status,
-          current_period_end:    new Date((sub as any).current_period_end * 1000).toISOString(),
-          trial_end:             (sub as any).trial_end
-            ? new Date((sub as any).trial_end * 1000).toISOString() : null,
-          grace_period_end:      null,
-          blocked_at:            null,
-        })
+        const sub = event.data.object as Stripe.Subscription
+        await syncCompanyFromSubscription(sub, '[webhook]')
         break
       }
 

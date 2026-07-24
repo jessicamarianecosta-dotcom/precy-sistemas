@@ -4,6 +4,7 @@ import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { supabaseAdmin }             from '@/lib/supabase/admin'
 import { cookies }                   from 'next/headers'
 import { checkRateLimit }            from '@/lib/rateLimit'
+import { syncCompanyFromSubscription } from '@/lib/stripe/syncSubscription'
 
 export async function POST(req: NextRequest) {
   try {
@@ -55,13 +56,17 @@ export async function POST(req: NextRequest) {
           if (existingPriceId === planConfig.price_id) {
             return NextResponse.json({ error: 'Você já possui este plano ativo.' }, { status: 409 })
           }
-          await stripe.subscriptions.update(company.stripe_subscription_id, {
+          const updatedSub = await stripe.subscriptions.update(company.stripe_subscription_id, {
             items: [{ id: existing.items.data[0].id, price: planConfig.price_id }],
             proration_behavior: 'create_prorations',
             metadata: { user_id: session.user.id, company_id: company.id, plan },
           })
-          // customer.subscription.updated (webhook) já atualiza current_plan/
-          // subscription_status/current_period_end a partir do novo price_id.
+          // Sincroniza direto aqui, síncrono — não espera o webhook
+          // customer.subscription.updated (mesma corrida do checkout novo:
+          // o cliente já navega pro /dashboard logo em seguida via
+          // window.location.href no client, e o middleware avaliaria com
+          // dado velho se dependesse só do evento assíncrono).
+          await syncCompanyFromSubscription(updatedSub, '[stripe/checkout:upgrade]')
           return NextResponse.json({ url: `${appUrl}/dashboard?planChanged=success` })
         }
       } catch (err: any) {
@@ -126,7 +131,12 @@ export async function POST(req: NextRequest) {
       line_items:           [{ price: planConfig.price_id, quantity: 1 }],
       allow_promotion_codes: true,
       billing_address_collection: 'auto',
-      success_url: `${appUrl}/dashboard?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      // /api/stripe/checkout-return sincroniza a assinatura no banco de
+      // forma síncrona ANTES de redirecionar pro /dashboard — evita a
+      // corrida em que o middleware bloqueia o usuário de novo porque o
+      // webhook assíncrono ainda não processou o evento (ver
+      // lib/stripe/syncSubscription.ts).
+      success_url: `${appUrl}/api/stripe/checkout-return?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url:  `${appUrl}/configuracoes?tab=plano`,
       metadata:    { user_id: session.user.id, company_id: company.id, plan },
       subscription_data: {

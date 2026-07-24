@@ -1,17 +1,80 @@
 'use client'
-import { useState } from 'react'
-import { Clock, Loader2, LogOut, ArrowRight, AlertCircle } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Clock, Loader2, LogOut, ArrowRight, AlertCircle, RefreshCw } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter }    from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { PLANS } from '@/lib/stripe/plans'
 
+const POLL_INTERVAL_MS = 2500
+const MAX_POLL_MS      = 5 * 60 * 1000 // 5min — nunca fica pra sempre
+
+type CompanyRow = {
+  subscription_status: string | null
+  trial_end: string | null
+  current_period_end: string | null
+  grace_period_end: string | null
+}
+
+/** Espelha (versão simplificada) a mesma regra de middleware.ts:isBlocked —
+ *  suficiente pra decidir se vale a pena navegar; o middleware continua
+ *  sendo a autoridade real na navegação seguinte. */
+function isStillBlocked(row: CompanyRow): boolean {
+  const now = new Date()
+  const status = row.subscription_status
+  if (status === 'active') return false
+  if (status === 'trialing' && row.trial_end && new Date(row.trial_end) > now) return false
+  if (status === 'past_due' && row.grace_period_end && new Date(row.grace_period_end) > now) return false
+  if (status === 'canceled' && row.current_period_end && new Date(row.current_period_end) > now) return false
+  return true
+}
+
 export default function TrialExpiradaPage() {
   const [loadingPlan, setLoadingPlan] = useState<'basic' | 'pro' | null>(null)
   const [errMsg,       setErrMsg]     = useState('')
+  const [polling,      setPolling]    = useState(true)
   const supabase = createClient()
   const router   = useRouter()
   const queryClient = useQueryClient()
+  const startedAt = useRef(Date.now())
+
+  // Enquanto o usuário estiver nesta tela, confere periodicamente se o
+  // pagamento já foi aprovado (ex.: pagou em outra aba, ou o webhook
+  // demorou um pouco mais que o redirect síncrono de checkout-return).
+  // Assim que detecta acesso liberado, para o polling, invalida o cache
+  // do plano e redireciona pro dashboard — sem precisar de reload,
+  // logout ou novo login. Nunca roda por mais de 5 minutos.
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      if (Date.now() - startedAt.current > MAX_POLL_MS) {
+        setPolling(false)
+        clearInterval(interval)
+        return
+      }
+
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data } = await supabase
+        .from('companies')
+        .select('subscription_status, trial_end, current_period_end, grace_period_end')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+
+      if (data && !isStillBlocked(data as CompanyRow)) {
+        clearInterval(interval)
+        setPolling(false)
+        queryClient.invalidateQueries({ queryKey: ['subscription'] })
+        router.push('/dashboard')
+        router.refresh()
+      }
+    }, POLL_INTERVAL_MS)
+
+    return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function handleAssinar(plan: 'basic' | 'pro') {
     setLoadingPlan(plan)
@@ -91,6 +154,13 @@ export default function TrialExpiradaPage() {
             <LogOut size={13} /> Sair da conta
           </button>
         </div>
+
+        {polling && (
+          <p className="text-[11px] text-stone-600 flex items-center justify-center gap-1.5">
+            <RefreshCw size={11} className="animate-spin" />
+            Já pagou? Detectamos automaticamente e liberamos o acesso.
+          </p>
+        )}
 
         <p className="text-xs text-stone-700">
           Precy+ Sistemas · <a href="mailto:suporte@precyplus.com.br" className="hover:text-stone-500">suporte@precyplus.com.br</a>
