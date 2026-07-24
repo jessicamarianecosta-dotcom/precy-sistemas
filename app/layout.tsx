@@ -10,25 +10,52 @@ const inter = Inter({
   display: 'swap',
 })
 
+const SITE_URL = 'https://precyplus.com.br'
+const SITE_DESCRIPTION = 'Sistema de Gestão e Precificação para Pequenos Negócios.'
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
-    default: 'Precy+ Sistemas',
-    template: '%s | Precy+ Sistemas',
+    default: 'Precy+',
+    template: '%s | Precy+',
   },
-  description: 'SaaS Premium de Precificação e Gestão para Pequenos Negócios',
+  description: SITE_DESCRIPTION,
+  applicationName: 'Precy+',
   keywords: ['precificação', 'gestão', 'artesanato', 'papelaria', 'financeiro'],
-  authors: [{ name: 'Precy+ Sistemas' }],
-  creator: 'Precy+ Sistemas',
+  authors: [{ name: 'Precy+' }],
+  creator: 'Precy+',
+  // favicon e apple-touch-icon são gerados pela convenção nativa do Next
+  // (app/icon.tsx e app/apple-icon.tsx) — não declarar `icons` aqui para
+  // não conflitar com as tags que o próprio Next já injeta.
   manifest: '/manifest.json',
-  icons: {
-    icon: '/favicon.ico',
-    apple: '/apple-touch-icon.png',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Precy+',
+  },
+  alternates: {
+    canonical: '/',
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+    },
   },
   openGraph: {
-    title: 'Precy+ Sistemas',
-    description: 'SaaS Premium de Precificação e Gestão para Pequenos Negócios',
+    title: 'Precy+',
+    description: SITE_DESCRIPTION,
     type: 'website',
     locale: 'pt_BR',
+    url: SITE_URL,
+    siteName: 'Precy+',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Precy+',
+    description: SITE_DESCRIPTION,
   },
 }
 

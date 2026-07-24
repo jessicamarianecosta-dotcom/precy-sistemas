@@ -1,7 +1,7 @@
 {
-  "name": "Precy+ Sistemas",
+  "name": "Precy+",
   "short_name": "Precy+",
-  "description": "SaaS Premium de Precificação e Gestão para Pequenos Negócios",
+  "description": "Sistema de Gestão e Precificação.",
   "start_url": "/dashboard",
   "display": "standalone",
   "background_color": "#FAF7F4",
@@ -39,15 +39,6 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable any"
-    }
-  ],
-  "screenshots": [
-    {
-      "src": "/screenshots/dashboard.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide",
-      "label": "Dashboard Precy+"
     }
   ]
 }
