@@ -58,11 +58,14 @@ export function useSubscription() {
 
       const plan      = (data.current_plan ?? 'basic') as 'basic' | 'pro'
       const status    = data.subscription_status ?? 'trialing'
-      const isActive  = ['active', 'trialing'].includes(status)
-      const isTrial   = status === 'trialing'
+      // trial só conta como vigente enquanto trial_end estiver no futuro —
+      // status='trialing' com trial_end no passado significa "nunca
+      // assinou", não "ainda em trial" (Basic é pago, não há tier grátis).
       const trialActive = status === 'trialing' && !!data.trial_end && new Date() < new Date(data.trial_end)
-      const isPro     = (plan === 'pro' && isActive) || trialActive
-      const isExpired = ['canceled', 'past_due', 'expired'].includes(status)
+      const isTrial   = trialActive
+      const isActive  = status === 'active' || trialActive
+      const isPro     = (plan === 'pro' && status === 'active') || trialActive
+      const isExpired = (status === 'trialing' && !trialActive) || ['canceled', 'past_due', 'expired'].includes(status)
 
       return {
         plan, status,

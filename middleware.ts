@@ -36,32 +36,47 @@ const FEEDBACK_LOCKED_ROUTE = '/feedback-indisponivel'
 const CATALOG_ROUTES = ['/catalogo', '/api/catalogo']
 const CATALOG_SOON_ROUTE = '/catalogo-em-breve'
 
-/* ── Rota de bloqueio por inadimplência ── */
-const BLOCKED_ROUTE   = '/assinatura/bloqueada'
-const UPGRADE_ROUTE   = '/assinatura/upgrade'
-const DASHBOARD_ROOT  = '/dashboard'
+/* ── Rotas de bloqueio ── */
+const BLOCKED_ROUTE       = '/assinatura/bloqueada'   // era pagante, parou de pagar
+const TRIAL_EXPIRED_ROUTE = '/assinatura/expirada'    // nunca assinou, trial acabou
+const UPGRADE_ROUTE       = '/assinatura/upgrade'
+const DASHBOARD_ROOT      = '/dashboard'
 
 /* ── Tolerância após vencimento: 5 dias ── */
 const GRACE_DAYS = 5
 
-function isBlocked(status: string, periodEnd: string | null, gracePeriodEnd: string | null): boolean {
-  if (status === 'blocked') return true
-  if (status === 'active' || status === 'trialing') return false
-  // past_due: verificar se ultrapassou 5 dias de tolerância
+/* Fail-closed por padrão: só libera nos status que comprovadamente
+   significam "está pagando ou ainda dentro do trial vigente". Antes,
+   'trialing' nunca bloqueava — nem quando trial_end já tinha passado e
+   nenhuma assinatura Stripe jamais foi criada, o que dava acesso Basic
+   permanente e gratuito a quem nunca pagou nada (Basic é pago, R$17/mês,
+   não existe plano gratuito). Qualquer status não reconhecido
+   (unpaid/incomplete/incomplete_expired/paused/etc.) também bloqueia. */
+function isBlocked(status: string, trialEnd: string | null, periodEnd: string | null, gracePeriodEnd: string | null): boolean {
+  if (status === 'active') return false
+  if (status === 'trialing') {
+    // trial_end nulo nunca significa "trial eterno" — bloqueia.
+    if (!trialEnd) return true
+    return new Date() > new Date(trialEnd)
+  }
   if (status === 'past_due') {
     const grace = gracePeriodEnd
       ? new Date(gracePeriodEnd)
       : periodEnd
         ? new Date(new Date(periodEnd).getTime() + GRACE_DAYS * 86400000)
         : null
-    if (grace && new Date() > grace) return true
+    return !!(grace && new Date() > grace)
   }
   if (status === 'canceled' || status === 'expired') {
     // Cancelado: ainda no período pago? Libera. Senão bloqueia.
     if (periodEnd && new Date() < new Date(periodEnd)) return false
     return true
   }
-  return false
+  // 'none': empresa ainda não provisionada (janela transitória logo após
+  // o cadastro, antes de /api/setup-company criar a linha) — não bloqueia,
+  // fica em Basic sem PRO até a empresa existir de fato.
+  if (status === 'none') return false
+  return true
 }
 
 function isTrialExpired(status: string, trialEnd: string | null): boolean {
@@ -180,14 +195,27 @@ export async function middleware(req: NextRequest) {
   const periodEnd = company?.current_period_end ?? null
   const gracePE   = company?.grace_period_end   ?? null
 
-  /* ── Trial expirado → downgrade silencioso para basic ── */
+  /* ── Trial expirado (ainda dentro do trial ⇒ PRO liberado) ── */
   const trialExpired = isTrialExpired(status, trialEnd)
 
-  /* ── Verificar bloqueio por inadimplência ── */
-  const blocked = isBlocked(status, periodEnd, gracePE)
+  /* ── Verificar bloqueio: trial esgotado sem nunca ter assinado, OU
+     assinatura paga que parou de ser honrada (inadimplência/cancelamento) ── */
+  const blocked = isBlocked(status, trialEnd, periodEnd, gracePE)
   if (blocked) {
-    if (pathname !== BLOCKED_ROUTE) {
-      return NextResponse.redirect(new URL(BLOCKED_ROUTE, req.url))
+    // 'trialing' bloqueado só pode significar "trial acabou e nunca houve
+    // assinatura Stripe" (se tivesse existido uma, o webhook já teria
+    // mudado o status para outra coisa) — mensagem e destino diferentes
+    // de "era pagante e parou de pagar".
+    const target = status === 'trialing' ? TRIAL_EXPIRED_ROUTE : BLOCKED_ROUTE
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({
+        error: status === 'trialing'
+          ? 'Seu período de teste terminou. Assine um plano para continuar.'
+          : 'Assinatura inativa.',
+      }, { status: 403 })
+    }
+    if (pathname !== target) {
+      return NextResponse.redirect(new URL(target, req.url))
     }
     return res
   }

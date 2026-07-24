@@ -20,22 +20,34 @@ export async function checkPlan(userId: string): Promise<PlanCheck> {
   const plan   = (co.current_plan        ?? 'basic')    as 'basic'|'pro'
   const now    = new Date()
 
-  const trialExpired = status === 'trialing' && co.trial_end && now > new Date(co.trial_end)
-  let blocked = false
-  if (status === 'blocked') { blocked = true }
-  else if (status === 'past_due') {
+  // Fail-closed: só libera nos status que comprovadamente significam
+  // "está pagando ou ainda dentro do trial vigente". Basic é pago
+  // (R$17/mês) — trial_end no passado sem nunca ter assinado bloqueia
+  // por completo, nunca "faz downgrade silencioso pro Basic de graça".
+  let blocked: boolean
+  if (status === 'active') {
+    blocked = false
+  } else if (status === 'trialing') {
+    blocked = !co.trial_end || now > new Date(co.trial_end)
+  } else if (status === 'past_due') {
     const grace = co.grace_period_end ? new Date(co.grace_period_end)
       : co.current_period_end ? new Date(new Date(co.current_period_end).getTime() + GRACE_DAYS*86400000)
       : null
-    if (grace && now > grace) blocked = true
-  } else if ((status === 'canceled'||status === 'expired') && co.current_period_end) {
-    if (now > new Date(co.current_period_end)) blocked = true
+    blocked = !!(grace && now > grace)
+  } else if (status === 'canceled' || status === 'expired') {
+    blocked = !(co.current_period_end && now < new Date(co.current_period_end))
+  } else {
+    // 'blocked', 'unpaid', 'incomplete', 'incomplete_expired', 'paused'
+    // ou qualquer status não reconhecido: nunca presumir acesso liberado.
+    blocked = true
   }
 
   if (blocked) return { allowed: false, plan: 'basic', status,
     isPro: false, companyId: co.id, limits: PLAN_LIMITS.basic, reason: 'Assinatura expirada' }
 
-  const effectivePlan: 'basic'|'pro' = trialExpired ? 'basic' : status === 'trialing' ? 'pro' : plan
+  // Neste ponto, se status === 'trialing' o trial comprovadamente ainda
+  // está vigente (senão já teria retornado bloqueado acima).
+  const effectivePlan: 'basic'|'pro' = status === 'trialing' ? 'pro' : plan
   return { allowed: true, plan: effectivePlan, status,
     isPro: effectivePlan === 'pro', companyId: co.id, limits: PLAN_LIMITS[effectivePlan] ?? PLAN_LIMITS.basic }
 }
