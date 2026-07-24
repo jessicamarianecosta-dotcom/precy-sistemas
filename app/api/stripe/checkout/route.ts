@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
 
     // ── Buscar empresa ──
     const { data: company, error: coErr } = await (supabaseAdmin.from('companies') as any)
-      .select('id, stripe_customer_id, subscription_status, stripe_subscription_id')
+      .select('id, stripe_customer_id, subscription_status, stripe_subscription_id, trial_end')
       .eq('user_id', session.user.id)
       .single()
 
@@ -91,6 +91,33 @@ export async function POST(req: NextRequest) {
         .eq('id', company.id)
     }
 
+    // ── Elegibilidade real de trial no Stripe ──
+    // PLANS.basic.trialDays é o tamanho do trial INTERNO do app (usado em
+    // /api/setup-company para calcular trial_end no cadastro) — nunca deve
+    // ser reenviado ao Stripe como "mais 7 dias grátis" sem checar se esse
+    // trial já foi concedido/usado. Toda empresa que chega neste endpoint já
+    // passou pelo cadastro (setup-company sempre grava trial_end), e a
+    // landing page nunca chama checkout diretamente (só /cadastro) — então
+    // NUNCA existe um caso legítimo de "primeira vez no Stripe" sem já ter
+    // um trial_end interno gravado. Elegível = ainda dentro da janela do
+    // trial interno E nunca teve uma assinatura Stripe de verdade (nem em
+    // andamento, nem cancelada no passado).
+    const trialEndDate = company.trial_end ? new Date(company.trial_end) : null
+    const trialStillEligible =
+      company.subscription_status === 'trialing' &&
+      !company.stripe_subscription_id &&
+      !!trialEndDate &&
+      trialEndDate.getTime() > Date.now()
+
+    // Stripe exige trial_end pelo menos 48h no futuro (Checkout Session);
+    // se o trial interno ainda é válido mas está a menos de 48h do fim,
+    // trial_end explícito seria rejeitado pela API — usa trial_period_days=1
+    // como piso mínimo aceito, em vez de falhar o checkout de quem ainda
+    // está genuinamente dentro do trial.
+    const STRIPE_MIN_TRIAL_END_MS = 48 * 60 * 60 * 1000
+    const trialCloseToEnding =
+      trialStillEligible && trialEndDate!.getTime() - Date.now() < STRIPE_MIN_TRIAL_END_MS
+
     // ── Criar Checkout Session ──
     const checkoutSession = await stripe.checkout.sessions.create({
       customer:             customerId,
@@ -103,8 +130,19 @@ export async function POST(req: NextRequest) {
       cancel_url:  `${appUrl}/configuracoes?tab=plano`,
       metadata:    { user_id: session.user.id, company_id: company.id, plan },
       subscription_data: {
-        trial_period_days: planConfig.trialDays > 0 ? planConfig.trialDays : undefined,
-        metadata:          { user_id: session.user.id, company_id: company.id, plan },
+        // trial_end (não trial_period_days) sempre que possível, para nunca
+        // conceder mais dias do que o trial interno já prometeu — cobrança
+        // cai exatamente na data original, não importa em que dia da janela
+        // o usuário completa o checkout. Quando NÃO elegível, omite os dois
+        // campos por completo (nunca envia trial_period_days=0/undefined
+        // "só por enviar") — é isso que faz o Stripe cobrar imediatamente e
+        // mostrar "Assinar" em vez de "Iniciar teste".
+        ...(trialStillEligible
+          ? (trialCloseToEnding
+              ? { trial_period_days: 1 }
+              : { trial_end: Math.floor(trialEndDate!.getTime() / 1000) })
+          : {}),
+        metadata: { user_id: session.user.id, company_id: company.id, plan },
       },
       locale: 'pt-BR',
     })
