@@ -1,12 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 
 import {
   useQuery,
   useMutation,
   useQueryClient,
 } from '@tanstack/react-query'
+
+import { useSearchParams, useRouter } from 'next/navigation'
 
 import { createClient } from '@/lib/supabase/client'
 
@@ -43,7 +45,6 @@ import {
   CheckCircle2,
   AlertCircle,
   PlusCircle,
-  Download,
   Eye,
   Percent,
   UserPlus,
@@ -69,6 +70,7 @@ import { formatCurrency as fmtGlobal } from '@/lib/utils/format'
 import { useSubscription } from '@/hooks/useSubscription'
 import { recalcOrderPaymentStatus, recalcCustomerTotalPurchases } from '@/lib/orders/recalc'
 import { OrderFilesSection } from '@/components/orders/OrderFilesSection'
+import { PdfExportMenu } from '@/components/orders/PdfExportMenu'
 
 /* ─────────────────────────────────────────────
    STATUS
@@ -133,6 +135,7 @@ const schema = z.object({
   payment_method: z.string().optional(),
   product_id: z.string().optional(),
   order_date: z.string().optional(),
+  responsavel: z.string().optional(),
 })
 
 type FormData = z.infer<typeof schema>
@@ -240,12 +243,15 @@ function formatMethod(m?: string | null) {
    PAGE
 ───────────────────────────────────────────── */
 
-export default function PedidosPage() {
+function PedidosPage() {
   const supabase = createClient()
 
   const queryClient = useQueryClient()
 
   const { toast } = useToast()
+
+  const router = useRouter()
+  const searchParams = useSearchParams()
 
   const { companyId } = useCompanyId()
   const { data: sub } = useSubscription()
@@ -350,6 +356,29 @@ export default function PedidosPage() {
       return response?.data ?? []
     },
   })
+
+  /* Deep link /pedidos?open=<id> — usado pelo QR Code da Ficha de Produção
+     para abrir o modal do pedido correspondente automaticamente. */
+  useEffect(() => {
+    const openId = searchParams.get('open')
+    if (!openId || isLoading) return
+
+    async function openFromQuery() {
+      const found = (orders ?? []).find((o: any) => o.id === openId)
+      if (found) {
+        openOrder(found)
+      } else {
+        const { data } = await (supabase.from('orders') as any)
+          .select('*, customers(name, phone)')
+          .eq('id', openId)
+          .single()
+        if (data) openOrder(data)
+      }
+      router.replace('/pedidos')
+    }
+    openFromQuery()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, isLoading, orders])
 
   /* Soma de recebimentos por pedido — usada apenas na visão em Lista
      (colunas Recebido/Saldo). Carregada sob demanda para não pesar o Kanban. */
@@ -500,6 +529,7 @@ export default function PedidosPage() {
       payment_method: '',
       product_id: '',
       order_date: '',
+      responsavel: '',
     },
   })
 
@@ -711,6 +741,7 @@ export default function PedidosPage() {
       due_date: data.due_date || null,
       priority: data.priority || 'normal',
       product_id: firstItem?.product_id || null,
+      responsavel: data.responsavel || null,
     }
   }
 
@@ -1096,7 +1127,7 @@ export default function PedidosPage() {
       'customer_id', 'service_name', 'description', 'status',
       'subtotal', 'discount', 'delivery_fee', 'additional_charges', 'total', 'notes',
       'due_date', 'priority', 'payment_method',
-      'product_id', 'order_date',
+      'product_id', 'order_date', 'responsavel',
     ]
     fields.forEach(k => {
       const val = order[k]
@@ -1146,11 +1177,11 @@ export default function PedidosPage() {
     setShowModal(true)
   }
 
-  async function handleGeneratePDF(order: Record<string, unknown>) {
+  async function handleGeneratePDF(order: Record<string, unknown>, mode: 'cliente' | 'producao' = 'cliente') {
     const orderId = order.id as string
     setGeneratingPdfId(orderId)
     try {
-      const { generateOrderPDF } = await import('@/lib/pdf/generateOrderPDF')
+      const { getOrderArtFiles } = await import('@/lib/pdf/getOrderArtFiles')
 
       const { data: fullOrder } = await (supabase.from('orders') as any)
         .select('*, customers(id, name, email, phone, city, state, cpf_cnpj, address)')
@@ -1161,17 +1192,31 @@ export default function PedidosPage() {
         .select('*, products(name, description, width, height, area, measurement_unit, finishings, finishing_type, technical_notes)')
         .eq('order_id', orderId)
 
-      const { data: payments } = await (supabase.from('payment_history') as any)
-        .select('*')
-        .eq('order_id', orderId)
-        .order('payment_date', { ascending: true })
+      const artFiles = await getOrderArtFiles(orderId)
 
-      await generateOrderPDF({
-        order: fullOrder ?? order,
-        items: itemRows ?? [],
-        payments: payments ?? [],
-        company: companyData,
-      })
+      if (mode === 'producao') {
+        const { generateProductionSheet } = await import('@/lib/pdf/generateProductionSheet')
+        await generateProductionSheet({
+          order: fullOrder ?? order,
+          items: itemRows ?? [],
+          company: companyData,
+          artFiles,
+        })
+      } else {
+        const { generateOrderPDF } = await import('@/lib/pdf/generateOrderPDF')
+        const { data: payments } = await (supabase.from('payment_history') as any)
+          .select('*')
+          .eq('order_id', orderId)
+          .order('payment_date', { ascending: true })
+
+        await generateOrderPDF({
+          order: fullOrder ?? order,
+          items: itemRows ?? [],
+          payments: payments ?? [],
+          company: companyData,
+          artFiles,
+        })
+      }
     } catch (err) {
       console.error('[pdf]', err)
       toast('error', 'Erro ao gerar PDF.')
@@ -1632,14 +1677,12 @@ export default function PedidosPage() {
                               )}
                             </div>
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleGeneratePDF(order) }}
-                                disabled={generatingPdfId === order.id}
-                                className="p-1 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"
-                                title="Gerar PDF"
-                              >
-                                {generatingPdfId === order.id ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-                              </button>
+                              <PdfExportMenu
+                                variant="icon"
+                                generating={generatingPdfId === order.id}
+                                defaultTemplate={(companyData?.default_pdf_template as 'cliente' | 'producao') ?? 'cliente'}
+                                onSelect={(mode) => handleGeneratePDF(order, mode)}
+                              />
                               <button
                                 onClick={(e) => { e.stopPropagation(); openOrder(order) }}
                                 className="p-1 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"
@@ -1823,14 +1866,12 @@ export default function PedidosPage() {
                           <td className="px-3 py-2.5 whitespace-nowrap text-text-muted/60">—</td>
                           <td className="px-3 py-2.5 whitespace-nowrap text-right">
                             <div className="flex items-center justify-end gap-1">
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleGeneratePDF(order) }}
-                                disabled={generatingPdfId === order.id}
-                                className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors"
-                                title="Gerar PDF"
-                              >
-                                {generatingPdfId === order.id ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-                              </button>
+                              <PdfExportMenu
+                                variant="icon"
+                                generating={generatingPdfId === order.id}
+                                defaultTemplate={(companyData?.default_pdf_template as 'cliente' | 'producao') ?? 'cliente'}
+                                onSelect={(mode) => handleGeneratePDF(order, mode)}
+                              />
                               <button
                                 onClick={(e) => { e.stopPropagation(); openOrder(order) }}
                                 className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors"
@@ -1909,19 +1950,15 @@ export default function PedidosPage() {
               </div>
               <div className="flex items-center gap-1">
                 {editingId && (
-                  <button
-                    type="button"
-                    onClick={() => {
+                  <PdfExportMenu
+                    variant="full"
+                    generating={generatingPdfId === editingId}
+                    defaultTemplate={(companyData?.default_pdf_template as 'cliente' | 'producao') ?? 'cliente'}
+                    onSelect={(mode) => {
                       const orderRecord = (orders ?? []).find((o: any) => o.id === editingId)
-                      if (orderRecord) handleGeneratePDF(orderRecord)
+                      if (orderRecord) handleGeneratePDF(orderRecord, mode)
                     }}
-                    disabled={generatingPdfId === editingId}
-                    className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 bg-primary-50 dark:bg-primary/10 px-3 py-1.5 rounded-xl transition-colors"
-                    title="Gerar PDF do pedido"
-                  >
-                    {generatingPdfId === editingId ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-                    PDF
-                  </button>
+                  />
                 )}
                 <button
                   onClick={() => { setShowModal(false); resetOrderForm() }}
@@ -2331,6 +2368,10 @@ export default function PedidosPage() {
                         <option value="urgent">Urgente</option>
                       </select>
                     </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Responsável</label>
+                    <input type="text" placeholder="Quem vai produzir este pedido" className="input" {...register('responsavel')} />
                   </div>
                 </section>
 
@@ -3175,5 +3216,18 @@ export default function PedidosPage() {
       )}
 
     </div>
+  )
+}
+
+/* Suspense wrapper necessário para useSearchParams no Next.js App Router */
+export default function PedidosPageWrapper() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <PedidosPage />
+    </Suspense>
   )
 }

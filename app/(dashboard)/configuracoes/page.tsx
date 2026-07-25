@@ -9,7 +9,7 @@ import {
   Building2, DollarSign, CreditCard, Trash2, Plus,
   CheckCircle, Loader2, LogOut, Key, Upload, Instagram,
   Phone, MapPin, Hash, Clock, TrendingUp, Zap, Star,
-  AlertCircle, Scissors, Edit2, X, FileText, Download, ShieldAlert,
+  AlertCircle, Scissors, Edit2, X, FileText, Download, ShieldAlert, Printer,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { formatCurrency } from '@/lib/utils/format'
@@ -122,6 +122,8 @@ export default function ConfiguracoesPage() {
   const [primaryColor,   setPrimaryColor]  = useState('#8B6C4F')
   const [secondaryColor, setSecondaryColor]= useState('#2C2018')
   const [savingColors,   setSavingColors]  = useState(false)
+  const [defaultPdfTemplate,    setDefaultPdfTemplate]    = useState<'cliente' | 'producao'>('cliente')
+  const [savingPdfTemplate,     setSavingPdfTemplate]     = useState(false)
   const [savingRoutine,  setSavingRoutine] = useState(false)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [upgradeAgreed,  setUpgradeAgreed]  = useState(false)
@@ -296,6 +298,7 @@ export default function ConfiguracoesPage() {
     if ((company as any)?.logo_url)       setLogoPreview((company as any).logo_url)
     if ((company as any)?.primary_color)  setPrimaryColor((company as any).primary_color)
     if ((company as any)?.secondary_color) setSecondaryColor((company as any).secondary_color)
+    if ((company as any)?.default_pdf_template) setDefaultPdfTemplate((company as any).default_pdf_template)
   }, [company, profile]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ─── Popular rotina do Supabase — UMA VEZ, com fallback localStorage ─── */
@@ -515,6 +518,26 @@ export default function ConfiguracoesPage() {
     }
   }
 
+  /* ─── Salvar modelo padrão de impressão ─── */
+  async function handleSaveDefaultTemplate(value: 'cliente' | 'producao') {
+    setDefaultPdfTemplate(value)
+    if (!companyId) return
+    setSavingPdfTemplate(true)
+    try {
+      const { error } = await (supabase.from('companies') as any).update({
+        default_pdf_template: value,
+        updated_at: new Date().toISOString(),
+      }).eq('id', companyId)
+      if (error) throw error
+      queryClient.invalidateQueries({ queryKey: ['company', companyId] })
+      showSaved()
+    } catch (err: unknown) {
+      showError(`Erro ao salvar modelo padrão: ${(err as Error).message}`)
+    } finally {
+      setSavingPdfTemplate(false)
+    }
+  }
+
   /* ─── Upgrade para PRO — mesmo fluxo de /assinatura/upgrade ─── */
   async function handleUpgradeClick() {
     setCheckoutLoading(true)
@@ -717,6 +740,47 @@ export default function ConfiguracoesPage() {
                     Cores e logo são aplicados automaticamente nos PDFs de orçamento gerados pelo sistema.
                   </p>
                 </div>
+              </div>
+            </div>
+
+            {/* Modelo padrão de impressão */}
+            <div className="card">
+              <SectionTitle icon={Printer} title="Modelo padrão de impressão" subtitle="Qual PDF abre primeiro ao exportar um pedido" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  disabled={savingPdfTemplate}
+                  onClick={() => handleSaveDefaultTemplate('cliente')}
+                  className={clsx(
+                    'flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all duration-200',
+                    defaultPdfTemplate === 'cliente'
+                      ? 'border-primary bg-primary-50 dark:bg-primary/10'
+                      : 'border-border dark:border-border-dark hover:border-primary/40'
+                  )}
+                >
+                  <FileText size={20} className={defaultPdfTemplate === 'cliente' ? 'text-primary' : 'text-text-muted'} />
+                  <div>
+                    <p className="text-sm font-medium text-text-primary dark:text-stone-100">PDF Cliente</p>
+                    <p className="text-xs text-text-muted dark:text-stone-400 mt-0.5">Com valores e forma de pagamento</p>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  disabled={savingPdfTemplate}
+                  onClick={() => handleSaveDefaultTemplate('producao')}
+                  className={clsx(
+                    'flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all duration-200',
+                    defaultPdfTemplate === 'producao'
+                      ? 'border-primary bg-primary-50 dark:bg-primary/10'
+                      : 'border-border dark:border-border-dark hover:border-primary/40'
+                  )}
+                >
+                  <Printer size={20} className={defaultPdfTemplate === 'producao' ? 'text-primary' : 'text-text-muted'} />
+                  <div>
+                    <p className="text-sm font-medium text-text-primary dark:text-stone-100">Ficha Produção</p>
+                    <p className="text-xs text-text-muted dark:text-stone-400 mt-0.5">Sem valores, para o chão de fábrica</p>
+                  </div>
+                </button>
               </div>
             </div>
 

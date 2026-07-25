@@ -6,6 +6,8 @@
 import { formatCurrency } from '@/lib/utils/format'
 import { getOrderItems } from '@/lib/pdf/getOrderItems'
 import { formatDimDisplay } from '@/lib/utils/dimensions'
+import { getFileKind, getDownloadUrl } from '@/lib/utils/fileIcons'
+import type { OrderFile } from '@/components/orders/types'
 
 interface PaymentRow {
   payment_date: string
@@ -15,10 +17,11 @@ interface PaymentRow {
 }
 
 interface PDFParams {
-  order:    Record<string, unknown>
-  items:    Record<string, unknown>[]
-  payments: PaymentRow[]
-  company:  Record<string, unknown> | null
+  order:     Record<string, unknown>
+  items:     Record<string, unknown>[]
+  payments:  PaymentRow[]
+  company:   Record<string, unknown> | null
+  artFiles?: OrderFile[]
 }
 
 const R = (v: unknown) => formatCurrency(Number(v) || 0)
@@ -43,7 +46,7 @@ const METHOD_LABELS: Record<string,string> = {
 }
 const method = (m?: string | null) => (m ? (METHOD_LABELS[m] ?? m) : '—')
 
-export async function generateOrderPDF({ order, items, payments, company }: PDFParams) {
+export async function generateOrderPDF({ order, items, payments, company, artFiles }: PDFParams) {
   const co   = company as any ?? {}
   const o    = order   as any ?? {}
   const cust = o.customers as any ?? {}
@@ -163,6 +166,31 @@ export async function generateOrderPDF({ order, items, payments, company }: PDFP
       <td style="padding:9px 10px;border-bottom:1px solid #ede9e3;font-size:11.5px;color:#666;">${X(p.observation ?? '')}</td>
       <td style="padding:9px 14px;border-bottom:1px solid #ede9e3;text-align:right;font-size:12px;font-weight:700;color:#166534;">${R(p.amount)}</td>
     </tr>`).join('')
+
+  /* ── Arte enviada pelo cliente ── */
+  const files = (artFiles ?? []).filter(f => f?.file_url)
+  const artCardsHTML = files.map(f => {
+    const kind = getFileKind(f.file_name)
+    const dl   = getDownloadUrl(f.file_url, f.file_name)
+    if (kind.isImage) {
+      return `
+      <a href="${f.file_url}" target="_blank" class="art-card" title="Abrir em tamanho original">
+        <img src="${f.file_url}" alt="${X(f.file_name)}">
+        <div class="art-name">${X(f.file_name)}</div>
+      </a>`
+    }
+    return `
+      <a href="${dl}" target="_blank" class="art-card art-file">
+        <div class="art-file-icon">${kind.label}</div>
+        <div class="art-name">${X(f.file_name)}</div>
+      </a>`
+  }).join('')
+
+  const artBlockHTML = files.length > 0 ? `
+  <div class="slbl">Arte enviada pelo cliente</div>
+  <div class="art-w">
+    <div class="art-grid">${artCardsHTML}</div>
+  </div>` : ''
 
   const paymentsBlockHTML = hasPayments ? `
   <div class="slbl">Recebimentos</div>
@@ -299,6 +327,20 @@ export async function generateOrderPDF({ order, items, payments, company }: PDFP
     border-left:3px solid #c8b060;
     border-radius:0 6px 6px 0;padding:12px 16px;}
   .obs-txt{font-size:11.5px;color:#666;line-height:1.8;}
+  .art-w{padding:0 26px 14px;}
+  .art-grid{display:flex;flex-wrap:wrap;gap:12px;}
+  .art-card{display:block;width:140px;text-decoration:none;
+    border:1px solid #ede9e3;border-radius:8px;overflow:hidden;
+    background:#fff;page-break-inside:avoid;}
+  .art-card img{display:block;width:140px;height:140px;object-fit:cover;
+    background:#f5f2ee;cursor:pointer;}
+  .art-file{display:flex;flex-direction:column;align-items:center;
+    justify-content:center;height:140px;background:#f5f2ee;}
+  .art-file-icon{font-size:10px;font-weight:700;letter-spacing:1px;
+    color:${primary};text-transform:uppercase;}
+  .art-name{font-size:9.5px;color:#888;padding:6px 8px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    border-top:1px solid #ede9e3;}
   .footer{border-top:1px solid #ede9e3;padding:12px 26px;
     display:table;width:100%;background:#faf8f5;}
   .fl2{display:table-cell;font-size:9.5px;color:#bbb;vertical-align:middle;}
@@ -442,6 +484,8 @@ ${oNotes ? `
     <div class="obs-txt">${oNotes}</div>
   </div>
 </div>` : ''}
+
+${artBlockHTML}
 
 <div class="footer">
   <div class="fl2">
