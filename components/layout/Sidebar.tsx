@@ -58,6 +58,10 @@ const menuItems = [
 
 const BASE_COMING_SOON = ['Conteúdo', 'IA de Precificação', 'WhatsApp']
 
+/* Painel admin: item da sidebar restrito literalmente a este e-mail,
+   mesmo padrão de comparação direta usado em middleware.ts (sem role no banco). */
+const ADMIN_EMAIL = 'jessicamarianecosta@gmail.com'
+
 /* ─── SidebarInner (shared between drawer and fixed) ─── */
 function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: () => void }) {
   const pathname    = usePathname()
@@ -81,6 +85,7 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
   })
   const hasCatalogAccess = canAccessCatalog(userEmail)
   const comingSoon = hasCatalogAccess ? BASE_COMING_SOON : [...BASE_COMING_SOON, 'Catálogo Online']
+  const isAdmin = userEmail === ADMIN_EMAIL
 
   async function handleLogout() {
     queryClient.clear()   // Limpar dados sensíveis do cache antes do logout
@@ -166,6 +171,11 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
               {group.title === 'Negócio' && hasCatalogAccess && (
                 <li>
                   <NavLink href="/catalogo" icon={Store} label="Catálogo Online" />
+                </li>
+              )}
+              {group.title === 'Sistema' && isAdmin && (
+                <li>
+                  <NavLink href="/admin/assinantes" icon={Users} label="Assinantes" />
                 </li>
               )}
             </ul>
