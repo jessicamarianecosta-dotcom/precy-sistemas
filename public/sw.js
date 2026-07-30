@@ -1,4 +1,4 @@
-const CACHE_NAME = 'precy-shell-v1'
+const CACHE_NAME = 'precy-shell-v2'
 const OFFLINE_URL = '/'
 
 self.addEventListener('install', (event) => {
@@ -6,6 +6,12 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll([OFFLINE_URL]))
   )
+})
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') {
+    self.skipWaiting()
+  }
 })
 
 self.addEventListener('activate', (event) => {
