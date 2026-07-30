@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, Suspense } from 'react'
+import dynamic from 'next/dynamic'
 
 import {
   useQuery,
@@ -69,8 +70,12 @@ import { ptBR } from 'date-fns/locale'
 import { formatCurrency as fmtGlobal } from '@/lib/utils/format'
 import { useSubscription } from '@/hooks/useSubscription'
 import { recalcOrderPaymentStatus, recalcCustomerTotalPurchases } from '@/lib/orders/recalc'
-import { OrderFilesSection } from '@/components/orders/OrderFilesSection'
 import { PdfExportMenu } from '@/components/orders/PdfExportMenu'
+
+const OrderFilesSection = dynamic(
+  () => import('@/components/orders/OrderFilesSection').then(m => m.OrderFilesSection),
+  { ssr: false }
+)
 
 /* ─────────────────────────────────────────────
    STATUS
