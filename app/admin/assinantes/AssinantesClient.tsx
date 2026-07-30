@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toaster'
 import { clsx } from 'clsx'
-import { Users, Search, ShieldCheck } from 'lucide-react'
+import { Users, Search, ShieldCheck, ArrowLeft } from 'lucide-react'
 import type { Assinante } from '@/lib/admin/getAssinantes'
 
 const PLAN_LABEL: Record<string, string> = { basic: 'Basic', pro: 'Pro' }
@@ -89,6 +90,13 @@ export function AssinantesClient({ initialData }: { initialData: Assinante[] }) 
 
   return (
     <div className="max-w-7xl mx-auto p-4 sm:p-6">
+      <Link
+        href="/dashboard"
+        className="inline-flex items-center gap-1.5 text-xs font-medium text-text-secondary dark:text-stone-400 hover:text-primary dark:hover:text-primary mb-4 transition-colors"
+      >
+        <ArrowLeft size={14} />
+        Voltar ao painel
+      </Link>
       <div className="flex items-center gap-3 mb-1">
         <div className="w-9 h-9 rounded-xl bg-primary-50 dark:bg-primary/10 flex items-center justify-center flex-shrink-0">
           <ShieldCheck size={18} className="text-primary" />
