@@ -42,6 +42,12 @@ const TRIAL_EXPIRED_ROUTE = '/assinatura/expirada'    // nunca assinou, trial ac
 const UPGRADE_ROUTE       = '/assinatura/upgrade'
 const DASHBOARD_ROOT      = '/dashboard'
 
+/* ── Painel admin: somente leitura, restrito literalmente a este e-mail ──
+   Comparação direta pelo e-mail da sessão do Supabase Auth, sem depender de
+   nenhuma flag de "role" no banco. */
+const ADMIN_EMAIL  = 'jessicamarianecosta@gmail.com'
+const ADMIN_ROUTES = ['/admin']
+
 /* ── Tolerância após vencimento: 5 dias ── */
 const GRACE_DAYS = 5
 
@@ -121,6 +127,19 @@ export async function middleware(req: NextRequest) {
     const url = new URL('/login', req.url)
     url.searchParams.set('redirect', pathname)
     return NextResponse.redirect(url)
+  }
+
+  /* ── Painel admin: checado antes de qualquer outro gate (termos, trial,
+     bloqueio de assinatura etc.) — é a própria conta da dona do sistema,
+     não deve ficar presa em nenhum desses fluxos. Nega e redireciona
+     qualquer sessão cujo e-mail não bata exatamente, mesmo digitando a URL
+     direto. ── */
+  const isAdminRoute = ADMIN_ROUTES.some(r => pathname === r || pathname.startsWith(r + '/'))
+  if (isAdminRoute) {
+    if (session.user.email !== ADMIN_EMAIL) {
+      return NextResponse.redirect(new URL(DASHBOARD_ROOT, req.url))
+    }
+    return res
   }
 
   /* ── Termos/Privacidade: gate mais fundamental, antes de qualquer outra
