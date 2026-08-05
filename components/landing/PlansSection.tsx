@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useRef, useState, useEffect } from 'react'
-import { CheckCircle, Check, Lock, Zap, ArrowRight, Send, Loader2, Sparkles } from 'lucide-react'
+import { CheckCircle, Check, Lock, Zap, ArrowRight, Send, Loader2, Sparkles, ShieldCheck } from 'lucide-react'
 
 /* ── Types ─────────────────────────────── */
 type Visibility = boolean | string
@@ -278,9 +278,30 @@ export function PricingSection() {
           </div>
 
           {/* Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             <PlanCard plan="basic" delay={0.1} visible={plansVisible} />
             <PlanCard plan="pro"   delay={0.2} visible={plansVisible} />
+          </div>
+
+          {/* Garantia — risco zero na decisão */}
+          <div className="mb-12 rounded-2xl border flex flex-col sm:flex-row items-center gap-4 p-5 text-center sm:text-left"
+            style={{ background: 'rgba(92,139,79,0.06)', borderColor: 'rgba(92,139,79,0.2)' }}>
+            <div className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{ background: 'rgba(92,139,79,0.14)' }}>
+              <ShieldCheck size={20} style={{ color: '#5C8B4F' }} />
+            </div>
+            <div>
+              <p className="text-sm font-bold" style={{ color: '#2C2018' }}>
+                Garantia de 7 dias — reembolso 100%
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: '#7A6855' }}>
+                Testou grátis, assinou e não era pra você? Cancele nos primeiros 7 dias após a
+                primeira cobrança e devolvemos o valor integral, sem perguntas.{' '}
+                <a href="/reembolso" className="underline font-semibold" style={{ color: '#5C8B4F' }}>
+                  Ver política completa
+                </a>
+              </p>
+            </div>
           </div>
 
           {/* Tabela comparativa por grupos */}

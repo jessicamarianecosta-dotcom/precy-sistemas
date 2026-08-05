@@ -471,10 +471,16 @@ export default function LandingPage() {
               <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
                 Pronta para precificar com confiança?
               </h2>
-              <p className="text-white/80 text-lg mb-8 max-w-xl mx-auto">
-                Comece agora a calcular o preço certo dos seus produtos e organizar
-                seus pedidos com clareza — sem planilha, sem chute.
+              <p className="text-white/80 text-lg mb-3 max-w-xl mx-auto">
+                Junte-se a mais de 200 empreendedoras que já usam o Precy+ para crescer
+                com organização, clareza e resultados reais.
               </p>
+              <div className="flex items-center justify-center gap-1.5 mb-8">
+                <div className="flex gap-0.5">
+                  {[1,2,3,4,5].map(i => <span key={i} className="text-white text-sm">★</span>)}
+                </div>
+                <span className="text-white/70 text-xs font-medium">4,9/5 · +200 avaliações</span>
+              </div>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
                 <Link href="/cadastro"
                   className="bg-white text-[#8B6C4F] font-semibold py-3.5 px-8 rounded-xl hover:bg-[#FAF7F4] active:scale-[0.98] transition-all shadow-lg w-full sm:w-auto">
@@ -485,7 +491,9 @@ export default function LandingPage() {
                   Já tenho conta
                 </Link>
               </div>
-              <p className="text-white/50 text-xs mt-5">Sem cartão · Cancele quando quiser · Pagamento via Stripe</p>
+              <p className="text-white/50 text-xs mt-5">
+                Sem cartão no trial · Garantia de 7 dias com reembolso 100% · Pagamento via Stripe
+              </p>
             </div>
           </div>
         </div>

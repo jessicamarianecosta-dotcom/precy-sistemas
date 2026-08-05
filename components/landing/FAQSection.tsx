@@ -20,8 +20,8 @@ const faqs = [
     a: 'O Basic já inclui precificação, estoque, pedidos em Kanban, clientes, fornecedores e orçamentos em PDF — ideal para quem está começando. O Pro libera produtos e pedidos ilimitados, financeiro completo (fluxo de caixa, contas a pagar/receber, centros de custo) e a Biblioteca Precy+ com produtos prontos.',
   },
   {
-    q: 'Posso cancelar quando quiser?',
-    a: 'Sim, o cancelamento é feito em poucos cliques dentro do sistema, sem fidelidade e sem multa. Você continua com acesso até o fim do período já pago.',
+    q: 'Posso cancelar quando quiser? E se eu me arrepender depois de assinar?',
+    a: 'Sim, o cancelamento é feito em poucos cliques dentro do sistema, sem fidelidade e sem multa. E tem mais: se você assinar e cancelar nos primeiros 7 dias após a primeira cobrança, devolvemos 100% do valor — sem perguntas. Depois de cancelar, você mantém acesso até o fim do período já pago.',
   },
   {
     q: 'Meus dados e os dos meus clientes ficam seguros?',
