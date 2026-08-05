@@ -2,7 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+/* Inter é carregada via next/font (app/layout.tsx) — self-hosted, sem
+   requisição externa e sem bloqueio de renderização. Não reimportar
+   do Google Fonts aqui: isso duplicava o carregamento da fonte e
+   adicionava uma requisição render-blocking a fonts.googleapis.com. */
 
 @layer base {
   * {
@@ -16,8 +19,7 @@
   }
 
   body {
-    @apply bg-background text-text-primary;
-    font-family: 'Inter', system-ui, sans-serif;
+    @apply bg-background text-text-primary font-sans;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }

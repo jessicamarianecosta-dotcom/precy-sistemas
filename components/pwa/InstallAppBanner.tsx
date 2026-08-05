@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { X, Download, Share, Smartphone, Monitor } from 'lucide-react'
 import { useInstallPrompt } from '@/hooks/useInstallPrompt'
 
@@ -16,6 +17,7 @@ function isSafariDesktop() {
 }
 
 export function InstallAppBanner() {
+  const pathname = usePathname()
   const { platform, isStandalone, canPromptInstall, promptInstall } = useInstallPrompt()
   const [dismissed, setDismissed] = useState(true)
   const [cookieResolved, setCookieResolved] = useState(false)
@@ -52,6 +54,13 @@ export function InstallAppBanner() {
     const outcome = await promptInstall()
     if (outcome !== 'unavailable') dismiss()
   }
+
+  // Na landing page (visitante anônimo, sem conta ainda) o pitch de instalação
+  // já é feito de forma não-intrusiva pela <AppCalloutSection>. Duplicar como
+  // banner fixo aqui competiria pelo mesmo espaço do CTA fixo mobile de
+  // conversão — pedir para "instalar o app" antes da pessoa ter conta não
+  // faz sentido e distrai do objetivo principal da página (cadastro).
+  if (pathname === '/') return null
 
   if (isStandalone || dismissed || !cookieResolved) return null
 
