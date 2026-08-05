@@ -72,8 +72,8 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        display: ['Cal Sans', 'Inter', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-inter)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        display: ['var(--font-inter)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       fontSize: {
         'display-xl': ['2.5rem', { lineHeight: '1.2', fontWeight: '700' }],

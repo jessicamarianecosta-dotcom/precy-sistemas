@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useRef, useState, useEffect } from 'react'
-import { CheckCircle, Check, Lock, Zap, ArrowRight, Send, Loader2, Sparkles } from 'lucide-react'
+import { CheckCircle, Check, Lock, Zap, ArrowRight, Send, Loader2, Sparkles, ShieldCheck } from 'lucide-react'
 
 /* ── Types ─────────────────────────────── */
 type Visibility = boolean | string
@@ -248,31 +248,12 @@ function PlanCard({
 }
 
 /* ══════════════════════════════════════════
-   MAIN EXPORT
+   1. PRICING — seção isolada para ficar logo
+      antes do CTA final (momento de maior
+      intenção de compra, depois de ver o preço)
 ══════════════════════════════════════════ */
-export function PlansSection() {
+export function PricingSection() {
   const { ref: plansRef, visible: plansVisible } = useVisible()
-  const { ref: roadmapRef, visible: roadmapVisible } = useVisible()
-  const { ref: suggRef, visible: suggVisible } = useVisible()
-
-  /* Suggestion form */
-  const [name, setName]       = useState('')
-  const [suggestion, setS]    = useState('')
-  const [category, setCategory] = useState('')
-  const [sending, setSending] = useState(false)
-  const [sent, setSent]       = useState(false)
-
-  function handleSend(e: React.FormEvent) {
-    e.preventDefault()
-    if (!suggestion.trim()) return
-    setSending(true)
-    setTimeout(() => {
-      setSending(false)
-      setSent(true)
-      setName(''); setS(''); setCategory('')
-      setTimeout(() => setSent(false), 6000)
-    }, 1500)
-  }
 
   return (
     <>
@@ -297,9 +278,30 @@ export function PlansSection() {
           </div>
 
           {/* Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             <PlanCard plan="basic" delay={0.1} visible={plansVisible} />
             <PlanCard plan="pro"   delay={0.2} visible={plansVisible} />
+          </div>
+
+          {/* Garantia — risco zero na decisão */}
+          <div className="mb-12 rounded-2xl border flex flex-col sm:flex-row items-center gap-4 p-5 text-center sm:text-left"
+            style={{ background: 'rgba(92,139,79,0.06)', borderColor: 'rgba(92,139,79,0.2)' }}>
+            <div className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{ background: 'rgba(92,139,79,0.14)' }}>
+              <ShieldCheck size={20} style={{ color: '#5C8B4F' }} />
+            </div>
+            <div>
+              <p className="text-sm font-bold" style={{ color: '#2C2018' }}>
+                Garantia de 7 dias — reembolso 100%
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: '#7A6855' }}>
+                Testou grátis, assinou e não era pra você? Cancele nos primeiros 7 dias após a
+                primeira cobrança e devolvemos o valor integral, sem perguntas.{' '}
+                <a href="/reembolso" className="underline font-semibold" style={{ color: '#5C8B4F' }}>
+                  Ver política completa
+                </a>
+              </p>
+            </div>
           </div>
 
           {/* Tabela comparativa por grupos */}
@@ -403,10 +405,20 @@ export function PlansSection() {
           </p>
         </div>
       </section>
+    </>
+  )
+}
 
-      {/* ─────────────────────────────────────
-          2. ROADMAP
-      ───────────────────────────────────── */}
+/* ══════════════════════════════════════════
+   2. ROADMAP — conteúdo secundário. Fica
+      DEPOIS do CTA final de propósito: mostrar
+      "o que ainda falta" antes de pedir o
+      cadastro reduz a confiança no produto.
+══════════════════════════════════════════ */
+export function RoadmapSection() {
+  const { ref: roadmapRef, visible: roadmapVisible } = useVisible()
+
+  return (
       <section ref={roadmapRef} className="py-24 px-4 sm:px-6" style={{ background: 'white' }}>
         <div className="max-w-5xl mx-auto">
           {/* Header */}
@@ -462,10 +474,35 @@ export function PlansSection() {
           </div>
         </div>
       </section>
+  )
+}
 
-      {/* ─────────────────────────────────────
-          3. SUGESTÕES E IDEIAS
-      ───────────────────────────────────── */}
+/* ══════════════════════════════════════════
+   3. SUGESTÕES E IDEIAS — também secundário,
+      fica após o CTA final.
+══════════════════════════════════════════ */
+export function SuggestionsSection() {
+  const { ref: suggRef, visible: suggVisible } = useVisible()
+
+  const [name, setName]       = useState('')
+  const [suggestion, setS]    = useState('')
+  const [category, setCategory] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sent, setSent]       = useState(false)
+
+  function handleSend(e: React.FormEvent) {
+    e.preventDefault()
+    if (!suggestion.trim()) return
+    setSending(true)
+    setTimeout(() => {
+      setSending(false)
+      setSent(true)
+      setName(''); setS(''); setCategory('')
+      setTimeout(() => setSent(false), 6000)
+    }, 1500)
+  }
+
+  return (
       <section id="sugestoes" ref={suggRef} className="py-24 px-4 sm:px-6" style={{ background: '#FAF7F4' }}>
         <div className="max-w-2xl mx-auto">
           {/* Header */}
@@ -595,6 +632,5 @@ export function PlansSection() {
           </p>
         </div>
       </section>
-    </>
   )
 }
