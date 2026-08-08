@@ -20,8 +20,9 @@ import { clsx } from 'clsx'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { format, addDays, addMonths, isPast, differenceInDays, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, eachDayOfInterval } from 'date-fns'
+import { format, addDays, addMonths, differenceInDays, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, eachDayOfInterval } from 'date-fns'
 import { nextDueFrom } from '@/lib/utils/recurring'
+import { syncRecurringBills } from '@/lib/finance/recurringBillsSync'
 import { ptBR } from 'date-fns/locale'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
@@ -617,52 +618,29 @@ function RecorrentesTab({
     },
   })
 
-  /* ── Geração automática "lazy": ao abrir a aba, verifica vencidas e gera o lançamento ──
-     Roda uma única vez por sessão de visualização desta aba. */
+  /* ── Geração automática: ao abrir a aba, garante que todo período de
+     competência já iniciado tenha um lançamento real no Financeiro.
+     Mesma lógica compartilhada usada globalmente em RecurringBillsSync
+     (ver hooks/useRecurringBillsSync.ts) — mantida aqui também para que
+     a aba funcione de forma independente e sempre reflita o estado mais
+     recente assim que é aberta. Idempotente: roda uma vez por sessão de
+     visualização desta aba, e a chave (recurring_bill_id, date) é única
+     no banco, então nunca duplica mesmo se a sync global já rodou. */
   useEffect(() => {
     if (!bills || !companyId || generationChecked.current) return
     generationChecked.current = true
+    if (bills.length === 0) return
 
-    const overdue = bills.filter(b => isPast(new Date(b.next_due_date + 'T00:00:00')))
-    if (overdue.length === 0) return
-
-    async function generateOverdueBills() {
+    async function run() {
       setGenerating(true)
       try {
-        for (const bill of overdue) {
-          // Anti-duplicação: verificar se já existe lançamento para esta conta neste vencimento
-          const { data: existing } = await (supabase.from('financial_transactions') as any)
-            .select('id')
-            .eq('recurring_bill_id', bill.id)
-            .eq('date', bill.next_due_date)
-            .maybeSingle()
-
-          const billType = (bill.type ?? 'expense') as 'income' | 'expense'
-          if (!existing) {
-            await (supabase.from('financial_transactions') as any).insert([{
-              company_id:       companyId,
-              type:              billType,
-              category:          billType === 'income' ? 'outros' : 'outros',
-              amount:            bill.amount,
-              description:       `${bill.name} (conta recorrente)`,
-              date:              bill.next_due_date,
-              status:            billType === 'income' ? 'pending' : 'to_pay',
-              cost_center_id:    bill.cost_center_id,
-              recurring_bill_id: bill.id,
-            }])
-          }
-
-          // Avançar para o próximo vencimento (mesmo se já existia, garante consistência)
-          const newNextDue = nextDueFrom(new Date(bill.next_due_date + 'T00:00:00'), bill.periodicity)
-          await (supabase.from('recurring_bills') as any)
-            .update({ next_due_date: format(newNextDue, 'yyyy-MM-dd'), updated_at: new Date().toISOString() })
-            .eq('id', bill.id)
+        const { generated } = await syncRecurringBills(supabase, companyId!)
+        if (generated > 0) {
+          queryClient.invalidateQueries({ queryKey: ['recurring-bills', companyId] })
+          queryClient.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
+          queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
+          toast('success', `${generated} conta(s) recorrente(s) lançada(s) automaticamente no Financeiro!`)
         }
-
-        queryClient.invalidateQueries({ queryKey: ['recurring-bills', companyId] })
-        queryClient.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
-        queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
-        toast('success', `${overdue.length} conta(s) recorrente(s) lançada(s) automaticamente no Financeiro!`)
       } catch (err: unknown) {
         console.error('[recorrentes] geração automática:', err)
       } finally {
@@ -670,7 +648,7 @@ function RecorrentesTab({
       }
     }
 
-    generateOverdueBills()
+    run()
   }, [bills, companyId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Mutations ── */
@@ -707,16 +685,13 @@ function RecorrentesTab({
           .single()
         if (error) throw error
 
-        // Gerar lançamento imediato para o ciclo inicial (anti-dup garantida)
+        // Gerar lançamento imediato para o ciclo inicial. Upsert com chave
+        // única (recurring_bill_id, date) no banco: nunca duplica, mesmo
+        // que a sync automática já tenha rodado para este mesmo período.
         const newId = inserted?.id
         if (newId) {
-          const { data: existing } = await (supabase.from('financial_transactions') as any)
-            .select('id')
-            .eq('recurring_bill_id', newId)
-            .eq('date', d.next_due_date)
-            .maybeSingle()
-          if (!existing) {
-            await (supabase.from('financial_transactions') as any).insert([{
+          await (supabase.from('financial_transactions') as any).upsert(
+            [{
               company_id:       companyId,
               type:              d.type,
               category:          'outros',
@@ -726,8 +701,9 @@ function RecorrentesTab({
               status:            d.type === 'income' ? 'pending' : 'to_pay',
               cost_center_id:    d.cost_center_id || null,
               recurring_bill_id: newId,
-            }])
-          }
+            }],
+            { onConflict: 'recurring_bill_id,date', ignoreDuplicates: true },
+          )
         }
       }
     },
