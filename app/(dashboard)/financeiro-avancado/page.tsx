@@ -1826,21 +1826,22 @@ function ProjecaoTab({
     },
   })
 
-  /* ── Contas a receber futuras: pedidos pendentes/parciais com data prevista ── */
+  /* ── Contas a receber futuras: parcelas reais de pedidos (payment_schedule),
+     não mais um chute a partir do prazo de entrega — cada parcela tem sua
+     própria data de vencimento (à vista, cartão parcelado, boleto, crediário). ── */
   const { data: receivables, isLoading: loadingReceivables } = useQuery<{ date: string; amount: number }[]>({
     queryKey: ['projecao-receivables', companyId, todayStr],
     enabled:  !!companyId,
     queryFn: async () => {
-      const { data, error } = await (supabase.from('orders') as any)
-        .select('due_date, remaining_amount, total, payment_status')
+      const { data, error } = await (supabase.from('payment_schedule') as any)
+        .select('due_date, amount, received_amount')
         .eq('company_id', companyId!)
-        .in('payment_status', ['pending', 'partial'])
+        .in('status', ['a_receber', 'parcial'])
         .gte('due_date', todayStr)
-        .not('due_date', 'is', null)
       if (error) throw error
-      return (data ?? []).map((o: any) => ({
-        date:   o.due_date,
-        amount: Number(o.remaining_amount) > 0 ? Number(o.remaining_amount) : Number(o.total),
+      return (data ?? []).map((r: any) => ({
+        date:   r.due_date,
+        amount: Number(r.amount) - Number(r.received_amount),
       }))
     },
   })

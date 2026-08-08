@@ -473,6 +473,36 @@ export default function DashboardPage() {
               </div>
             )}
 
+            {/* ─── CONTAS A RECEBER (pedidos) ─── */}
+            {((data?.receivablesDueTodayCount ?? 0) + (data?.receivablesDueWeekCount ?? 0) + (data?.receivablesDueMonthCount ?? 0) + (data?.receivablesOverdueCount ?? 0)) > 0 && (
+              <div className="card p-3 sm:p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <DollarSign size={15} className="text-success-dark dark:text-green-400" />
+                  <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">Contas a Receber</h2>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {[
+                    { label: 'Receber hoje',      count: data?.receivablesDueTodayCount ?? 0, sum: data?.receivablesDueTodaySum ?? 0 },
+                    { label: 'Receber esta semana', count: data?.receivablesDueWeekCount ?? 0, sum: data?.receivablesDueWeekSum ?? 0 },
+                    { label: 'Receber este mês',  count: data?.receivablesDueMonthCount ?? 0, sum: data?.receivablesDueMonthSum ?? 0 },
+                    { label: 'Em atraso',         count: data?.receivablesOverdueCount ?? 0, sum: data?.receivablesOverdueSum ?? 0, danger: true },
+                  ].map(item => (
+                    <Link key={item.label} href="/financeiro"
+                      className={clsx('rounded-xl border p-3 transition-all hover:-translate-y-0.5',
+                        item.danger && item.count > 0
+                          ? 'bg-error-light dark:bg-error/10 border-error/30'
+                          : 'bg-green-50 dark:bg-green-900/10 border-green-200/50 dark:border-green-800/20')}>
+                      <p className="text-[10px] text-text-muted uppercase tracking-wide mb-1">{item.label}</p>
+                      <p className={clsx('text-sm font-bold', item.danger && item.count > 0 ? 'text-error dark:text-red-400' : 'text-success-dark dark:text-green-400')}>
+                        {item.count}
+                      </p>
+                      <p className="text-[10px] text-text-muted mt-0.5">{formatCurrency(item.sum)}</p>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* ─── CHARTS ROW 1: Financeiro + Pedidos ─── */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Area chart — 6 meses */}

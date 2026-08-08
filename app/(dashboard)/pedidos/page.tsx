@@ -69,8 +69,15 @@ import { format, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { formatCurrency as fmtGlobal } from '@/lib/utils/format'
 import { useSubscription } from '@/hooks/useSubscription'
-import { recalcOrderPaymentStatus, recalcCustomerTotalPurchases } from '@/lib/orders/recalc'
+import { recalcOrderPaymentStatus, recalcCustomerTotalPurchases, registerSchedulePayment, syncOrderPaymentSchedule } from '@/lib/orders/recalc'
 import { PdfExportMenu } from '@/components/orders/PdfExportMenu'
+import {
+  OrderFinanceSection, DEFAULT_ORDER_FINANCE_FORM, type OrderFinanceFormState,
+} from '@/components/orders/OrderFinanceSection'
+import {
+  buildPaymentScheduleDraft, IMMEDIATE_CAPABLE_METHODS, daysUntil, effectiveScheduleStatus,
+  SCHEDULE_STATUS_LABELS, ORDER_PAYMENT_METHODS, type OrderPaymentMethod,
+} from '@/lib/orders/paymentSchedule'
 
 const OrderFilesSection = dynamic(
   () => import('@/components/orders/OrderFilesSection').then(m => m.OrderFilesSection),
@@ -239,6 +246,7 @@ function formatMethod(m?: string | null) {
     cartao_debito: 'Cartão Débito',
     transferencia: 'Transferência',
     boleto: 'Boleto',
+    crediario: 'Crediário',
     outro: 'Outro',
   }
   return map[m] ?? m
@@ -265,6 +273,7 @@ function PedidosPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [dragging, setDragging] = useState<string | null>(null)
+  const [financeForm, setFinanceForm] = useState<OrderFinanceFormState>(DEFAULT_ORDER_FINANCE_FORM)
 
   /* Mobile view */
   const [mobileView, setMobileView] = useState<'list' | 'kanban'>('list')
@@ -362,6 +371,31 @@ function PedidosPage() {
     },
   })
 
+  /* Parcela mais próxima (ainda em aberto) de cada pedido — alimenta as
+     colunas Forma/Vencimento/Recebimento previsto da lista. */
+  const { data: nextInstallmentByOrder } = useQuery({
+    queryKey: ['orders-next-installment', companyId],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const { data } = await (supabase.from('payment_schedule') as any)
+        .select('order_id, due_date, amount, payment_method, status, received_amount, installment_number')
+        .eq('company_id', companyId!)
+        .neq('status', 'cancelado')
+        .order('due_date', { ascending: true })
+      const map: Record<string, { due_date: string; amount: number; payment_method: string; status: string; received_amount: number }> = {}
+      ;(data ?? []).forEach((row: any) => {
+        if (Number(row.received_amount) >= Number(row.amount)) return
+        if (!map[row.order_id]) {
+          map[row.order_id] = {
+            due_date: row.due_date, amount: Number(row.amount), payment_method: row.payment_method,
+            status: row.status, received_amount: Number(row.received_amount),
+          }
+        }
+      })
+      return map
+    },
+  })
+
   /* Deep link /pedidos?open=<id> — usado pelo QR Code da Ficha de Produção
      para abrir o modal do pedido correspondente automaticamente. */
   useEffect(() => {
@@ -451,6 +485,67 @@ function PedidosPage() {
       }>
     },
   })
+
+  /* Parcelas de Contas a Receber (payment_schedule) do pedido em edição */
+  const { data: paymentSchedule } = useQuery({
+    queryKey: ['payment_schedule', editingId],
+    enabled: !!editingId && !!companyId,
+    queryFn: async () => {
+      const { data } = await (supabase.from('payment_schedule') as any)
+        .select('*')
+        .eq('order_id', editingId!)
+        .eq('company_id', companyId!)
+        .order('installment_number', { ascending: true })
+      return (data ?? []) as Array<{
+        id: string
+        installment_number: number
+        installment_count: number
+        due_date: string
+        amount: number
+        payment_method: string
+        card_brand: string | null
+        card_fee_percent: number | null
+        boleto_number: string | null
+        notes: string | null
+        status: string
+        received_amount: number
+        paid_at: string | null
+      }>
+    },
+  })
+
+  const scheduleHasReceivedAmount = (paymentSchedule ?? []).some(r => Number(r.received_amount) > 0)
+
+  /* Pré-preenche a seção Financeiro a partir do plano de recebimento existente, ao editar. */
+  useEffect(() => {
+    if (!editingId || !paymentSchedule) return
+    if (paymentSchedule.length === 0) { setFinanceForm(DEFAULT_ORDER_FINANCE_FORM); return }
+
+    const first = paymentSchedule[0]
+    const method = (first.payment_method || 'outro') as OrderPaymentMethod
+    const todayStr = format(new Date(), 'yyyy-MM-dd')
+
+    if (method === 'cartao_credito') {
+      setFinanceForm(f => ({
+        ...f,
+        cardBrand: first.card_brand || '',
+        cardInstallments: paymentSchedule.length,
+        cardFeePercent: Number(first.card_fee_percent) || 0,
+        cardFirstReceiptDate: first.due_date,
+      }))
+    } else if (method === 'crediario') {
+      setFinanceForm(f => ({ ...f, crediarioInstallments: paymentSchedule.length, crediarioFirstDueDate: first.due_date }))
+    } else if (method === 'boleto') {
+      setFinanceForm(f => ({ ...f, dueDate: first.due_date, boletoNumber: first.boleto_number || '', notes: first.notes || '' }))
+    } else {
+      setFinanceForm(f => ({
+        ...f,
+        receivedNow:  first.status === 'recebido',
+        receivedDate: first.paid_at ? first.paid_at.slice(0, 10) : todayStr,
+        dueDate:       first.due_date,
+      }))
+    }
+  }, [paymentSchedule, editingId])
 
   /* Auditoria do recebimento em visualização (Ver detalhes) */
   const { data: viewingPaymentAudit } = useQuery({
@@ -799,6 +894,7 @@ function PedidosPage() {
       }
 
       let orderId = editingId
+      let orderNumber: string | null = null
       if (editingId) {
         const { error } = await (supabase.from('orders') as any)
           .update({ ...payload, updated_at: new Date().toISOString() })
@@ -809,17 +905,75 @@ function PedidosPage() {
         // — sem recalcular aqui, payment_status ficava desatualizado até o
         // próximo recebimento ser registrado/editado/excluído.
         const currentOrder = (orders ?? []).find((o: any) => o.id === editingId)
+        orderNumber = currentOrder?.order_number ?? null
         await recalcOrderPaymentStatus(supabase, editingId, companyId!, payload.total, currentOrder?.paid_at ?? null)
       } else {
         const { data: created, error } = await (supabase.from('orders') as any)
           .insert([{ ...payload, company_id: companyId!, order_number: '' }])
-          .select('id')
+          .select('id, order_number')
           .single()
         if (error) throw new Error(error.message)
         orderId = created.id
+        orderNumber = created.order_number ?? null
       }
 
       await persistOrderItems(orderId!)
+
+      /* ── Financeiro: (re)gera o plano de recebimento (payment_schedule) a
+         partir da seção Financeiro do formulário. Não mexe em parcelas que
+         já receberam algo (ver syncOrderPaymentSchedule). ── */
+      const scheduleMethod = (data.payment_method || 'outro') as OrderPaymentMethod
+      const draftRows = buildPaymentScheduleDraft({
+        payment_method:        scheduleMethod,
+        total:                  payload.total,
+        receivedNow:            financeForm.receivedNow,
+        receivedDate:           financeForm.receivedDate,
+        dueDate:                financeForm.dueDate,
+        cardBrand:              financeForm.cardBrand,
+        cardInstallments:       financeForm.cardInstallments,
+        cardFeePercent:         financeForm.cardFeePercent,
+        cardFirstReceiptDate:   financeForm.cardFirstReceiptDate,
+        boletoNumber:           financeForm.boletoNumber,
+        notes:                   financeForm.notes,
+        crediarioInstallments:  financeForm.crediarioInstallments,
+        crediarioFirstDueDate:  financeForm.crediarioFirstDueDate,
+      })
+
+      const { applied } = await syncOrderPaymentSchedule(supabase, {
+        orderId:    orderId!,
+        companyId:  companyId!,
+        customerId: payload.customer_id,
+        rows:        draftRows,
+      })
+
+      // "Recebido agora? Sim" — quita a parcela única imediatamente, pelo
+      // mesmo caminho atômico do botão "Registrar pagamento".
+      if (applied && financeForm.receivedNow && draftRows.length === 1 &&
+          IMMEDIATE_CAPABLE_METHODS.includes(scheduleMethod)) {
+        const { data: schedRow } = await (supabase.from('payment_schedule') as any)
+          .select('id')
+          .eq('order_id', orderId!)
+          .eq('installment_number', 1)
+          .maybeSingle()
+
+        if (schedRow) {
+          const customer = (customers ?? []).find((c: any) => c.id === payload.customer_id)
+          await registerSchedulePayment(supabase, {
+            orderId:       orderId!,
+            companyId:     companyId!,
+            customerId:    payload.customer_id,
+            amount:         draftRows[0].amount,
+            paymentDate:   financeForm.receivedDate || format(new Date(), 'yyyy-MM-dd'),
+            paymentMethod: scheduleMethod,
+            orderNumber,
+            serviceName:   payload.service_name,
+            clientName:    customer?.name ?? null,
+            scheduleId:    schedRow.id,
+          })
+          await recalcOrderPaymentStatus(supabase, orderId!, companyId!, payload.total, null)
+          if (payload.customer_id) await recalcCustomerTotalPurchases(supabase, payload.customer_id, companyId!)
+        }
+      }
 
       return { orderId: orderId as string, wasCreate }
     },
@@ -827,6 +981,13 @@ function PedidosPage() {
     onSuccess: ({ orderId, wasCreate }) => {
       queryClient.invalidateQueries({ queryKey: ['orders', companyId] })
       queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['payment_schedule', orderId] })
+      queryClient.invalidateQueries({ queryKey: ['payment_history', orderId] })
+      queryClient.invalidateQueries({ queryKey: ['contas-a-receber', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['fluxo-caixa', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['dre-transactions', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['projecao-receivables', companyId] })
 
       if (wasCreate) {
         // Fluxo contínuo: após criar, mantém o modal aberto já em modo de
@@ -882,6 +1043,13 @@ function PedidosPage() {
 
       const percentage = orderTotalValue > 0 ? (amount / orderTotalValue) * 100 : 0
 
+      /* Parcela de Contas a Receber que este recebimento está quitando —
+         a mais antiga ainda em aberto (FIFO). Sem parcela cadastrada
+         (pedido legado), segue null e o pedido é tratado como antes. */
+      const openSchedule = (paymentSchedule ?? [])
+        .filter(r => r.status !== 'cancelado' && Number(r.received_amount) < Number(r.amount))
+        .sort((a, b) => a.installment_number - b.installment_number)[0]
+
       /* Registra recebimento + lançamento financeiro atomicamente (RPC
          register_order_payment) — se um dos dois inserts falhar, o Postgres
          desfaz os dois, evitando dessincronia entre os módulos. */
@@ -898,6 +1066,7 @@ function PedidosPage() {
         p_service_name: orderRecord.service_name || 'Serviço',
         p_client_name: orderRecord.customers?.name || null,
         p_created_by: (await supabase.auth.getUser()).data.user?.id,
+        p_schedule_id: openSchedule?.id ?? null,
       })
       if (rpcError) throw new Error(`Erro ao registrar recebimento: ${rpcError.message}`)
 
@@ -914,9 +1083,15 @@ function PedidosPage() {
 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['payment_history', editingId] })
+      queryClient.invalidateQueries({ queryKey: ['payment_schedule', editingId] })
       queryClient.invalidateQueries({ queryKey: ['orders', companyId] })
       queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
       queryClient.invalidateQueries({ queryKey: ['transactions', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['contas-a-receber', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['fluxo-caixa', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['dre-transactions', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['projecao-receivables', companyId] })
       setShowPaymentModal(false)
       setEditingPaymentId(null)
       resetPayment()
@@ -985,9 +1160,15 @@ function PedidosPage() {
 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['payment_history', editingId] })
+      queryClient.invalidateQueries({ queryKey: ['payment_schedule', editingId] })
       queryClient.invalidateQueries({ queryKey: ['orders', companyId] })
       queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
       queryClient.invalidateQueries({ queryKey: ['transactions', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['contas-a-receber', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['fluxo-caixa', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['dre-transactions', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['projecao-receivables', companyId] })
       setShowPaymentModal(false)
       setEditingPaymentId(null)
       resetPayment()
@@ -1028,9 +1209,15 @@ function PedidosPage() {
 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['payment_history', editingId] })
+      queryClient.invalidateQueries({ queryKey: ['payment_schedule', editingId] })
       queryClient.invalidateQueries({ queryKey: ['orders', companyId] })
       queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
       queryClient.invalidateQueries({ queryKey: ['transactions', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['contas-a-receber', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['fluxo-caixa', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['dre-transactions', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['financial-transactions', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['projecao-receivables', companyId] })
       toast('success', 'Recebimento excluído!')
     },
 
@@ -1121,6 +1308,7 @@ function PedidosPage() {
     setNewCustomer({ name: '', phone: '', email: '', cpf_cnpj: '', address: '', city: '', notes: '' })
     setShowProductPicker(false)
     setEditingItem(null)
+    setFinanceForm(DEFAULT_ORDER_FINANCE_FORM)
   }
 
   async function openOrder(order: Record<string, unknown>) {
@@ -1812,6 +2000,8 @@ function PedidosPage() {
                         <ListSortHeader sortKey="order_date">Data do Pedido</ListSortHeader>
                         <ListSortHeader sortKey="due_date">Prazo de Entrega</ListSortHeader>
                         <ListSortHeader sortKey="payment_method">Forma de Pagamento</ListSortHeader>
+                        <th className="text-left font-semibold px-3 py-2.5 whitespace-nowrap">Vencimento</th>
+                        <th className="text-right font-semibold px-3 py-2.5 whitespace-nowrap">Recebimento Previsto</th>
                         <th className="text-left font-semibold px-3 py-2.5 whitespace-nowrap">Origem</th>
                         <th className="text-left font-semibold px-3 py-2.5 whitespace-nowrap">Responsável</th>
                         <th className="text-right font-semibold px-3 py-2.5 whitespace-nowrap">Ações</th>
@@ -1820,7 +2010,7 @@ function PedidosPage() {
                     <tbody>
                       {pagedListRows.length === 0 ? (
                         <tr>
-                          <td colSpan={15} className="text-center py-8 text-text-muted">
+                          <td colSpan={17} className="text-center py-8 text-text-muted">
                             Nenhum pedido encontrado.
                           </td>
                         </tr>
@@ -1866,6 +2056,25 @@ function PedidosPage() {
                           </td>
                           <td className="px-3 py-2.5 whitespace-nowrap text-text-muted">
                             {order.payment_method ? formatMethod(order.payment_method) : '—'}
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap text-text-muted">
+                            {(() => {
+                              const next = nextInstallmentByOrder?.[order.id]
+                              if (!next) return '—'
+                              const dias = daysUntil(next.due_date)
+                              const vencido = next.status !== 'recebido' && dias < 0
+                              return (
+                                <span className={vencido ? 'text-red-600 dark:text-red-400 font-semibold' : ''}>
+                                  {format(new Date(next.due_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
+                                </span>
+                              )
+                            })()}
+                          </td>
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap text-text-muted">
+                            {(() => {
+                              const next = nextInstallmentByOrder?.[order.id]
+                              return next ? formatCurrency(next.amount - next.received_amount) : '—'
+                            })()}
                           </td>
                           <td className="px-3 py-2.5 whitespace-nowrap text-text-muted">{order._origin}</td>
                           <td className="px-3 py-2.5 whitespace-nowrap text-text-muted/60">—</td>
@@ -2382,27 +2591,15 @@ function PedidosPage() {
 
                 <div className="h-px bg-border dark:bg-border-dark" />
 
-                {/* ── S5: Forma de pagamento preferida (informativa) ── */}
-                <section className="space-y-3">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2">
-                    <CreditCard size={12} /> Forma de Pagamento Preferida
-                  </h3>
-                  <div>
-                    <select className="input" {...register('payment_method')}>
-                      <option value="">Não definido</option>
-                      <option value="pix">PIX</option>
-                      <option value="dinheiro">Dinheiro</option>
-                      <option value="cartao_credito">Cartão Crédito</option>
-                      <option value="cartao_debito">Cartão Débito</option>
-                      <option value="transferencia">Transferência</option>
-                      <option value="boleto">Boleto</option>
-                      <option value="outro">Outro</option>
-                    </select>
-                    <p className="mt-1 text-[10px] text-text-muted dark:text-stone-500">
-                      Para registrar recebimentos, use a seção abaixo.
-                    </p>
-                  </div>
-                </section>
+                {/* ── S5: Financeiro (forma de pagamento, vencimento, parcelas) ── */}
+                <OrderFinanceSection
+                  paymentMethod={(watch('payment_method') || '') as OrderPaymentMethod}
+                  onPaymentMethodChange={m => setValue('payment_method', m)}
+                  value={financeForm}
+                  onChange={patch => setFinanceForm(f => ({ ...f, ...patch }))}
+                  total={Number(watch('total')) || 0}
+                  locked={editingId ? scheduleHasReceivedAmount : false}
+                />
 
                 {/* ── S6: Histórico de Recebimentos (somente ao editar) ── */}
                 {editingId && (
@@ -2485,6 +2682,58 @@ function PedidosPage() {
                           ) : null
                         })()}
                       </div>
+
+                      {/* Parcelas de Contas a Receber (payment_schedule) */}
+                      {(paymentSchedule ?? []).length > 0 && (
+                        <div className="rounded-xl border border-border dark:border-border-dark overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="bg-stone-50 dark:bg-stone-800/50 text-[10px] uppercase tracking-wide text-text-muted">
+                                <th className="text-left font-semibold px-3 py-2">Parcela</th>
+                                <th className="text-left font-semibold px-3 py-2">Forma</th>
+                                <th className="text-left font-semibold px-3 py-2">Vencimento</th>
+                                <th className="text-left font-semibold px-3 py-2">Dias</th>
+                                <th className="text-right font-semibold px-3 py-2">Valor</th>
+                                <th className="text-right font-semibold px-3 py-2">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(paymentSchedule ?? []).map((row, idx) => {
+                                const st = effectiveScheduleStatus(row)
+                                const dias = daysUntil(row.due_date)
+                                const badgeClass =
+                                  st === 'recebido'  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                                  st === 'vencido'    ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                                  st === 'parcial'    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                                  st === 'cancelado'  ? 'bg-stone-100 text-stone-500 dark:bg-stone-800 dark:text-stone-400' :
+                                                        'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-300'
+                                return (
+                                  <tr key={row.id} className={clsx(idx !== 0 && 'border-t border-border dark:border-border-dark')}>
+                                    <td className="px-3 py-2.5 whitespace-nowrap font-medium text-text-primary dark:text-stone-100">
+                                      {row.installment_number}/{row.installment_count}
+                                    </td>
+                                    <td className="px-3 py-2.5 whitespace-nowrap text-text-muted">{formatMethod(row.payment_method)}</td>
+                                    <td className="px-3 py-2.5 whitespace-nowrap text-text-muted">
+                                      {format(new Date(row.due_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
+                                    </td>
+                                    <td className="px-3 py-2.5 whitespace-nowrap text-text-muted">
+                                      {st === 'recebido' || st === 'cancelado' ? '—' : dias === 0 ? 'Hoje' : dias > 0 ? `${dias}d` : `${Math.abs(dias)}d atrás`}
+                                    </td>
+                                    <td className="px-3 py-2.5 whitespace-nowrap text-right font-bold text-text-primary dark:text-stone-100">
+                                      {fmtGlobal(Number(row.amount))}
+                                    </td>
+                                    <td className="px-3 py-2.5 whitespace-nowrap text-right">
+                                      <span className={clsx('inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold', badgeClass)}>
+                                        {SCHEDULE_STATUS_LABELS[st]}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
 
                       {/* Tabela de recebimentos */}
                       {historyLoading ? (
