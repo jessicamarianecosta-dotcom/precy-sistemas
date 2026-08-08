@@ -5,6 +5,7 @@ import {
   format, startOfDay, endOfWeek,
 } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { fetchOrderReceivables } from '@/lib/orders/receivables'
 
 export function useDashboard(companyId: string | null) {
   const supabase = createClient()
@@ -98,11 +99,10 @@ export function useDashboard(companyId: string | null) {
         .eq('type', 'expense')
         .neq('status', 'paid') as any
 
-      /* ── Contas a receber (parcelas de pedidos ainda não recebidas) ── */
-      const { data: pendingReceivables } = await supabase.from('payment_schedule')
-        .select('id, amount, received_amount, due_date')
-        .eq('company_id', companyId)
-        .in('status', ['a_receber', 'parcial']) as any
+      /* ── Contas a receber, no nível de pedido — mesma fonte de verdade
+         do painel Contas a Receber em Financeiro (lib/orders/receivables),
+         nunca uma soma direta de payment_schedule. ── */
+      const orderReceivables = await fetchOrderReceivables(supabase, companyId)
 
       /* ── Totals ── */
       const revenue      = (incomes     as any[] ?? []).reduce((s, t) => s + Number(t.amount), 0)
@@ -159,13 +159,13 @@ export function useDashboard(companyId: string | null) {
 
       const sumAmt = (rows: any[]) => rows.reduce((s, t) => s + Number(t.amount), 0)
 
-      /* ── Contas a receber a vencer — saldo (amount - received_amount) de cada parcela ── */
-      const receivables = (pendingReceivables as any[] ?? [])
-      const recvDueToday = receivables.filter(r => r.due_date === todayStr)
-      const recvDueWeek  = receivables.filter(r => r.due_date >= todayStr && r.due_date <= weekEndStr)
-      const recvDueMonth = receivables.filter(r => r.due_date >= todayStr && r.due_date <= monthEndStr)
-      const recvOverdue  = receivables.filter(r => r.due_date < todayStr)
-      const sumSaldo = (rows: any[]) => rows.reduce((s, r) => s + (Number(r.amount) - Number(r.received_amount)), 0)
+      /* ── Contas a receber a vencer — saldo de cada PEDIDO em aberto (não de parcela isolada) ── */
+      const openReceivables = orderReceivables.filter(r => r.status !== 'recebido' && r.status !== 'cancelado')
+      const recvDueToday = openReceivables.filter(r => r.status !== 'vencido' && r.dueDate === todayStr)
+      const recvDueWeek  = openReceivables.filter(r => r.status !== 'vencido' && r.dueDate && r.dueDate >= todayStr && r.dueDate <= weekEndStr)
+      const recvDueMonth = openReceivables.filter(r => r.status !== 'vencido' && r.dueDate && r.dueDate >= todayStr && r.dueDate <= monthEndStr)
+      const recvOverdue  = openReceivables.filter(r => r.status === 'vencido')
+      const sumSaldo = (rows: typeof orderReceivables) => rows.reduce((s, r) => s + r.balance, 0)
 
       return {
         // metrics

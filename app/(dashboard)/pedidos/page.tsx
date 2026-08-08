@@ -78,6 +78,7 @@ import {
   buildPaymentScheduleDraft, IMMEDIATE_CAPABLE_METHODS, daysUntil, effectiveScheduleStatus,
   SCHEDULE_STATUS_LABELS, ORDER_PAYMENT_METHODS, type OrderPaymentMethod,
 } from '@/lib/orders/paymentSchedule'
+import { fetchOrderReceivables } from '@/lib/orders/receivables'
 
 const OrderFilesSection = dynamic(
   () => import('@/components/orders/OrderFilesSection').then(m => m.OrderFilesSection),
@@ -371,30 +372,15 @@ function PedidosPage() {
     },
   })
 
-  /* Parcela mais próxima (ainda em aberto) de cada pedido — alimenta as
-     colunas Forma/Vencimento/Recebimento previsto da lista. */
-  const { data: nextInstallmentByOrder } = useQuery({
-    queryKey: ['orders-next-installment', companyId],
+  /* Vencimento/saldo/status de cada pedido — mesma fonte de verdade do
+     painel Contas a Receber em Financeiro e dos cards do Dashboard.
+     Alimenta as colunas Vencimento/Recebimento Previsto da lista. */
+  const { data: orderReceivables } = useQuery({
+    queryKey: ['contas-a-receber', companyId],
     enabled: !!companyId,
-    queryFn: async () => {
-      const { data } = await (supabase.from('payment_schedule') as any)
-        .select('order_id, due_date, amount, payment_method, status, received_amount, installment_number')
-        .eq('company_id', companyId!)
-        .neq('status', 'cancelado')
-        .order('due_date', { ascending: true })
-      const map: Record<string, { due_date: string; amount: number; payment_method: string; status: string; received_amount: number }> = {}
-      ;(data ?? []).forEach((row: any) => {
-        if (Number(row.received_amount) >= Number(row.amount)) return
-        if (!map[row.order_id]) {
-          map[row.order_id] = {
-            due_date: row.due_date, amount: Number(row.amount), payment_method: row.payment_method,
-            status: row.status, received_amount: Number(row.received_amount),
-          }
-        }
-      })
-      return map
-    },
+    queryFn: () => fetchOrderReceivables(supabase, companyId!),
   })
+  const receivableByOrder = Object.fromEntries((orderReceivables ?? []).map(r => [r.orderId, r]))
 
   /* Deep link /pedidos?open=<id> — usado pelo QR Code da Ficha de Produção
      para abrir o modal do pedido correspondente automaticamente. */
@@ -2059,21 +2045,19 @@ function PedidosPage() {
                           </td>
                           <td className="px-3 py-2.5 whitespace-nowrap text-text-muted">
                             {(() => {
-                              const next = nextInstallmentByOrder?.[order.id]
-                              if (!next) return '—'
-                              const dias = daysUntil(next.due_date)
-                              const vencido = next.status !== 'recebido' && dias < 0
+                              const rec = receivableByOrder[order.id]
+                              if (!rec?.dueDate) return '—'
                               return (
-                                <span className={vencido ? 'text-red-600 dark:text-red-400 font-semibold' : ''}>
-                                  {format(new Date(next.due_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
+                                <span className={rec.status === 'vencido' ? 'text-red-600 dark:text-red-400 font-semibold' : ''}>
+                                  {format(new Date(rec.dueDate + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
                                 </span>
                               )
                             })()}
                           </td>
                           <td className="px-3 py-2.5 text-right whitespace-nowrap text-text-muted">
                             {(() => {
-                              const next = nextInstallmentByOrder?.[order.id]
-                              return next ? formatCurrency(next.amount - next.received_amount) : '—'
+                              const rec = receivableByOrder[order.id]
+                              return rec && rec.balance > 0 ? formatCurrency(rec.balance) : '—'
                             })()}
                           </td>
                           <td className="px-3 py-2.5 whitespace-nowrap text-text-muted">{order._origin}</td>
