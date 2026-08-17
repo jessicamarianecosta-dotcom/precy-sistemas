@@ -4,6 +4,7 @@ import { MainContent } from '@/components/layout/MainContent'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { CheckoutSuccessSync } from '@/components/subscription/CheckoutSuccessSync'
+import { RecurringBillsSync } from '@/components/finance/RecurringBillsSync'
 
 export default async function DashboardLayout({
   children,
@@ -19,6 +20,7 @@ export default async function DashboardLayout({
       <Suspense fallback={null}>
         <CheckoutSuccessSync />
       </Suspense>
+      <RecurringBillsSync />
       <Sidebar />
       <MainContent>{children}</MainContent>
     </div>

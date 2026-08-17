@@ -4,13 +4,59 @@ import { HeroDashboard } from '@/components/landing/HeroDashboard'
 import { PainSection } from '@/components/landing/PainSection'
 import { StatsSection } from '@/components/landing/StatsSection'
 import { LivePreview } from '@/components/landing/LivePreview'
-import { PlansSection } from '@/components/landing/PlansSection'
+import { PricingSection, RoadmapSection, SuggestionsSection } from '@/components/landing/PlansSection'
 import { AppCalloutSection } from '@/components/landing/AppCalloutSection'
+import { FAQSection } from '@/components/landing/FAQSection'
+import { StickyMobileCTA } from '@/components/landing/StickyMobileCTA'
+
+const TITLE = 'Precy+ — Precificação Inteligente para Papelaria, Confeitaria, Artesanato e Pequenos Negócios'
+const DESCRIPTION =
+  'Calcule o preço certo dos seus produtos, controle estoque, organize pedidos em Kanban e gere orçamentos em PDF. Feito para papelaria personalizada, gráficas, confeitaria, crochê, velas, artesanato, costura, sublimação e brindes. 7 dias grátis, sem cartão.'
 
 export const metadata: Metadata = {
-  title: 'Precy+ Sistemas — Precificação e Gestão para Pequenos Negócios',
-  description:
-    'SaaS premium de precificação inteligente, estoque, pedidos, orçamentos em PDF e financeiro para artesãs, papelaria, cosméticos e pequenos negócios.',
+  title: TITLE,
+  description: DESCRIPTION,
+  keywords: [
+    'sistema de precificação',
+    'como precificar produtos artesanais',
+    'precificação para papelaria personalizada',
+    'sistema para confeitaria',
+    'sistema para crochê',
+    'sistema para gráfica rápida',
+    'gestão de pedidos artesanato',
+    'orçamento em PDF',
+    'controle de estoque para pequenos negócios',
+  ],
+  alternates: { canonical: '/' },
+  openGraph: {
+    title: TITLE,
+    description: DESCRIPTION,
+    url: '/',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: TITLE,
+    description: DESCRIPTION,
+  },
+}
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Precy+',
+  applicationCategory: 'BusinessApplication',
+  operatingSystem: 'Web',
+  description: DESCRIPTION,
+  offers: [
+    { '@type': 'Offer', name: 'Basic', price: '17.00', priceCurrency: 'BRL' },
+    { '@type': 'Offer', name: 'Pro', price: '47.00', priceCurrency: 'BRL' },
+  ],
+  audience: {
+    '@type': 'Audience',
+    audienceType:
+      'Papelaria personalizada, gráficas, confeitaria, crochê, velas, artesanato, costura, sublimação, brindes personalizados',
+  },
 }
 
 /* ─── Features ─── */
@@ -117,7 +163,11 @@ const steps = [
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-[#FAF7F4] dark:bg-[#1C1714]">
+    <div className="min-h-screen bg-[#FAF7F4] dark:bg-[#1C1714] pb-20 md:pb-0">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
 
       {/* ── NAVBAR ── */}
       <nav className="sticky top-0 z-50 bg-[#FAF7F4]/80 dark:bg-[#1C1714]/80 backdrop-blur-xl border-b border-[#EDE8E2] dark:border-[#3A3028]">
@@ -135,8 +185,9 @@ export default function LandingPage() {
             {[
               { href: '#funcionalidades', label: 'Funcionalidades' },
               { href: '#preview', label: 'Preview' },
-              { href: '#planos', label: 'Planos' },
               { href: '#depoimentos', label: 'Depoimentos' },
+              { href: '#planos', label: 'Planos' },
+              { href: '#faq', label: 'Dúvidas' },
             ].map(l => (
               <a key={l.label} href={l.href}
                 className="text-[#7A6855] dark:text-stone-400 hover:text-[#8B6C4F] transition-colors">
@@ -159,7 +210,7 @@ export default function LandingPage() {
       </nav>
 
       {/* ── HERO ── */}
-      <section className="relative overflow-hidden pt-10 sm:pt-16 pb-16 sm:pb-20 px-4 sm:px-6">
+      <section id="hero" className="relative overflow-hidden pt-10 sm:pt-16 pb-16 sm:pb-20 px-4 sm:px-6">
         {/* Gradient bg blob */}
         <div aria-hidden
           className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] rounded-full opacity-[0.07] blur-3xl"
@@ -203,7 +254,7 @@ export default function LandingPage() {
 
               {/* Targets */}
               <div className="flex flex-wrap gap-2 mb-8">
-                {['🎨 Gráficas', '✉️ Papelaria', '🕯️ Velas', '💄 Cosméticos', '🎀 Personalizados', '🧵 Artesãs'].map(tag => (
+                {['✉️ Papelaria', '🎨 Gráficas', '🧁 Confeitaria', '🧶 Crochê', '🕯️ Velas', '🧵 Costura', '🖨️ Sublimação', '🎁 Brindes'].map(tag => (
                   <span key={tag}
                     className="text-xs font-medium px-3 py-1.5 rounded-full border border-[#EDE8E2] dark:border-[#3A3028] bg-white dark:bg-[#2A2220] text-[#7A6855] dark:text-stone-400">
                     {tag}
@@ -272,9 +323,6 @@ export default function LandingPage() {
           ))}
         </div>
       </section>
-
-      {/* ── APP CALLOUT ── */}
-      <AppCalloutSection />
 
       {/* ── PAIN SECTION ── */}
       <PainSection />
@@ -401,8 +449,11 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── PLANS ── */}
-      <PlansSection />
+      {/* ── FAQ ── */}
+      <FAQSection />
+
+      {/* ── PRICING ── */}
+      <PricingSection />
 
       {/* ── FINAL CTA ── */}
       <section className="py-24 px-4 sm:px-6">
@@ -420,10 +471,16 @@ export default function LandingPage() {
               <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
                 Pronta para precificar com confiança?
               </h2>
-              <p className="text-white/80 text-lg mb-8 max-w-xl mx-auto">
-                Junte-se a centenas de empreendedoras que já usam o Precy+ para crescer
+              <p className="text-white/80 text-lg mb-3 max-w-xl mx-auto">
+                Junte-se a mais de 200 empreendedoras que já usam o Precy+ para crescer
                 com organização, clareza e resultados reais.
               </p>
+              <div className="flex items-center justify-center gap-1.5 mb-8">
+                <div className="flex gap-0.5">
+                  {[1,2,3,4,5].map(i => <span key={i} className="text-white text-sm">★</span>)}
+                </div>
+                <span className="text-white/70 text-xs font-medium">4,9/5 · +200 avaliações</span>
+              </div>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
                 <Link href="/cadastro"
                   className="bg-white text-[#8B6C4F] font-semibold py-3.5 px-8 rounded-xl hover:bg-[#FAF7F4] active:scale-[0.98] transition-all shadow-lg w-full sm:w-auto">
@@ -434,11 +491,18 @@ export default function LandingPage() {
                   Já tenho conta
                 </Link>
               </div>
-              <p className="text-white/50 text-xs mt-5">Sem cartão · Cancele quando quiser · Pagamento via Stripe</p>
+              <p className="text-white/50 text-xs mt-5">
+                Sem cartão no trial · Garantia de 7 dias com reembolso 100% · Pagamento via Stripe
+              </p>
             </div>
           </div>
         </div>
       </section>
+
+      {/* ── ROADMAP, SUGESTÕES E APP (conteúdo secundário, depois do CTA principal) ── */}
+      <RoadmapSection />
+      <SuggestionsSection />
+      <AppCalloutSection />
 
       {/* ── FOOTER ── */}
       <footer className="border-t border-[#EDE8E2] dark:border-[#3A3028] py-12 px-4 sm:px-6">
@@ -499,6 +563,7 @@ export default function LandingPage() {
         </div>
       </footer>
 
+      <StickyMobileCTA />
     </div>
   )
 }

@@ -5,6 +5,7 @@ import {
   format, startOfDay, endOfWeek,
 } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { fetchOrderReceivables } from '@/lib/orders/receivables'
 
 export function useDashboard(companyId: string | null) {
   const supabase = createClient()
@@ -98,6 +99,11 @@ export function useDashboard(companyId: string | null) {
         .eq('type', 'expense')
         .neq('status', 'paid') as any
 
+      /* ── Contas a receber, no nível de pedido — mesma fonte de verdade
+         do painel Contas a Receber em Financeiro (lib/orders/receivables),
+         nunca uma soma direta de payment_schedule. ── */
+      const orderReceivables = await fetchOrderReceivables(supabase, companyId)
+
       /* ── Totals ── */
       const revenue      = (incomes     as any[] ?? []).reduce((s, t) => s + Number(t.amount), 0)
       const expensesTotal= (expenses    as any[] ?? []).reduce((s, t) => s + Number(t.amount), 0)
@@ -153,6 +159,14 @@ export function useDashboard(companyId: string | null) {
 
       const sumAmt = (rows: any[]) => rows.reduce((s, t) => s + Number(t.amount), 0)
 
+      /* ── Contas a receber a vencer — saldo de cada PEDIDO em aberto (não de parcela isolada) ── */
+      const openReceivables = orderReceivables.filter(r => r.status !== 'recebido' && r.status !== 'cancelado')
+      const recvDueToday = openReceivables.filter(r => r.status !== 'vencido' && r.dueDate === todayStr)
+      const recvDueWeek  = openReceivables.filter(r => r.status !== 'vencido' && r.dueDate && r.dueDate >= todayStr && r.dueDate <= weekEndStr)
+      const recvDueMonth = openReceivables.filter(r => r.status !== 'vencido' && r.dueDate && r.dueDate >= todayStr && r.dueDate <= monthEndStr)
+      const recvOverdue  = openReceivables.filter(r => r.status === 'vencido')
+      const sumSaldo = (rows: typeof orderReceivables) => rows.reduce((s, r) => s + r.balance, 0)
+
       return {
         // metrics
         revenue,
@@ -173,6 +187,15 @@ export function useDashboard(companyId: string | null) {
         installmentsDueMonthSum:   sumAmt(dueMonth),
         installmentsOverdueCount:  overdue.length,
         installmentsOverdueSum:    sumAmt(overdue),
+        // contas a receber (pedidos) a vencer
+        receivablesDueTodayCount: recvDueToday.length,
+        receivablesDueTodaySum:   sumSaldo(recvDueToday),
+        receivablesDueWeekCount:  recvDueWeek.length,
+        receivablesDueWeekSum:    sumSaldo(recvDueWeek),
+        receivablesDueMonthCount: recvDueMonth.length,
+        receivablesDueMonthSum:   sumSaldo(recvDueMonth),
+        receivablesOverdueCount:  recvOverdue.length,
+        receivablesOverdueSum:    sumSaldo(recvOverdue),
         // lists
         criticalStock: criticalStock ?? [],
         latestOrders:  latestOrders  ?? [],

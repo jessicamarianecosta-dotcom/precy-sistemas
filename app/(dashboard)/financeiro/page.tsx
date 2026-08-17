@@ -24,6 +24,7 @@ import { nextDueFrom } from '@/lib/utils/recurring'
 import { useFinanceFilters, type FinanceFilters } from './useFinanceFilters'
 import { FinanceToolbar } from '@/components/finance/FinanceToolbar'
 import type { FinanceFilterOption, FinanceFilterGroup } from '@/components/finance/FinanceFilterSelect'
+import { ContasAReceberPanel } from '@/components/finance/ContasAReceberPanel'
 
 /* ─── Types ─── */
 interface Transaction {
@@ -885,6 +886,9 @@ export default function FinanceiroPage() {
             </div>
           </div>
         </div>
+
+        {/* ── CONTAS A RECEBER (pedidos com recebimento futuro/pendente) ── */}
+        <ContasAReceberPanel companyId={companyId} supabase={supabase} />
 
         {/* ── POR CENTRO DE CUSTO ── */}
         {costCenterTotals.length > 0 && (
