@@ -774,10 +774,12 @@ export default function ProdutosPage() {
                     </div>
                     {vpMaterials.map(m => (
                       <div key={m.id} className="grid grid-cols-4 gap-2 px-1 py-1.5 rounded-lg hover:bg-primary-50/30 dark:hover:bg-white/[0.02]">
-                        <div className="flex items-center gap-1 min-w-0">
+                        <div className="flex items-center gap-1 min-w-0 flex-wrap">
                           <span className="text-xs text-text-primary dark:text-stone-200 leading-snug break-words">{m.material_name}</span>
-                          {m.inventory_id && (
+                          {m.inventory_id ? (
                             <Zap size={9} className="text-success flex-shrink-0" />
+                          ) : (
+                            <span className="badge badge-warning text-[8px] px-1.5 py-0 flex-shrink-0">Avulso</span>
                           )}
                         </div>
                         <span className="text-xs text-text-secondary dark:text-stone-400">{safeNum(m.quantity)} {m.unit}</span>

@@ -9,13 +9,14 @@ import {
   Calculator, TrendingUp, Plus, X, Package, Ruler,
   Save, CheckCircle, Loader2, AlertTriangle,
   ShoppingBag, Hammer, ChevronRight,
-  ArrowRight, Info, Tag, Layers, FileText,
+  Info, Tag, Layers, FileText,
   Scissors, Trash2, Edit2, BookOpen,
-  Scale, Droplets, Settings2,
+  Scale, Droplets, Settings2, Sparkles, PackagePlus,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { clsx } from 'clsx'
 import { CategorySelect } from '@/components/ui/CategorySelect'
+import { useToast } from '@/components/ui/Toaster'
 import { formatCurrency as fmt } from '@/lib/utils/format'
 import { formatDimDisplay, formatAreaM2, getDimBlock } from '@/lib/utils/dimensions'
 import { useSubscription } from '@/hooks/useSubscription'
@@ -69,13 +70,37 @@ interface InventoryItem {
 
 interface MaterialLine {
   tmpId:        string
-  inventory_id: string
+  /** null = material avulso (não vem do estoque, existe só nesta precificação). */
+  inventory_id: string | null
   name:         string
   unit:         string
   stock:        number
   cost_per_unit: number
   quantity:     number
   subtotal:     number
+}
+
+interface ManualMaterialDraft {
+  name:          string
+  unit:          string
+  quantity:      number
+  cost_per_unit: number
+}
+
+type MaterialModal =
+  | null
+  | { mode: 'choice' }
+  | { mode: 'stock' }
+  | { mode: 'manual'; editingTmpId: string | null; draft: ManualMaterialDraft }
+
+interface RegisterStockDraft {
+  tmpId:            string
+  name:             string
+  unit:             string
+  category:         string
+  cost_per_unit:    number
+  quantity:         number
+  minimum_quantity: number
 }
 
 /* ─────────────────────────── Helpers ─── */
@@ -218,6 +243,7 @@ function SectionSlide({ show, children }: { show: boolean; children: React.React
 function PrecificacaoPage() {
   const supabase    = createClient()
   const queryClient = useQueryClient()
+  const { toast }   = useToast()
 
   const [companyId, setCompanyId] = useState<string | null>(null)
   const { data: sub } = useSubscription()
@@ -258,8 +284,9 @@ function PrecificacaoPage() {
   const [customFinishing,   setCustomFinishing]   = useState('')
 
   /* ── ui state ── */
-  const [showPicker,  setShowPicker]  = useState(false)
+  const [materialModal, setMaterialModal] = useState<MaterialModal>(null)
   const [pickerSearch, setPickerSearch] = useState('')
+  const [registerStockModal, setRegisterStockModal] = useState<RegisterStockDraft | null>(null)
   const [savedOk,     setSavedOk]     = useState(false)
 
   /* ── load company ── */
@@ -333,7 +360,7 @@ function PrecificacaoPage() {
     if (mats.length > 0) {
       setMaterials(mats.map(m => ({
         tmpId:        crypto.randomUUID(),
-        inventory_id: m.inventory_id ?? '',
+        inventory_id: m.inventory_id ?? null,
         name:         m.material_name,
         unit:         m.unit,
         stock:        0,
@@ -565,7 +592,7 @@ function PrecificacaoPage() {
       subtotal:     Number(item.cost_per_unit),
     }
     setMaterials(prev => [...prev, line])
-    setShowPicker(false)
+    setMaterialModal(null)
     setPickerSearch('')
   }
 
@@ -580,6 +607,84 @@ function PrecificacaoPage() {
   function removeMaterial(tmpId: string) {
     setMaterials(prev => prev.filter(m => m.tmpId !== tmpId))
   }
+
+  /* ── Material avulso (não vem do estoque) ── */
+  function openManualMaterialForm() {
+    setMaterialModal({ mode: 'manual', editingTmpId: null, draft: { name: '', unit: 'un', quantity: 1, cost_per_unit: 0 } })
+  }
+
+  function openEditManualMaterial(m: MaterialLine) {
+    setMaterialModal({
+      mode: 'manual',
+      editingTmpId: m.tmpId,
+      draft: { name: m.name, unit: m.unit, quantity: m.quantity, cost_per_unit: m.cost_per_unit },
+    })
+  }
+
+  function saveManualMaterial(editingTmpId: string | null, draft: ManualMaterialDraft) {
+    const name = draft.name.trim()
+    if (!name || !(draft.quantity > 0) || draft.cost_per_unit < 0) return
+    const subtotal = draft.quantity * draft.cost_per_unit
+    if (editingTmpId) {
+      setMaterials(prev => prev.map(m => m.tmpId === editingTmpId
+        ? { ...m, name, unit: draft.unit, quantity: draft.quantity, cost_per_unit: draft.cost_per_unit, subtotal }
+        : m
+      ))
+    } else {
+      setMaterials(prev => [...prev, {
+        tmpId: crypto.randomUUID(),
+        inventory_id: null,
+        name,
+        unit: draft.unit,
+        stock: 0,
+        cost_per_unit: draft.cost_per_unit,
+        quantity: draft.quantity,
+        subtotal,
+      }])
+    }
+    setMaterialModal(null)
+  }
+
+  /* ── Cadastrar material avulso no estoque (opcional, sob demanda) ── */
+  function openRegisterStock(m: MaterialLine) {
+    setRegisterStockModal({
+      tmpId: m.tmpId, name: m.name, unit: m.unit, category: 'geral',
+      cost_per_unit: m.cost_per_unit, quantity: 0, minimum_quantity: 5,
+    })
+  }
+
+  const registerStockMutation = useMutation({
+    mutationFn: async () => {
+      if (!registerStockModal || !companyId) throw new Error('Dados incompletos')
+      const { data, error } = await (supabase.from('inventory') as any)
+        .insert([{
+          company_id:       companyId,
+          name:             registerStockModal.name.trim(),
+          category:         registerStockModal.category.trim() || 'geral',
+          unit:             registerStockModal.unit,
+          quantity:         registerStockModal.quantity,
+          minimum_quantity: registerStockModal.minimum_quantity,
+          cost_per_unit:    registerStockModal.cost_per_unit,
+        }])
+        .select()
+        .single()
+      if (error) throw error
+      return data
+    },
+    onSuccess: newItem => {
+      setMaterials(prev => prev.map(m => m.tmpId === registerStockModal!.tmpId
+        ? { ...m, inventory_id: newItem.id, stock: Number(newItem.quantity) }
+        : m
+      ))
+      queryClient.invalidateQueries({ queryKey: ['inventory-picker', companyId] })
+      setRegisterStockModal(null)
+      toast('success', 'Material cadastrado no estoque com sucesso!')
+    },
+    onError: (err: Error) => {
+      console.error('Erro ao cadastrar material no estoque:', err)
+      toast('error', 'Não foi possível cadastrar o material no estoque. Tente novamente.')
+    },
+  })
 
   /* ── Save mutation ── */
   const saveMutation = useMutation({
@@ -930,12 +1035,12 @@ function PrecificacaoPage() {
                       Materiais usados
                     </h3>
                     <p className="text-xs text-text-muted dark:text-stone-400 mt-0.5">
-                      Selecione os materiais do estoque
+                      Adicione materiais do estoque ou informe materiais avulsos
                     </p>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowPicker(true)}
+                    onClick={() => setMaterialModal({ mode: 'choice' })}
                     className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5"
                   >
                     <Plus size={13} /> Adicionar
@@ -946,14 +1051,9 @@ function PrecificacaoPage() {
                   <div className="flex flex-col items-center py-8 text-center border-2 border-dashed border-border dark:border-border-dark rounded-xl">
                     <Package size={24} className="text-text-muted dark:text-stone-500 mb-2" />
                     <p className="text-sm font-medium text-text-primary dark:text-stone-100">Nenhum material adicionado</p>
-                    <p className="text-xs text-text-muted dark:text-stone-400 mt-1 max-w-[200px]">
-                      Clique em &ldquo;Adicionar&rdquo; para selecionar materiais do estoque.
+                    <p className="text-xs text-text-muted dark:text-stone-400 mt-1 max-w-[220px]">
+                      Clique em &ldquo;Adicionar&rdquo; para usar um material do estoque ou informar um material avulso, só para esta cotação.
                     </p>
-                    {(inventoryItems ?? []).length === 0 && (
-                      <a href="/estoque" className="mt-3 text-xs text-primary hover:underline flex items-center gap-1">
-                        Cadastrar material no estoque <ArrowRight size={11} />
-                      </a>
-                    )}
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -963,34 +1063,63 @@ function PrecificacaoPage() {
                       <span className="col-span-3 text-[10px] font-semibold text-text-muted dark:text-stone-400 uppercase tracking-wider">Qtd</span>
                       <span className="col-span-3 text-[10px] font-semibold text-text-muted dark:text-stone-400 uppercase tracking-wider text-right">Subtotal</span>
                     </div>
-                    {materials.map(m => (
-                      <div key={m.tmpId} className="grid grid-cols-12 gap-2 items-center bg-primary-50/40 dark:bg-primary/5 p-2.5 rounded-xl">
-                        <div className="col-span-5 min-w-0">
-                          <p className="text-xs font-medium text-text-primary dark:text-stone-100 leading-snug break-words">{m.name}</p>
-                          <p className="text-[10px] text-text-muted dark:text-stone-500">{fmt(m.cost_per_unit)}/{m.unit}</p>
+                    {materials.map(m => {
+                      const isAvulso = !m.inventory_id
+                      return (
+                        <div key={m.tmpId} className="bg-primary-50/40 dark:bg-primary/5 p-2.5 rounded-xl space-y-1.5">
+                          <div className="grid grid-cols-12 gap-2 items-center">
+                            <div className="col-span-5 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {isAvulso
+                                  ? <Sparkles size={11} className="text-warning flex-shrink-0" />
+                                  : <Package size={11} className="text-primary flex-shrink-0" />}
+                                <p className="text-xs font-medium text-text-primary dark:text-stone-100 leading-snug break-words">{m.name}</p>
+                                {isAvulso && <span className="badge badge-warning text-[9px] flex-shrink-0">Avulso</span>}
+                              </div>
+                              <p className="text-[10px] text-text-muted dark:text-stone-500 mt-0.5">{fmt(m.cost_per_unit)}/{m.unit}</p>
+                            </div>
+                            <div className="col-span-3 flex items-center gap-1">
+                              <input
+                                type="number"
+                                min={0.01} step={0.1}
+                                className="input text-xs py-1.5 px-2 w-full"
+                                value={m.quantity}
+                                onChange={e => updateQty(m.tmpId, parseFloat(e.target.value) || 0)}
+                              />
+                              <span className="text-[9px] text-text-muted flex-shrink-0">{m.unit}</span>
+                            </div>
+                            <div className="col-span-3 flex items-center justify-end gap-1">
+                              <span className="text-xs font-bold text-primary">{fmt(m.subtotal)}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeMaterial(m.tmpId)}
+                                className="p-0.5 text-text-muted hover:text-error transition-colors flex-shrink-0"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          </div>
+                          {isAvulso && (
+                            <div className="flex items-center gap-3 pl-1">
+                              <button
+                                type="button"
+                                onClick={() => openEditManualMaterial(m)}
+                                className="text-[10px] font-medium text-text-muted hover:text-primary transition-colors flex items-center gap-1"
+                              >
+                                <Edit2 size={10} /> Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openRegisterStock(m)}
+                                className="text-[10px] font-medium text-primary hover:underline flex items-center gap-1"
+                              >
+                                <PackagePlus size={10} /> Cadastrar no estoque
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        <div className="col-span-3 flex items-center gap-1">
-                          <input
-                            type="number"
-                            min={0.01} step={0.1}
-                            className="input text-xs py-1.5 px-2 w-full"
-                            value={m.quantity}
-                            onChange={e => updateQty(m.tmpId, parseFloat(e.target.value) || 0)}
-                          />
-                          <span className="text-[9px] text-text-muted flex-shrink-0">{m.unit}</span>
-                        </div>
-                        <div className="col-span-3 flex items-center justify-end gap-1">
-                          <span className="text-xs font-bold text-primary">{fmt(m.subtotal)}</span>
-                          <button
-                            type="button"
-                            onClick={() => removeMaterial(m.tmpId)}
-                            className="p-0.5 text-text-muted hover:text-error transition-colors flex-shrink-0"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                     <div className="flex items-center justify-between pt-2 border-t border-border dark:border-border-dark px-1">
                       <span className="text-xs font-semibold text-text-primary dark:text-stone-100">Total materiais</span>
                       <span className="text-sm font-bold text-primary">{fmt(materialCost)}</span>
@@ -1736,10 +1865,55 @@ function PrecificacaoPage() {
         </div>
       </div>
 
-      {/* ══ MODAL PICKER DE MATERIAIS ══ */}
-      {showPicker && (
+      {/* ══ ESCOLHA: MATERIAL DO ESTOQUE OU AVULSO ══ */}
+      {materialModal?.mode === 'choice' && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowPicker(false)} />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setMaterialModal(null)} />
+          <div className="relative bg-white dark:bg-surface-dark w-full sm:max-w-sm rounded-2xl shadow-modal animate-scaleIn overflow-hidden">
+            <div className="p-4 border-b border-border dark:border-border-dark flex items-center justify-between">
+              <h3 className="text-sm font-bold text-text-primary dark:text-stone-100 flex items-center gap-2">
+                <Package size={14} className="text-primary" /> Adicionar material
+              </h3>
+              <button onClick={() => setMaterialModal(null)} className="p-1.5 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted">
+                <X size={15} />
+              </button>
+            </div>
+            <div className="p-3 space-y-2">
+              <button
+                type="button"
+                onClick={() => { setMaterialModal({ mode: 'stock' }); setPickerSearch('') }}
+                className="w-full flex items-start gap-3 p-3 rounded-xl text-left border border-border dark:border-border-dark hover:border-primary/40 hover:bg-primary-50 dark:hover:bg-primary/10 transition-all"
+              >
+                <div className="w-9 h-9 rounded-xl bg-primary-50 dark:bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <Package size={16} className="text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-text-primary dark:text-stone-100">Material do estoque</p>
+                  <p className="text-[11px] text-text-muted dark:text-stone-400 mt-0.5">Selecione um material já cadastrado e informe a quantidade.</p>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={openManualMaterialForm}
+                className="w-full flex items-start gap-3 p-3 rounded-xl text-left border border-border dark:border-border-dark hover:border-warning/40 hover:bg-warning-light/50 dark:hover:bg-warning/10 transition-all"
+              >
+                <div className="w-9 h-9 rounded-xl bg-warning-light dark:bg-warning/10 flex items-center justify-center flex-shrink-0">
+                  <Sparkles size={16} className="text-warning" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-text-primary dark:text-stone-100">Material avulso</p>
+                  <p className="text-[11px] text-text-muted dark:text-stone-400 mt-0.5">Informe nome, unidade e custo só para esta cotação — não entra no estoque.</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ MODAL PICKER DE MATERIAIS DO ESTOQUE ══ */}
+      {materialModal?.mode === 'stock' && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setMaterialModal(null)} />
           <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-lg animate-scaleIn max-h-[85vh] flex flex-col">
             <div className="p-5 pb-3 border-b border-border dark:border-border-dark flex items-center justify-between flex-shrink-0">
               <div>
@@ -1748,7 +1922,7 @@ function PrecificacaoPage() {
                   Escolha do estoque cadastrado
                 </p>
               </div>
-              <button onClick={() => setShowPicker(false)} className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted">
+              <button onClick={() => setMaterialModal(null)} className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted">
                 <X size={16} />
               </button>
             </div>
@@ -1774,11 +1948,13 @@ function PrecificacaoPage() {
                       : 'Nenhum resultado'
                     }
                   </p>
-                  {(inventoryItems ?? []).length === 0 && (
-                    <a href="/estoque" className="mt-2 text-xs text-primary hover:underline" onClick={() => setShowPicker(false)}>
-                      Cadastrar material no estoque →
-                    </a>
-                  )}
+                  <button
+                    type="button"
+                    onClick={openManualMaterialForm}
+                    className="mt-2 text-xs text-primary hover:underline flex items-center gap-1"
+                  >
+                    <Sparkles size={11} /> Adicionar como material avulso
+                  </button>
                 </div>
               ) : (
                 filteredInventory.map(item => {
@@ -1847,6 +2023,181 @@ function PrecificacaoPage() {
                   )
                 })
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ MODAL: MATERIAL AVULSO (adicionar / editar) ══ */}
+      {materialModal?.mode === 'manual' && (() => {
+        const { draft, editingTmpId } = materialModal
+        const nameError = !draft.name.trim()
+        const qtyError  = !(draft.quantity > 0)
+        const costError = draft.cost_per_unit < 0
+        const isValid   = !nameError && !qtyError && !costError
+        const total     = draft.quantity * draft.cost_per_unit
+        function updateDraft(patch: Partial<ManualMaterialDraft>) {
+          setMaterialModal({ mode: 'manual', editingTmpId, draft: { ...draft, ...patch } })
+        }
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setMaterialModal(null)} />
+            <div className="relative bg-white dark:bg-surface-dark w-full sm:max-w-sm rounded-2xl shadow-modal animate-scaleIn overflow-hidden">
+              <div className="p-4 border-b border-border dark:border-border-dark flex items-center justify-between">
+                <h3 className="text-sm font-bold text-text-primary dark:text-stone-100 flex items-center gap-2">
+                  <Sparkles size={14} className="text-warning" /> {editingTmpId ? 'Editar material avulso' : 'Material avulso'}
+                </h3>
+                <button onClick={() => setMaterialModal(null)} className="p-1.5 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted">
+                  <X size={15} />
+                </button>
+              </div>
+              <div className="p-4 space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Nome *</label>
+                  <input
+                    className="input text-sm"
+                    placeholder="Ex: Fita de cetim"
+                    value={draft.name}
+                    onChange={e => updateDraft({ name: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Unidade</label>
+                    <select className="input text-sm" value={draft.unit} onChange={e => updateDraft({ unit: e.target.value })}>
+                      {['un', 'm', 'cm', 'kg', 'g', 'ml', 'l'].map(u => (
+                        <option key={u} value={u}>{u}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Quantidade *</label>
+                    <input
+                      type="number" min={0} step={0.01}
+                      className="input text-sm"
+                      placeholder="Ex: 2"
+                      value={draft.quantity || ''}
+                      onChange={e => updateDraft({ quantity: parseFloat(e.target.value) || 0 })}
+                    />
+                    {qtyError && <p className="text-[10px] text-error mt-1">Informe uma quantidade maior que zero.</p>}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Custo unitário (R$) *</label>
+                  <input
+                    type="number" min={0} step={0.01}
+                    className="input text-sm"
+                    placeholder="Ex: 1,50"
+                    value={draft.cost_per_unit === 0 ? '' : draft.cost_per_unit}
+                    onChange={e => updateDraft({ cost_per_unit: parseFloat(e.target.value) || 0 })}
+                  />
+                  {costError && <p className="text-[10px] text-error mt-1">O custo unitário não pode ser negativo.</p>}
+                </div>
+                <div className="px-3 py-2 rounded-xl bg-warning/10 border border-warning/20 flex justify-between items-center">
+                  <span className="text-[11px] text-text-muted">{draft.quantity || 0} {draft.unit} × {fmt(draft.cost_per_unit)}</span>
+                  <span className="text-sm font-bold text-warning-dark dark:text-warning">{fmt(total)}</span>
+                </div>
+              </div>
+              <div className="p-4 flex gap-3 border-t border-border dark:border-border-dark">
+                <button onClick={() => setMaterialModal(null)} className="btn-secondary flex-1">Cancelar</button>
+                <button
+                  onClick={() => saveManualMaterial(editingTmpId, draft)}
+                  disabled={!isValid}
+                  className="btn-primary flex-1 disabled:opacity-50"
+                >
+                  {editingTmpId ? 'Salvar alterações' : 'Adicionar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ══ MODAL: CADASTRAR MATERIAL AVULSO NO ESTOQUE ══ */}
+      {registerStockModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setRegisterStockModal(null)} />
+          <div className="relative bg-white dark:bg-surface-dark w-full sm:max-w-sm rounded-2xl shadow-modal animate-scaleIn overflow-hidden">
+            <div className="p-4 border-b border-border dark:border-border-dark flex items-center justify-between">
+              <h3 className="text-sm font-bold text-text-primary dark:text-stone-100 flex items-center gap-2">
+                <PackagePlus size={14} className="text-primary" /> Cadastrar no estoque
+              </h3>
+              <button onClick={() => setRegisterStockModal(null)} className="p-1.5 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted">
+                <X size={15} />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Nome *</label>
+                <input
+                  className="input text-sm"
+                  value={registerStockModal.name}
+                  onChange={e => setRegisterStockModal({ ...registerStockModal, name: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Unidade</label>
+                  <select
+                    className="input text-sm"
+                    value={registerStockModal.unit}
+                    onChange={e => setRegisterStockModal({ ...registerStockModal, unit: e.target.value })}
+                  >
+                    {['un', 'kg', 'g', 'ml', 'l', 'm', 'cm', 'par', 'kit', 'caixa'].map(u => (
+                      <option key={u} value={u}>{u}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Categoria</label>
+                  <input
+                    className="input text-sm"
+                    placeholder="geral"
+                    value={registerStockModal.category}
+                    onChange={e => setRegisterStockModal({ ...registerStockModal, category: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Custo unitário (R$)</label>
+                  <input
+                    type="number" min={0} step={0.01}
+                    className="input text-sm"
+                    value={registerStockModal.cost_per_unit}
+                    onChange={e => setRegisterStockModal({ ...registerStockModal, cost_per_unit: parseFloat(e.target.value) || 0 })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Estoque inicial</label>
+                  <input
+                    type="number" min={0} step={0.01}
+                    className="input text-sm"
+                    value={registerStockModal.quantity}
+                    onChange={e => setRegisterStockModal({ ...registerStockModal, quantity: parseFloat(e.target.value) || 0 })}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Estoque mínimo</label>
+                <input
+                  type="number" min={0} step={0.01}
+                  className="input text-sm"
+                  value={registerStockModal.minimum_quantity}
+                  onChange={e => setRegisterStockModal({ ...registerStockModal, minimum_quantity: parseFloat(e.target.value) || 0 })}
+                />
+              </div>
+            </div>
+            <div className="p-4 flex gap-3 border-t border-border dark:border-border-dark">
+              <button onClick={() => setRegisterStockModal(null)} className="btn-secondary flex-1">Cancelar</button>
+              <button
+                disabled={!registerStockModal.name.trim() || registerStockMutation.isPending}
+                onClick={() => registerStockMutation.mutate()}
+                className="btn-primary flex-1 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {registerStockMutation.isPending && <Loader2 size={13} className="animate-spin" />}
+                Cadastrar
+              </button>
             </div>
           </div>
         </div>
