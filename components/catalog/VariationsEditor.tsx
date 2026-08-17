@@ -1,8 +1,9 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { useToast } from '@/components/ui/Toaster'
 import { clsx } from 'clsx'
 import { Plus, X, Loader2, AlertCircle, Copy, ClipboardCopy, Trash2, Sparkles, Upload, Image as ImageIcon } from 'lucide-react'
 import { comboKey, type GroupRow } from '@/lib/catalog/variationCombos'
@@ -25,9 +26,20 @@ interface VariantRow {
 }
 interface ProductImage { id: string; url: string; sort_order: number }
 
+/** Campos da tabela de combinações editáveis em lote (não incluem grupos/opções). */
+type EditableField = 'price' | 'stock_quantity' | 'sku' | 'lead_time_days' | 'weight_kg' | 'image_id'
+
+export interface VariationsEditorHandle {
+  hasPendingChanges: boolean
+  saveChanges: () => Promise<void>
+  discardChanges: () => void
+}
+
 interface Props {
   productId: string
   companyId: string
+  /** Notifica o modal pai sempre que existirem (ou deixarem de existir) alterações não salvas na tabela. */
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 const SETTINGS_FIELDS = ['price', 'stock_quantity', 'sku', 'lead_time_days', 'weight_kg', 'image_id'] as const
@@ -39,9 +51,13 @@ const SETTINGS_FIELDS = ['price', 'stock_quantity', 'sku', 'lead_time_days', 'we
  * o assistente "Gerenciar combinações" (com regras de dependência entre
  * opções), "+ Nova combinação" manual, "Duplicar" ou "Copiar configuração".
  */
-export function VariationsEditor({ productId, companyId }: Props) {
+export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(function VariationsEditor(
+  { productId, companyId, onDirtyChange },
+  ref
+) {
   const supabase = createClient()
   const qc = useQueryClient()
+  const { toast } = useToast()
   const [newGroupName, setNewGroupName] = useState('')
   const [newOptionByGroup, setNewOptionByGroup] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
@@ -53,6 +69,10 @@ export function VariationsEditor({ productId, companyId }: Props) {
   const [imageUploadError, setImageUploadError] = useState<string | null>(null)
   const [confirmDuplicate, setConfirmDuplicate] = useState(false)
   const imageInputRef = useRef<HTMLInputElement>(null)
+
+  /** Alterações de campos da tabela de combinações ainda não salvas, por combinação. */
+  const [pendingChanges, setPendingChanges] = useState<Record<string, Partial<Record<EditableField, unknown>>>>({})
+  const hasPendingChanges = Object.keys(pendingChanges).length > 0
 
   const groupsQuery = useQuery<GroupRow[]>({
     queryKey: ['product-variation-groups', productId],
@@ -157,20 +177,68 @@ export function VariationsEditor({ productId, companyId }: Props) {
     onSuccess: () => { invalidateGroups(); invalidateVariants() },
   })
 
-  const updateVariantMutation = useMutation({
-    mutationFn: async ({ id, patch }: { id: string; patch: Record<string, unknown> }) => {
-      const { error: err } = await (supabase.from('product_variants') as any).update(patch).eq('id', id)
-      if (err) throw err
+  /** Salva em lote apenas os campos alterados de cada combinação (um update por combinação, só com o patch dela). */
+  const saveChangesMutation = useMutation({
+    mutationFn: async (changes: Record<string, Partial<Record<EditableField, unknown>>>) => {
+      const entries = Object.entries(changes)
+      for (const [id, patch] of entries) {
+        const { error: err } = await (supabase.from('product_variants') as any).update(patch).eq('id', id)
+        if (err) throw err
+      }
     },
-    onSuccess: invalidateVariants,
+    onSuccess: () => {
+      invalidateVariants()
+      setPendingChanges({})
+      toast('success', 'Alterações salvas com sucesso!')
+    },
+    onError: (err: Error) => {
+      console.error('Erro ao salvar combinações:', err)
+      toast('error', 'Não foi possível salvar as alterações. Tente novamente.')
+    },
   })
+
+  function fieldValue(v: VariantRow, field: EditableField): unknown {
+    const pending = pendingChanges[v.id]
+    return pending && field in pending ? pending[field] : v[field]
+  }
+
+  function setPendingField(v: VariantRow, field: EditableField, value: unknown) {
+    setPendingChanges(prev => {
+      const current = { ...(prev[v.id] ?? {}) }
+      if (value === v[field]) {
+        delete current[field]
+      } else {
+        current[field] = value
+      }
+      const next = { ...prev }
+      if (Object.keys(current).length === 0) delete next[v.id]
+      else next[v.id] = current
+      return next
+    })
+  }
+
+  useEffect(() => { onDirtyChange?.(hasPendingChanges) }, [hasPendingChanges, onDirtyChange])
+
+  useImperativeHandle(ref, () => ({
+    hasPendingChanges,
+    saveChanges: () => saveChangesMutation.mutateAsync(pendingChanges),
+    discardChanges: () => setPendingChanges({}),
+  }))
 
   const deleteVariantMutation = useMutation({
     mutationFn: async (id: string) => {
       const { error: err } = await (supabase.from('product_variants') as any).delete().eq('id', id)
       if (err) throw err
     },
-    onSuccess: invalidateVariants,
+    onSuccess: (_d, id) => {
+      invalidateVariants()
+      setPendingChanges(prev => {
+        if (!(id in prev)) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+    },
   })
 
   /** Insere uma combinação a partir de uma seleção {groupId: optionId} + configurações opcionais. */
@@ -426,6 +494,11 @@ export function VariationsEditor({ productId, companyId }: Props) {
       )}
 
       {/* Tabela de combinações existentes */}
+      {hasPendingChanges && (
+        <p className="flex items-center gap-1.5 text-[11px] font-medium text-warning-dark dark:text-warning">
+          <AlertCircle size={11} /> Existem alterações não salvas. Use &ldquo;Salvar alterações&rdquo; no rodapé para confirmar.
+        </p>
+      )}
       {groupsSorted.length === 0 ? (
         <p className="text-xs text-text-muted dark:text-stone-500 text-center py-2">
           Adicione um grupo de variação para começar a criar combinações.
@@ -454,35 +527,35 @@ export function VariationsEditor({ productId, companyId }: Props) {
                     <td key={g.id} className="p-2 text-text-primary dark:text-stone-200">{optionValue(g.id, v.optionIds[idx])}</td>
                   ))}
                   <td className="p-2">
-                    <input type="number" step="0.01" defaultValue={v.price ?? ''} placeholder="Padrão"
-                      onBlur={e => updateVariantMutation.mutate({ id: v.id, patch: { price: numOrNull(e.target.value) } })}
-                      className="input text-xs h-7 w-20" />
+                    <input type="number" step="0.01" value={(fieldValue(v, 'price') as number | null) ?? ''} placeholder="Padrão"
+                      onChange={e => setPendingField(v, 'price', numOrNull(e.target.value))}
+                      className={clsx('input text-xs h-7 w-20', pendingChanges[v.id]?.price !== undefined && 'ring-2 ring-primary/40')} />
                   </td>
                   <td className="p-2">
-                    <input type="number" step="1" defaultValue={v.stock_quantity ?? ''} placeholder="Ilimitado"
-                      onBlur={e => updateVariantMutation.mutate({ id: v.id, patch: { stock_quantity: numOrNull(e.target.value) } })}
-                      className="input text-xs h-7 w-20" />
+                    <input type="number" step="1" value={(fieldValue(v, 'stock_quantity') as number | null) ?? ''} placeholder="Ilimitado"
+                      onChange={e => setPendingField(v, 'stock_quantity', numOrNull(e.target.value))}
+                      className={clsx('input text-xs h-7 w-20', pendingChanges[v.id]?.stock_quantity !== undefined && 'ring-2 ring-primary/40')} />
                   </td>
                   <td className="p-2">
-                    <input type="text" defaultValue={v.sku ?? ''}
-                      onBlur={e => updateVariantMutation.mutate({ id: v.id, patch: { sku: e.target.value || null } })}
-                      className="input text-xs h-7 w-24" />
+                    <input type="text" value={(fieldValue(v, 'sku') as string | null) ?? ''}
+                      onChange={e => setPendingField(v, 'sku', e.target.value || null)}
+                      className={clsx('input text-xs h-7 w-24', pendingChanges[v.id]?.sku !== undefined && 'ring-2 ring-primary/40')} />
                   </td>
                   <td className="p-2">
-                    <input type="number" step="1" defaultValue={v.lead_time_days ?? ''} placeholder="Padrão"
-                      onBlur={e => updateVariantMutation.mutate({ id: v.id, patch: { lead_time_days: numOrNull(e.target.value) } })}
-                      className="input text-xs h-7 w-16" />
+                    <input type="number" step="1" value={(fieldValue(v, 'lead_time_days') as number | null) ?? ''} placeholder="Padrão"
+                      onChange={e => setPendingField(v, 'lead_time_days', numOrNull(e.target.value))}
+                      className={clsx('input text-xs h-7 w-16', pendingChanges[v.id]?.lead_time_days !== undefined && 'ring-2 ring-primary/40')} />
                   </td>
                   <td className="p-2">
-                    <input type="number" step="0.001" defaultValue={v.weight_kg ?? ''}
-                      onBlur={e => updateVariantMutation.mutate({ id: v.id, patch: { weight_kg: numOrNull(e.target.value) } })}
-                      className="input text-xs h-7 w-16" />
+                    <input type="number" step="0.001" value={(fieldValue(v, 'weight_kg') as number | null) ?? ''}
+                      onChange={e => setPendingField(v, 'weight_kg', numOrNull(e.target.value))}
+                      className={clsx('input text-xs h-7 w-16', pendingChanges[v.id]?.weight_kg !== undefined && 'ring-2 ring-primary/40')} />
                   </td>
                   <td className="p-2">
                     <select
-                      defaultValue={v.image_id ?? ''}
-                      onChange={e => updateVariantMutation.mutate({ id: v.id, patch: { image_id: e.target.value || null } })}
-                      className="input text-xs h-7 w-24"
+                      value={(fieldValue(v, 'image_id') as string | null) ?? ''}
+                      onChange={e => setPendingField(v, 'image_id', e.target.value || null)}
+                      className={clsx('input text-xs h-7 w-24', pendingChanges[v.id]?.image_id !== undefined && 'ring-2 ring-primary/40')}
                     >
                       <option value="">Padrão</option>
                       {productImages.map((img, i) => (
@@ -751,4 +824,4 @@ export function VariationsEditor({ productId, companyId }: Props) {
       )}
     </div>
   )
-}
+})

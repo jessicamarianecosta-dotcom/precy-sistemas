@@ -11,17 +11,18 @@ import {
   Package, Plus, Search, Edit2, Trash2, X, Loader2,
   Copy, ExternalLink, DollarSign, Clock, Layers,
   TrendingUp, ChevronRight, Tag, Zap, Ruler, FileText,
-  Images, SlidersHorizontal,
+  Images, SlidersHorizontal, Save, AlertCircle,
 } from 'lucide-react'
 import { ProductGalleryUpload } from '@/components/catalog/ProductGalleryUpload'
-import { VariationsEditor } from '@/components/catalog/VariationsEditor'
+import { VariationsEditor, type VariationsEditorHandle } from '@/components/catalog/VariationsEditor'
 import { calculateAreaM2, formatAreaM2, formatDimDisplay, getDimBlock } from '@/lib/utils/dimensions'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { clsx } from 'clsx'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { CategorySelect } from '@/components/ui/CategorySelect'
 import { formatCurrency } from '@/lib/utils/format'
 import { useSubscription } from '@/hooks/useSubscription'
@@ -88,6 +89,11 @@ interface Product {
   catalog_category_id?:    string | null
   catalog_lead_time_days?: number | null
   catalog_starting_price?: number | null
+  // Peso/dimensões de embalagem — usados na cotação de frete (SuperFrete)
+  weight_kg?: number | null
+  length_cm?: number | null
+  width_cm?:  number | null
+  height_cm?: number | null
 }
 
 interface ProductMaterial {
@@ -122,6 +128,10 @@ const schema = z.object({
   catalog_category_id:   z.string().optional(),
   catalog_lead_time_days: optionalNumber,
   catalog_starting_price: optionalNumber,
+  weight_kg: optionalNumber,
+  length_cm: optionalNumber,
+  width_cm:  optionalNumber,
+  height_cm: optionalNumber,
 })
 type FormData = z.infer<typeof schema>
 
@@ -158,6 +168,7 @@ export default function ProdutosPage() {
   const { companyId } = useCompanyId()
   const sub           = useSubscription()
   const isPro         = sub?.data?.isPro ?? false
+  const router        = useRouter()
 
   const { data: catalogCategories } = useQuery<{ id: string; name: string }[]>({
     queryKey: ['catalog_categories', companyId],
@@ -176,6 +187,35 @@ export default function ProdutosPage() {
   const [search,        setSearch]        = useState('')
   const [deleteId,      setDeleteId]      = useState<string | null>(null)
   const [duplicating,   setDuplicating]   = useState(false)
+
+  /* combinações: alterações não salvas na ficha técnica */
+  const variationsEditorRef = useRef<VariationsEditorHandle>(null)
+  const [combosDirty,        setCombosDirty]        = useState(false)
+  const [savingCombos,       setSavingCombos]       = useState(false)
+  const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false)
+  const pendingCloseAction = useRef<(() => void) | null>(null)
+
+  function requestCloseViewProduct(action: () => void) {
+    if (combosDirty) {
+      pendingCloseAction.current = action
+      setShowUnsavedConfirm(true)
+    } else {
+      action()
+    }
+  }
+
+  async function handleSaveCombos(): Promise<boolean> {
+    if (!variationsEditorRef.current) return false
+    setSavingCombos(true)
+    try {
+      await variationsEditorRef.current.saveChanges()
+      return true
+    } catch {
+      return false
+    } finally {
+      setSavingCombos(false)
+    }
+  }
 
   /* ── Queries ── */
   const { data: products, isLoading } = useQuery<Product[]>({
@@ -452,7 +492,8 @@ export default function ProdutosPage() {
   function openEdit(p: Product) {
     setEditingId(p.id)
     ;(['name','description','category','unit','production_time_hours','material_cost','markup_percentage','final_price',
-       'is_published_catalog','catalog_category_id','catalog_lead_time_days','catalog_starting_price'] as Array<keyof FormData>)
+       'is_published_catalog','catalog_category_id','catalog_lead_time_days','catalog_starting_price',
+       'weight_kg','length_cm','width_cm','height_cm'] as Array<keyof FormData>)
       .forEach(k => setValue(k, (p as unknown as Record<string, unknown>)[k] as string))
     setShowForm(true)
   }
@@ -640,7 +681,7 @@ export default function ProdutosPage() {
       ════════════════════════════════════════ */}
       {viewProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setViewProduct(null)} />
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => requestCloseViewProduct(() => setViewProduct(null))} />
           <div className="relative bg-background dark:bg-background-dark w-full max-w-2xl max-h-[95dvh] sm:max-h-[92vh] flex flex-col rounded-2xl shadow-modal animate-scaleIn overflow-hidden">
 
             {/* Header */}
@@ -663,7 +704,7 @@ export default function ProdutosPage() {
                   </div>
                 </div>
               </div>
-              <button onClick={() => setViewProduct(null)}
+              <button onClick={() => requestCloseViewProduct(() => setViewProduct(null))}
                 className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted flex-shrink-0 ml-2">
                 <X size={16} />
               </button>
@@ -702,7 +743,12 @@ export default function ProdutosPage() {
 
                   <FichaSection icon={SlidersHorizontal} title="Variações"
                     color="text-primary" bg="bg-primary-50 dark:bg-primary/10">
-                    <VariationsEditor productId={vp.id} companyId={companyId} />
+                    <VariationsEditor
+                    ref={variationsEditorRef}
+                    productId={vp.id}
+                    companyId={companyId}
+                    onDirtyChange={setCombosDirty}
+                  />
                   </FichaSection>
                 </>
               )}
@@ -1027,36 +1073,120 @@ export default function ProdutosPage() {
             </div>
 
             {/* Footer: ações */}
-            <div className="flex-shrink-0 p-3 sm:p-4 border-t border-border dark:border-border-dark grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="flex-shrink-0 border-t border-border dark:border-border-dark">
+              {isPro && vp?.id && companyId && (
+                <div className="px-3 sm:px-4 pt-3 sm:pt-4 flex items-center justify-between gap-2">
+                  <span className={clsx(
+                    'flex items-center gap-1 text-[11px] font-medium text-warning-dark dark:text-warning transition-opacity',
+                    combosDirty ? 'opacity-100' : 'opacity-0 select-none'
+                  )}>
+                    <AlertCircle size={11} /> Alterações não salvas
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleSaveCombos}
+                    disabled={!combosDirty || savingCombos}
+                    className="btn-primary flex items-center justify-center gap-1.5 text-xs py-2 px-3.5 flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {savingCombos ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                    {savingCombos ? 'Salvando...' : 'Salvar alterações'}
+                  </button>
+                </div>
+              )}
+              <div className="p-3 sm:p-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <button
+                  onClick={() => { openEdit(viewProduct!); }}
+                  className="btn-secondary flex items-center justify-center gap-1.5 text-xs py-2.5"
+                >
+                  <Edit2 size={13} /> Editar dados
+                </button>
+
+                <Link
+                  href={`/precificacao?productId=${viewProduct?.id}`}
+                  className="btn-secondary flex items-center justify-center gap-1.5 text-xs py-2.5"
+                  onClick={e => {
+                    if (combosDirty) {
+                      e.preventDefault()
+                      requestCloseViewProduct(() => {
+                        setViewProduct(null)
+                        router.push(`/precificacao?productId=${viewProduct?.id}`)
+                      })
+                    } else {
+                      setViewProduct(null)
+                    }
+                  }}
+                >
+                  <ExternalLink size={13} /> Editar Precificação
+                </Link>
+
+                <button
+                  onClick={() => { handleDuplicate(viewProduct!); }}
+                  disabled={duplicating}
+                  className="btn-secondary flex items-center justify-center gap-1.5 text-xs py-2.5 col-span-1"
+                >
+                  {duplicating ? <Loader2 size={13} className="animate-spin" /> : <Copy size={13} />}
+                  {duplicating ? 'Duplicando...' : 'Duplicar'}
+                </button>
+
+                <button
+                  onClick={() => requestCloseViewProduct(() => { setDeleteId(viewProduct!.id); setViewProduct(null) })}
+                  className="flex items-center justify-center gap-1.5 text-xs py-2.5 px-3 rounded-xl text-error border border-error/30 hover:bg-error-light dark:hover:bg-error/10 transition-all"
+                >
+                  <Trash2 size={13} /> Excluir
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════
+          MODAL: ALTERAÇÕES NÃO SALVAS (combinações)
+      ════════════════════════════════════════ */}
+      {showUnsavedConfirm && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center p-3 sm:p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowUnsavedConfirm(false)} />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm p-5">
+            <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-2">Você tem alterações não salvas</h2>
+            <p className="text-xs text-text-muted dark:text-stone-500 mb-4">
+              As combinações deste produto têm alterações que ainda não foram salvas. O que deseja fazer?
+            </p>
+            <div className="flex flex-col gap-2">
               <button
-                onClick={() => { openEdit(viewProduct!); }}
-                className="btn-secondary flex items-center justify-center gap-1.5 text-xs py-2.5"
+                type="button"
+                onClick={() => setShowUnsavedConfirm(false)}
+                className="btn-secondary w-full text-xs py-2.5"
               >
-                <Edit2 size={13} /> Editar dados
+                Continuar editando
               </button>
-
-              <Link
-                href={`/precificacao?productId=${viewProduct?.id}`}
-                className="btn-secondary flex items-center justify-center gap-1.5 text-xs py-2.5"
-                onClick={() => setViewProduct(null)}
-              >
-                <ExternalLink size={13} /> Editar Precificação
-              </Link>
-
               <button
-                onClick={() => { handleDuplicate(viewProduct!); }}
-                disabled={duplicating}
-                className="btn-secondary flex items-center justify-center gap-1.5 text-xs py-2.5 col-span-1"
+                type="button"
+                onClick={() => {
+                  variationsEditorRef.current?.discardChanges()
+                  setShowUnsavedConfirm(false)
+                  const action = pendingCloseAction.current
+                  pendingCloseAction.current = null
+                  action?.()
+                }}
+                className="w-full text-xs py-2.5 rounded-xl text-error border border-error/30 hover:bg-error-light dark:hover:bg-error/10 transition-all"
               >
-                {duplicating ? <Loader2 size={13} className="animate-spin" /> : <Copy size={13} />}
-                {duplicating ? 'Duplicando...' : 'Duplicar'}
+                Sair sem salvar
               </button>
-
               <button
-                onClick={() => { setDeleteId(viewProduct!.id); setViewProduct(null); }}
-                className="flex items-center justify-center gap-1.5 text-xs py-2.5 px-3 rounded-xl text-error border border-error/30 hover:bg-error-light dark:hover:bg-error/10 transition-all"
+                type="button"
+                disabled={savingCombos}
+                onClick={async () => {
+                  const ok = await handleSaveCombos()
+                  if (ok) {
+                    setShowUnsavedConfirm(false)
+                    const action = pendingCloseAction.current
+                    pendingCloseAction.current = null
+                    action?.()
+                  }
+                }}
+                className="btn-primary w-full text-xs py-2.5 flex items-center justify-center gap-1.5 disabled:opacity-50"
               >
-                <Trash2 size={13} /> Excluir
+                {savingCombos && <Loader2 size={13} className="animate-spin" />} Salvar alterações
               </button>
             </div>
           </div>
@@ -1155,6 +1285,15 @@ export default function ProdutosPage() {
                     <div className="sm:col-span-2">
                       <label className="block text-xs font-medium text-text-secondary dark:text-stone-400 mb-1.5">Preço inicial (opcional — se vazio, usa o Preço Final)</label>
                       <input type="number" step="0.01" className="input" placeholder="0,00" {...register('catalog_starting_price')} />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <p className="text-xs font-medium text-text-secondary dark:text-stone-400 mb-1.5">Peso e dimensões da embalagem (para calcular o frete)</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <input type="number" step="0.001" className="input" placeholder="Peso (kg)" {...register('weight_kg')} />
+                        <input type="number" step="0.1" className="input" placeholder="Compr. (cm)" {...register('length_cm')} />
+                        <input type="number" step="0.1" className="input" placeholder="Larg. (cm)" {...register('width_cm')} />
+                        <input type="number" step="0.1" className="input" placeholder="Alt. (cm)" {...register('height_cm')} />
+                      </div>
                     </div>
                   </div>
                 )}
