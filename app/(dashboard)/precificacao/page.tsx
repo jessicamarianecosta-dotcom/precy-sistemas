@@ -175,9 +175,38 @@ function computeExtraCostValue(
 }
 
 /* ─────────────────────────── Slider ─── */
+const MARGIN_MIN = 10
+const MARGIN_MAX = 500
+
 function MarginSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const pct = Math.min(100, ((value - 10) / (500 - 10)) * 100)
+  const pct = Math.min(100, Math.max(0, ((value - MARGIN_MIN) / (MARGIN_MAX - MARGIN_MIN)) * 100))
   const color = value < 50 ? '#C4503A' : value < 100 ? '#C4893A' : value < 200 ? '#5C8B4F' : '#8B6C4F'
+
+  // Campo numérico editável: mantém texto livre enquanto o usuário digita
+  // (sem clamping a cada tecla) e só normaliza/limita ao min-max no blur/Enter,
+  // para não "brigar" com quem está apagando e redigitando.
+  const [text, setText] = useState(String(value))
+  const [focused, setFocused] = useState(false)
+
+  useEffect(() => {
+    if (!focused) setText(String(value))
+  }, [value, focused])
+
+  const handleTextChange = (raw: string) => {
+    const cleaned = raw.replace(/[^\d-]/g, '')
+    setText(cleaned)
+    if (cleaned === '' || cleaned === '-') return
+    const num = parseInt(cleaned, 10)
+    if (Number.isFinite(num)) onChange(num)
+  }
+
+  const commit = (raw: string) => {
+    const cleaned = raw.replace(/[^\d-]/g, '')
+    const num = parseInt(cleaned, 10)
+    const clamped = Number.isFinite(num) ? Math.min(MARGIN_MAX, Math.max(MARGIN_MIN, num)) : value
+    setText(String(clamped))
+    onChange(clamped)
+  }
 
   return (
     <div>
@@ -185,9 +214,24 @@ function MarginSlider({ value, onChange }: { value: number; onChange: (v: number
         <label className="text-sm font-medium text-text-primary dark:text-stone-200">
           Margem de Lucro
         </label>
-        <span className="text-sm font-bold px-2.5 py-1 rounded-lg" style={{ background: `${color}18`, color }}>
-          {value}%
-        </span>
+        <div
+          className="flex items-center gap-0.5 pl-2.5 pr-2 py-1 rounded-lg"
+          style={{ background: `${color}18` }}
+        >
+          <input
+            type="text"
+            inputMode="numeric"
+            value={text}
+            onFocus={() => setFocused(true)}
+            onChange={e => handleTextChange(e.target.value)}
+            onBlur={e => { setFocused(false); commit(e.target.value) }}
+            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+            className="w-12 sm:w-14 bg-transparent text-sm font-bold text-right outline-none tabular-nums"
+            style={{ color }}
+            aria-label="Margem de lucro em porcentagem"
+          />
+          <span className="text-sm font-bold" style={{ color }}>%</span>
+        </div>
       </div>
       <div className="relative h-6 flex items-center">
         {/* Track */}
@@ -199,7 +243,7 @@ function MarginSlider({ value, onChange }: { value: number; onChange: (v: number
         </div>
         <input
           type="range"
-          min={10} max={500} step={5}
+          min={MARGIN_MIN} max={MARGIN_MAX} step={5}
           value={value}
           onChange={e => onChange(parseInt(e.target.value))}
           className="relative w-full h-2 opacity-0 cursor-pointer z-10"
