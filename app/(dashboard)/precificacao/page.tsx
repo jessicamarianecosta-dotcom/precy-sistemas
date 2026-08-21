@@ -257,7 +257,17 @@ function PrecificacaoPage() {
   const [category,         setCategory]         = useState('geral')
   const [unit,             setUnit]             = useState('un')
   const [markup,           setMarkup]           = useState(100)
-  const [productionHours,  setProductionHours]  = useState(1)
+  const [productionHoursPart,   setProductionHoursPart]   = useState(1)
+  const [productionMinutesPart, setProductionMinutesPart] = useState(0)
+  const productionHours = productionHoursPart + productionMinutesPart / 60
+  const productionTimeLabel =
+    productionHoursPart === 0 && productionMinutesPart === 0
+      ? '0h'
+      : productionMinutesPart === 0
+      ? `${productionHoursPart}h`
+      : productionHoursPart === 0
+      ? `${productionMinutesPart}min`
+      : `${productionHoursPart}h ${productionMinutesPart}min`
   const [purchaseCost,     setPurchaseCost]     = useState(0)
   // ── Produto por metro ──
   const [mWidth,           setMWidth]           = useState<number>(0)
@@ -334,7 +344,14 @@ function PrecificacaoPage() {
     setCategory(p.category ?? 'geral')
     setUnit(p.unit ?? 'un')
     setMarkup(Number(p.markup_percentage) || 100)
-    setProductionHours(Number(p.production_time_hours) || 1)
+    {
+      const totalHours = Number(p.production_time_hours) || 1
+      let h = Math.floor(totalHours)
+      let m = Math.round((totalHours - h) * 60)
+      if (m >= 60) { m -= 60; h += 1 }
+      setProductionHoursPart(h)
+      setProductionMinutesPart(m)
+    }
     setPurchaseCost(Number(p.purchase_cost) || 0)
     if (p.product_type) setProductType(p.product_type as ProductType)
     if (p.pricing_type) {
@@ -814,7 +831,8 @@ function PrecificacaoPage() {
         setCategory('geral')
         setUnit('un')
         setMarkup(100)
-        setProductionHours(1)
+        setProductionHoursPart(1)
+        setProductionMinutesPart(0)
         setPurchaseCost(0)
         setExtraCosts([{ id: crypto.randomUUID(), name: '', value: 0 }])
         setMaterials([])
@@ -1138,20 +1156,40 @@ function PrecificacaoPage() {
                 </h3>
                 <div>
                   <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
-                    Tempo de produção (horas)
+                    Tempo de produção
                   </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="number"
-                      step={0.1}
-                      min={0}
-                      className="input w-28"
-                      value={productionHours}
-                      onChange={e => setProductionHours(parseFloat(e.target.value) || 0)}
-                    />
-                    <div className="flex-1 p-3 rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          step={1}
+                          min={0}
+                          className="input w-20"
+                          value={productionHoursPart}
+                          onChange={e => setProductionHoursPart(Math.max(0, Math.floor(Number(e.target.value)) || 0))}
+                        />
+                        <span className="text-xs text-text-muted dark:text-stone-500">hora</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          step={1}
+                          min={0}
+                          max={59}
+                          className="input w-20"
+                          value={productionMinutesPart}
+                          onChange={e => {
+                            const raw = Math.floor(Number(e.target.value)) || 0
+                            setProductionMinutesPart(Math.min(59, Math.max(0, raw)))
+                          }}
+                        />
+                        <span className="text-xs text-text-muted dark:text-stone-500">min</span>
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-[180px] p-3 rounded-xl bg-primary-50 dark:bg-primary/10 border border-primary/20">
                       <p className="text-xs text-text-secondary dark:text-stone-400">
-                        {productionHours}h × {fmt(hourlyRate)}/h =
+                        {productionTimeLabel} × {fmt(hourlyRate)}/h =
                         <span className="font-bold text-primary ml-1">{fmt(laborCost)}</span>
                       </p>
                       {fixedCostsTotal === 0 && prolabore === 0 && (
@@ -1720,7 +1758,7 @@ function PrecificacaoPage() {
                   )}
                   {laborCost > 0 && (
                     <Row
-                      label={`Mão de obra (${productionHours}h × ${fmt(hourlyRate)})`}
+                      label={`Mão de obra (${productionTimeLabel} × ${fmt(hourlyRate)})`}
                       value={laborCost}
                       color="bg-warning-light text-warning-dark"
                     />
@@ -1738,7 +1776,7 @@ function PrecificacaoPage() {
                     ) : null
                   })}
                   {laborCost > 0 && (
-                    <Row label={`Mão de obra (${productionHours}h × ${fmt(hourlyRate)})`} value={laborCost} color="bg-warning-light text-warning-dark" />
+                    <Row label={`Mão de obra (${productionTimeLabel} × ${fmt(hourlyRate)})`} value={laborCost} color="bg-warning-light text-warning-dark" />
                   )}
                 </>
               ) : (
