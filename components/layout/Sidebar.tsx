@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Package, Boxes, ShoppingCart,
   Users, FileText, DollarSign, Settings, Calculator,
   ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays, BarChart2, Crown, TrendingUp, Truck, Store,
-  MessageSquare,
+  MessageSquare, FileStack,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { createClient } from '@/lib/supabase/client'
@@ -33,6 +33,7 @@ const menuItems = [
       { href: '/produtos',    icon: Package,     label: 'Produtos'  },
       { href: '/estoque',     icon: Boxes,       label: 'Estoque'   },
       { href: '/pedidos',     icon: ShoppingCart,label: 'Pedidos'   },
+      { href: '/declaracao-conteudo', icon: FileStack, label: 'Declaração de Conteúdo' },
       { href: '/agenda',      icon: CalendarDays,label: 'Agenda',   pro: true },
       { href: '/clientes',    icon: Users,       label: 'Clientes'  },
       { href: '/fornecedores',icon: Truck,       label: 'Fornecedores' },

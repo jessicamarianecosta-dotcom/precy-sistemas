@@ -54,6 +54,7 @@ import {
   Scissors,
   Box,
   ChevronUp,
+  FileStack,
 } from 'lucide-react'
 
 import { useForm } from 'react-hook-form'
@@ -1863,6 +1864,13 @@ function PedidosPage() {
                                 onSelect={(mode) => handleGeneratePDF(order, mode)}
                               />
                               <button
+                                onClick={(e) => { e.stopPropagation(); router.push(`/declaracao-conteudo/nova?orderId=${order.id}`) }}
+                                className="p-1 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"
+                                title="Gerar Declaração de Conteúdo"
+                              >
+                                <FileStack size={12} />
+                              </button>
+                              <button
                                 onClick={(e) => { e.stopPropagation(); openOrder(order) }}
                                 className="p-1 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"
                                 title="Editar pedido"
@@ -2070,6 +2078,13 @@ function PedidosPage() {
                                 defaultTemplate={(companyData?.default_pdf_template as 'cliente' | 'producao') ?? 'cliente'}
                                 onSelect={(mode) => handleGeneratePDF(order, mode)}
                               />
+                              <button
+                                onClick={(e) => { e.stopPropagation(); router.push(`/declaracao-conteudo/nova?orderId=${order.id}`) }}
+                                className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors"
+                                title="Gerar Declaração de Conteúdo"
+                              >
+                                <FileStack size={12} />
+                              </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); openOrder(order) }}
                                 className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors"

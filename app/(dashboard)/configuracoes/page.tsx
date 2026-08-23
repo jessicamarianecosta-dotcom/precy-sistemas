@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Header } from '@/components/layout/Header'
 import {
   Building2, DollarSign, CreditCard, Trash2, Plus,
-  CheckCircle, Loader2, LogOut, Key, Upload, Instagram,
+  CheckCircle, Loader2, LogOut, Key, Upload,
   Phone, MapPin, Hash, Clock, TrendingUp, Zap, Star,
   AlertCircle, Scissors, Edit2, X, FileText, Download, ShieldAlert, Printer,
 } from 'lucide-react'
@@ -19,6 +19,8 @@ import { z } from 'zod'
 import { useToast } from '@/components/ui/Toaster'
 import { useRouter } from 'next/navigation'
 import { useSubscription } from '@/hooks/useSubscription'
+import { formatCep, formatCpfCnpj, onlyDigits } from '@/lib/utils/mask'
+import { useCepLookup } from '@/hooks/useCepLookup'
 
 /* ─────────────────────────── Types & Schemas ─── */
 type Tab = 'empresa' | 'financeiro' | 'acabamentos' | 'conta'
@@ -40,10 +42,14 @@ const companySchema = z.object({
   name:                 z.string().min(2, 'Nome obrigatório'),
   responsible_name:     z.string().optional(),
   phone:                z.string().optional(),
-  instagram:            z.string().optional(),
+  cnpj:                 z.string().optional(),
+  zip_code:             z.string().optional(),
+  street:               z.string().optional(),
+  number:               z.string().optional(),
+  complement:           z.string().optional(),
+  neighborhood:         z.string().optional(),
   city:                 z.string().optional(),
   state:                z.string().optional(),
-  cnpj:                 z.string().optional(),
   work_hours_per_month: z.coerce.number().min(1).max(744),
   email:                z.string().email('E-mail inválido').optional().or(z.literal('')),
 })
@@ -278,22 +284,38 @@ export default function ConfiguracoesPage() {
     resolver: zodResolver(fixedCostSchema),
     defaultValues: { category: 'geral' },
   })
+  const cepLookup = useCepLookup({
+    onFound: data => {
+      if (data.logradouro) coForm.setValue('street', data.logradouro)
+      if (data.bairro) coForm.setValue('neighborhood', data.bairro)
+      if (data.cidade) coForm.setValue('city', data.cidade)
+      if (data.uf) coForm.setValue('state', data.uf)
+      toast('success', 'Endereço encontrado.')
+    },
+  })
 
   /* ─── Popular form empresa quando company carregar ─── */
   useEffect(() => {
     if (!company) return
-    const addr: string = (company as any)?.address ?? ''
+    const co = company as any
+    // Fallback para empresas antigas, cadastradas antes dos campos estruturados
+    // de endereço existirem: "address" guardava só "Cidade, UF" em texto livre.
+    const addr: string = co?.address ?? ''
     const parts = addr.includes(',') ? addr.split(',') : [addr, '']
     coForm.reset({
-      name:                 (company as any)?.name ?? '',
+      name:                 co?.name ?? '',
       responsible_name:     (profile as any)?.name ?? '',
-      phone:                (company as any)?.phone ?? '',
-      instagram:            (company as any)?.cnpj ?? '',
-      city:                 parts[0]?.trim() ?? '',
-      state:                parts[1]?.trim() ?? '',
-      cnpj:                 '',
-      work_hours_per_month: (company as any)?.work_hours_per_month ?? 160,
-      email:                (company as any)?.email ?? '',
+      phone:                co?.phone ?? '',
+      cnpj:                 co?.cnpj ?? '',
+      zip_code:             co?.zip_code ?? '',
+      street:               co?.street ?? '',
+      number:               co?.number ?? '',
+      complement:           co?.complement ?? '',
+      neighborhood:         co?.neighborhood ?? '',
+      city:                 co?.city  ?? parts[0]?.trim() ?? '',
+      state:                co?.state ?? parts[1]?.trim() ?? '',
+      work_hours_per_month: co?.work_hours_per_month ?? 160,
+      email:                co?.email ?? '',
     })
     if ((company as any)?.logo_url)       setLogoPreview((company as any).logo_url)
     if ((company as any)?.primary_color)  setPrimaryColor((company as any).primary_color)
@@ -365,12 +387,23 @@ export default function ConfiguracoesPage() {
   /* ─── Mutations ─── */
   const saveCompany = useMutation({
     mutationFn: async (d: CompanyForm) => {
-      const address = d.city && d.state ? `${d.city}, ${d.state}` : (d.city || d.state || '')
+      // "address" (texto livre) é mantido por compatibilidade — outras telas
+      // (ex: PDF de pedido) ainda leem esse campo diretamente.
+      const streetLine = [d.street, d.number].filter(Boolean).join(', ')
+      const address = [streetLine, d.neighborhood, d.city && d.state ? `${d.city} - ${d.state}` : (d.city || d.state || '')]
+        .filter(Boolean).join(' - ')
       const { error } = await (supabase.from('companies') as any).update({
         name:                 d.name,
         phone:                d.phone,
         email:                d.email,
-        cnpj:                 d.instagram,
+        cnpj:                 d.cnpj || null,
+        zip_code:             onlyDigits(d.zip_code) || null,
+        street:               d.street || null,
+        number:               d.number || null,
+        complement:           d.complement || null,
+        neighborhood:         d.neighborhood || null,
+        city:                 d.city || null,
+        state:                d.state || null,
         address,
         work_hours_per_month: d.work_hours_per_month,
         updated_at:           new Date().toISOString(),
@@ -643,23 +676,71 @@ export default function ConfiguracoesPage() {
                     </div>
                   </div>
                   <div>
-                    <FieldLabel>Instagram</FieldLabel>
+                    <FieldLabel>CNPJ/CPF</FieldLabel>
                     <div className="relative">
-                      <Instagram size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-                      <input type="text" placeholder="@seuatelie" className="input pl-9" {...coForm.register('instagram')} />
+                      <CreditCard size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                      <input
+                        type="text"
+                        placeholder="00.000.000/0000-00"
+                        className="input pl-9"
+                        value={coForm.watch('cnpj') ?? ''}
+                        onChange={e => coForm.setValue('cnpj', formatCpfCnpj(e.target.value))}
+                      />
                     </div>
                   </div>
-                  <div>
-                    <FieldLabel>Cidade</FieldLabel>
-                    <div className="relative">
-                      <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-                      <input type="text" placeholder="Ex: Curitiba" className="input pl-9" {...coForm.register('city')} />
-                    </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Endereço — usado como remetente automático na Declaração de Conteúdo e em outros documentos */}
+            <div className="card">
+              <SectionTitle icon={MapPin} title="Endereço" subtitle="Usado como remetente em documentos, como a Declaração de Conteúdo" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <FieldLabel>CEP</FieldLabel>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="00000-000"
+                      className="input pr-8"
+                      value={coForm.watch('zip_code') ?? ''}
+                      onChange={e => {
+                        const formatted = formatCep(e.target.value)
+                        coForm.setValue('zip_code', formatted)
+                        cepLookup.searchOnComplete(formatted)
+                      }}
+                    />
+                    {cepLookup.loading && (
+                      <Loader2 size={14} className="animate-spin absolute right-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                    )}
                   </div>
-                  <div>
-                    <FieldLabel>Estado</FieldLabel>
-                    <input type="text" placeholder="PR" maxLength={2} className="input uppercase" {...coForm.register('state')} />
+                </div>
+                <div>
+                  <FieldLabel>Logradouro</FieldLabel>
+                  <input type="text" placeholder="Rua, Av..." className="input" {...coForm.register('street')} />
+                </div>
+                <div>
+                  <FieldLabel>Número</FieldLabel>
+                  <input type="text" placeholder="123" className="input" {...coForm.register('number')} />
+                </div>
+                <div>
+                  <FieldLabel>Complemento</FieldLabel>
+                  <input type="text" placeholder="Sala, bloco..." className="input" {...coForm.register('complement')} />
+                </div>
+                <div>
+                  <FieldLabel>Bairro</FieldLabel>
+                  <input type="text" placeholder="Bairro" className="input" {...coForm.register('neighborhood')} />
+                </div>
+                <div>
+                  <FieldLabel>Cidade</FieldLabel>
+                  <div className="relative">
+                    <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                    <input type="text" placeholder="Ex: Curitiba" className="input pl-9" {...coForm.register('city')} />
                   </div>
+                </div>
+                <div>
+                  <FieldLabel>Estado</FieldLabel>
+                  <input type="text" placeholder="PR" maxLength={2} className="input uppercase" {...coForm.register('state')} />
                 </div>
               </div>
             </div>
