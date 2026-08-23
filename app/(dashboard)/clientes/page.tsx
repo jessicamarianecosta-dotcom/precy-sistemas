@@ -19,33 +19,58 @@ import { clsx } from 'clsx'
 import { formatCurrency } from '@/lib/utils/format'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { formatCnpj, formatCpf, formatCep, onlyDigits, isValidCnpjLength } from '@/lib/utils/mask'
+import { useCnpjLookup } from '@/hooks/useCnpjLookup'
+import { useCepLookup } from '@/hooks/useCepLookup'
+import { SituacaoCadastralBadge } from '@/components/ui/SituacaoCadastralBadge'
 
 /* ─── Tipos ─── */
 interface Customer {
-  id:             string
-  company_id:     string
-  name:           string
-  email:          string | null
-  phone:          string | null
-  address:        string | null
-  city:           string | null
-  state:          string | null
-  cpf_cnpj:       string | null
-  notes:          string | null
-  total_purchases: number
-  created_at:     string
-  updated_at:     string
+  id:                  string
+  company_id:          string
+  name:                string
+  email:               string | null
+  phone:               string | null
+  address:             string | null
+  city:                string | null
+  state:               string | null
+  cpf_cnpj:            string | null
+  notes:               string | null
+  total_purchases:     number
+  created_at:          string
+  updated_at:          string
+  person_type:         'pf' | 'pj' | null
+  trade_name:          string | null
+  zip_code:            string | null
+  street:              string | null
+  number:              string | null
+  complement:          string | null
+  neighborhood:        string | null
+  ibge_code:           string | null
+  cnae:                string | null
+  registration_status: string | null
+  opening_date:        string | null
 }
 
 /* ─── Schema ─── */
 const customerSchema = z.object({
-  name:     z.string().min(2, 'Nome obrigatório'),
-  email:    z.string().email('E-mail inválido').optional().or(z.literal('')),
-  phone:    z.string().optional(),
-  city:     z.string().optional(),
-  state:    z.string().optional(),
-  cpf_cnpj: z.string().optional(),
-  notes:    z.string().optional(),
+  person_type:  z.enum(['pf', 'pj']).default('pf'),
+  name:         z.string().min(2, 'Nome obrigatório'),
+  trade_name:   z.string().optional(),
+  email:        z.string().email('E-mail inválido').optional().or(z.literal('')),
+  phone:        z.string().optional(),
+  cpf_cnpj:     z.string().optional(),
+  zip_code:     z.string().optional(),
+  street:       z.string().optional(),
+  number:       z.string().optional(),
+  complement:   z.string().optional(),
+  neighborhood: z.string().optional(),
+  city:         z.string().optional(),
+  state:        z.string().optional(),
+  ibge_code:    z.string().optional(),
+  cnae:         z.string().optional(),
+  registration_status: z.string().optional(),
+  notes:        z.string().optional(),
 })
 type CustomerForm = z.infer<typeof customerSchema>
 
@@ -110,20 +135,73 @@ export default function ClientesPage() {
 
   /* ── Form ── */
   const {
-    register, handleSubmit, reset, setValue,
+    register, handleSubmit, reset, setValue, watch,
     formState: { errors },
-  } = useForm<CustomerForm>({ resolver: zodResolver(customerSchema) })
+  } = useForm<CustomerForm>({ resolver: zodResolver(customerSchema), defaultValues: { person_type: 'pf' } })
+
+  const personType = watch('person_type')
+  const [situacaoCadastral, setSituacaoCadastral] = useState<string | null>(null)
+
+  /* ── Consulta CNPJ (BrasilAPI, via /api/cnpj) ── */
+  const cnpjLookup = useCnpjLookup({
+    onFound: data => {
+      if (data.razaoSocial) setValue('name', data.razaoSocial)
+      if (data.nomeFantasia) setValue('trade_name', data.nomeFantasia)
+      if (data.telefone) setValue('phone', data.telefone)
+      if (data.email) setValue('email', data.email)
+      if (data.cnae) setValue('cnae', data.cnae)
+      setSituacaoCadastral(data.situacaoCadastral)
+      setValue('registration_status', data.situacaoCadastral ?? '')
+      // Endereço vindo do CNPJ preenche o que houver — se faltar algo, o CEP completa depois.
+      if (data.cep) setValue('zip_code', formatCep(data.cep))
+      if (data.logradouro) setValue('street', data.logradouro)
+      if (data.numero) setValue('number', data.numero)
+      if (data.complemento) setValue('complement', data.complemento)
+      if (data.bairro) setValue('neighborhood', data.bairro)
+      if (data.cidade) setValue('city', data.cidade)
+      if (data.uf) setValue('state', data.uf)
+      toast('success', 'Dados da empresa encontrados.')
+    },
+  })
+
+  /* ── Consulta CEP (ViaCEP, via /api/cep) — não sobrescreve número/complemento ── */
+  const cepLookup = useCepLookup({
+    onFound: data => {
+      if (data.logradouro) setValue('street', data.logradouro)
+      if (data.bairro) setValue('neighborhood', data.bairro)
+      if (data.cidade) setValue('city', data.cidade)
+      if (data.uf) setValue('state', data.uf)
+      if (data.ibge) setValue('ibge_code', data.ibge)
+      toast('success', 'Endereço encontrado.')
+    },
+  })
+
+  async function handleBuscarCnpj() {
+    const cpfCnpj = watch('cpf_cnpj') ?? ''
+    if (!isValidCnpjLength(cpfCnpj)) {
+      toast('error', 'Digite um CNPJ válido com 14 dígitos.')
+      return
+    }
+    const result = await cnpjLookup.search(cpfCnpj)
+    if (!result.ok) toast(result.status === 'unavailable' ? 'warning' : 'error', result.message)
+  }
 
   /* ── Mutations ── */
   const saveMutation = useMutation({
     mutationFn: async (d: CustomerForm) => {
+      // Duplicidade de CPF/CNPJ por empresa (tenant) é garantida por índice único
+      // no banco (idx_customers_company_document_unique) — erro 23505 é mapeado
+      // abaixo para uma mensagem amigável.
+      const payload = { ...d, zip_code: onlyDigits(d.zip_code) || null, cpf_cnpj: d.cpf_cnpj || null }
       if (editingId) {
-        await (supabase.from('customers') as any)
-          .update({ ...d, updated_at: new Date().toISOString() })
+        const { error } = await (supabase.from('customers') as any)
+          .update({ ...payload, updated_at: new Date().toISOString() })
           .eq('id', editingId)
+        if (error) throw mapSaveError(error)
       } else {
-        await (supabase.from('customers') as any)
-          .insert([{ ...d, company_id: companyId!, total_purchases: 0 }]).select()
+        const { error } = await (supabase.from('customers') as any)
+          .insert([{ ...payload, company_id: companyId!, total_purchases: 0 }]).select()
+        if (error) throw mapSaveError(error)
       }
     },
     onSuccess: () => {
@@ -135,6 +213,13 @@ export default function ClientesPage() {
       toast('error', `Erro: ${err.message}`)
     },
   })
+
+  function mapSaveError(error: { code?: string; message: string }): Error {
+    if (error.code === '23505') {
+      return new Error('Já existe um cliente cadastrado com esse CPF/CNPJ.')
+    }
+    return new Error(error.message)
+  }
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -171,21 +256,33 @@ export default function ClientesPage() {
 
   /* ── Handlers ── */
   function openNew() {
-    reset()
+    reset({ person_type: 'pf' })
+    setSituacaoCadastral(null)
     setEditingId(null)
     setShowModal(true)
   }
 
   function openEdit(c: Customer) {
     setEditingId(c.id)
+    setSituacaoCadastral(c.registration_status ?? null)
     reset({
-      name:     c.name,
-      email:    c.email    ?? '',
-      phone:    c.phone    ?? '',
-      city:     c.city     ?? '',
-      state:    c.state    ?? '',
-      cpf_cnpj: c.cpf_cnpj ?? '',
-      notes:    c.notes    ?? '',
+      person_type:  c.person_type ?? (onlyDigits(c.cpf_cnpj).length > 11 ? 'pj' : 'pf'),
+      name:         c.name,
+      trade_name:   c.trade_name ?? '',
+      email:        c.email    ?? '',
+      phone:        c.phone    ?? '',
+      cpf_cnpj:     c.cpf_cnpj ?? '',
+      zip_code:     c.zip_code ?? '',
+      street:       c.street ?? '',
+      number:       c.number ?? '',
+      complement:   c.complement ?? '',
+      neighborhood: c.neighborhood ?? '',
+      city:         c.city     ?? '',
+      state:        c.state    ?? '',
+      ibge_code:    c.ibge_code ?? '',
+      cnae:         c.cnae ?? '',
+      registration_status: c.registration_status ?? '',
+      notes:        c.notes    ?? '',
     })
     setShowModal(true)
   }
@@ -194,6 +291,7 @@ export default function ClientesPage() {
     setShowModal(false)
     reset()
     setEditingId(null)
+    setSituacaoCadastral(null)
   }
 
   /* ── Filtros ── */
@@ -543,16 +641,82 @@ export default function ClientesPage() {
               onSubmit={handleSubmit(d => saveMutation.mutate(d))}
               className="flex-1 overflow-y-auto p-6 space-y-4"
             >
-              {/* Nome */}
-              <Field label="Nome completo *" error={errors.name?.message}>
+              {/* Pessoa física / jurídica */}
+              <div className="flex items-center gap-2">
+                {(['pf', 'pj'] as const).map(pt => (
+                  <button
+                    key={pt}
+                    type="button"
+                    onClick={() => setValue('person_type', pt)}
+                    className={clsx(
+                      'px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
+                      personType === pt
+                        ? 'bg-primary text-white border-primary'
+                        : 'border-border dark:border-border-dark text-text-secondary dark:text-stone-400 hover:border-primary/50'
+                    )}
+                  >
+                    {pt === 'pf' ? 'Pessoa Física' : 'Pessoa Jurídica'}
+                  </button>
+                ))}
+              </div>
+
+              {/* CNPJ (PJ) / CPF (PF) */}
+              {personType === 'pj' ? (
+                <Field label="CNPJ">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      placeholder="00.000.000/0001-00"
+                      className="input flex-1"
+                      value={watch('cpf_cnpj') ?? ''}
+                      onChange={e => setValue('cpf_cnpj', formatCnpj(e.target.value))}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleBuscarCnpj}
+                      disabled={cnpjLookup.loading}
+                      className="btn-secondary flex items-center justify-center gap-2 whitespace-nowrap px-4 disabled:opacity-60"
+                    >
+                      {cnpjLookup.loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                      {cnpjLookup.loading ? 'Buscando...' : 'Buscar CNPJ'}
+                    </button>
+                  </div>
+                  {situacaoCadastral && (
+                    <div className="mt-2">
+                      <SituacaoCadastralBadge situacao={situacaoCadastral} />
+                    </div>
+                  )}
+                </Field>
+              ) : (
+                <Field label="CPF">
+                  <input
+                    placeholder="000.000.000-00"
+                    className="input"
+                    value={watch('cpf_cnpj') ?? ''}
+                    onChange={e => setValue('cpf_cnpj', formatCpf(e.target.value))}
+                  />
+                </Field>
+              )}
+
+              {/* Nome / Razão Social */}
+              <Field label={personType === 'pj' ? 'Razão Social *' : 'Nome completo *'} error={errors.name?.message}>
                 <input
                   type="text"
                   autoFocus
-                  placeholder="Nome do cliente"
+                  placeholder={personType === 'pj' ? 'Razão social da empresa' : 'Nome do cliente'}
                   className="input"
                   {...register('name')}
                 />
               </Field>
+
+              {personType === 'pj' && (
+                <Field label="Nome Fantasia">
+                  <input
+                    placeholder="Nome fantasia"
+                    className="input"
+                    {...register('trade_name')}
+                  />
+                </Field>
+              )}
 
               {/* E-mail + Telefone */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -579,36 +743,77 @@ export default function ClientesPage() {
                 </Field>
               </div>
 
-              {/* Cidade + Estado */}
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Cidade">
+              {/* Endereço */}
+              <div className="pt-1 border-t border-border dark:border-border-dark" />
+              <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider">Endereço</p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="CEP">
                   <div className="relative">
-                    <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
                     <input
-                      placeholder="São Paulo"
-                      className="input pl-9"
-                      {...register('city')}
+                      placeholder="00000-000"
+                      className="input pr-8"
+                      value={watch('zip_code') ?? ''}
+                      onChange={e => {
+                        const formatted = formatCep(e.target.value)
+                        setValue('zip_code', formatted)
+                        cepLookup.searchOnComplete(formatted)
+                      }}
                     />
+                    {cepLookup.loading && (
+                      <Loader2 size={14} className="animate-spin absolute right-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                    )}
                   </div>
                 </Field>
-                <Field label="Estado">
+                <Field label="Logradouro">
                   <input
-                    placeholder="SP"
-                    maxLength={2}
-                    className="input uppercase"
-                    {...register('state')}
+                    placeholder="Rua, Av..."
+                    className="input"
+                    {...register('street')}
                   />
                 </Field>
+                <Field label="Número">
+                  <input
+                    placeholder="123"
+                    className="input"
+                    {...register('number')}
+                  />
+                </Field>
+                <Field label="Complemento">
+                  <input
+                    placeholder="Sala, bloco..."
+                    className="input"
+                    {...register('complement')}
+                  />
+                </Field>
+                <Field label="Bairro">
+                  <input
+                    placeholder="Bairro"
+                    className="input"
+                    {...register('neighborhood')}
+                  />
+                </Field>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Cidade">
+                    <div className="relative">
+                      <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                      <input
+                        placeholder="São Paulo"
+                        className="input pl-9"
+                        {...register('city')}
+                      />
+                    </div>
+                  </Field>
+                  <Field label="UF">
+                    <input
+                      placeholder="SP"
+                      maxLength={2}
+                      className="input uppercase"
+                      {...register('state')}
+                    />
+                  </Field>
+                </div>
               </div>
-
-              {/* CPF / CNPJ */}
-              <Field label="CPF / CNPJ">
-                <input
-                  placeholder="000.000.000-00"
-                  className="input"
-                  {...register('cpf_cnpj')}
-                />
-              </Field>
 
               {/* Observações */}
               <Field label="Observações">

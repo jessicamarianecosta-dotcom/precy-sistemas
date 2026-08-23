@@ -16,6 +16,10 @@ import {
   Building2, Loader2, TrendingUp, TrendingDown, ChevronDown,
   AlertTriangle, CheckCircle, User, CreditCard, BarChart2,
 } from 'lucide-react'
+import { formatCnpj, formatCep, onlyDigits, isValidCnpjLength } from '@/lib/utils/mask'
+import { useCnpjLookup } from '@/hooks/useCnpjLookup'
+import { useCepLookup } from '@/hooks/useCepLookup'
+import { SituacaoCadastralBadge } from '@/components/ui/SituacaoCadastralBadge'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -36,6 +40,13 @@ interface Supplier {
   contact_role?: string | null
   zip_code?: string | null
   address?: string | null
+  number?: string | null
+  complement?: string | null
+  neighborhood?: string | null
+  ibge_code?: string | null
+  cnae?: string | null
+  registration_status?: string | null
+  opening_date?: string | null
   city?: string | null
   supplier_state?: string | null
   country?: string | null
@@ -222,6 +233,50 @@ export default function FornecedoresPage() {
   const emptyForm = (): Partial<Supplier> => ({ is_active: true, country: 'Brasil', payment_methods: [] })
   const [form, setForm] = useState<Partial<Supplier>>(emptyForm())
 
+  /* ── Consulta CNPJ (BrasilAPI, via /api/cnpj) — não sobrescreve número/complemento já preenchidos ── */
+  const cnpjLookup = useCnpjLookup({
+    onFound: data => {
+      setForm(f => ({
+        ...f,
+        legal_name: data.razaoSocial ?? f.legal_name,
+        name: f.name?.trim() ? f.name : (data.nomeFantasia ?? data.razaoSocial ?? f.name),
+        phone: data.telefone ?? f.phone,
+        email: data.email ?? f.email,
+        cnae: data.cnae ?? f.cnae,
+        registration_status: data.situacaoCadastral ?? f.registration_status,
+        zip_code: data.cep ? formatCep(data.cep) : f.zip_code,
+        address: data.logradouro ?? f.address,
+        number: f.number?.trim() ? f.number : (data.numero ?? f.number),
+        complement: f.complement?.trim() ? f.complement : (data.complemento ?? f.complement),
+        neighborhood: data.bairro ?? f.neighborhood,
+        city: data.cidade ?? f.city,
+        supplier_state: data.uf ?? f.supplier_state,
+      }))
+      toast('success', 'Dados da empresa encontrados.')
+    },
+  })
+
+  const cepLookup = useCepLookup({
+    onFound: data => {
+      setForm(f => ({
+        ...f,
+        address: data.logradouro ?? f.address,
+        neighborhood: data.bairro ?? f.neighborhood,
+        city: data.cidade ?? f.city,
+        supplier_state: data.uf ?? f.supplier_state,
+        ibge_code: data.ibge ?? f.ibge_code,
+      }))
+      toast('success', 'Endereço encontrado.')
+    },
+  })
+
+  async function handleBuscarCnpj() {
+    const doc = form.document ?? ''
+    if (!isValidCnpjLength(doc)) { toast('error', 'Digite um CNPJ válido com 14 dígitos.'); return }
+    const result = await cnpjLookup.search(doc)
+    if (!result.ok) toast(result.status === 'unavailable' ? 'warning' : 'error', result.message)
+  }
+
   // Purchase form
   const emptyItem = (): PurchaseFormItem => ({ inventory_id: null, material_name: '', quantity: '1', unit: 'un', unit_price: '' })
   const [pItems, setPItems] = useState<PurchaseFormItem[]>([emptyItem()])
@@ -339,14 +394,18 @@ export default function FornecedoresPage() {
     if (!form.name?.trim()) { toast('error', 'Nome obrigatório'); return }
     setSaving(true)
     try {
-      const payload = { ...form, company_id: companyId }
+      const payload = {
+        ...form,
+        company_id: companyId,
+        zip_code: onlyDigits(form.zip_code) || null,
+      }
       if (form.id) {
         const { error } = await (supabase.from('suppliers') as any).update(payload).eq('id', form.id)
-        if (error) throw error
+        if (error) throw mapSupplierSaveError(error)
         if (view?.id === form.id) setView({ ...view, ...form } as Supplier)
       } else {
         const { error } = await (supabase.from('suppliers') as any).insert([payload])
-        if (error) throw error
+        if (error) throw mapSupplierSaveError(error)
       }
       await qc.invalidateQueries({ queryKey: ['suppliers', companyId] })
       toast('success', form.id ? 'Fornecedor atualizado!' : 'Fornecedor cadastrado!')
@@ -356,6 +415,13 @@ export default function FornecedoresPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  function mapSupplierSaveError(error: { code?: string; message: string }): Error {
+    if (error.code === '23505') {
+      return new Error('Já existe um fornecedor cadastrado com esse CPF/CNPJ.')
+    }
+    return new Error(error.message)
   }
 
   async function handleDelete() {
@@ -1070,9 +1136,30 @@ export default function FornecedoresPage() {
                     <label className="label">Razão Social</label>
                     <input className="input" value={form.legal_name ?? ''} onChange={e => setForm(f => ({ ...f, legal_name: e.target.value }))} />
                   </div>
-                  <div>
+                  <div className="sm:col-span-2">
                     <label className="label">CPF / CNPJ</label>
-                    <input className="input" value={form.document ?? ''} onChange={e => setForm(f => ({ ...f, document: e.target.value }))} />
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        className="input flex-1"
+                        placeholder="00.000.000/0001-00"
+                        value={form.document ?? ''}
+                        onChange={e => setForm(f => ({ ...f, document: formatCnpj(e.target.value) }))}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleBuscarCnpj}
+                        disabled={cnpjLookup.loading}
+                        className="btn-secondary flex items-center justify-center gap-2 whitespace-nowrap px-4 disabled:opacity-60"
+                      >
+                        {cnpjLookup.loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                        {cnpjLookup.loading ? 'Buscando...' : 'Buscar CNPJ'}
+                      </button>
+                    </div>
+                    {form.registration_status && (
+                      <div className="mt-2">
+                        <SituacaoCadastralBadge situacao={form.registration_status} />
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label className="label">Inscrição Estadual</label>
@@ -1128,11 +1215,37 @@ export default function FornecedoresPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="label">CEP</label>
-                    <input className="input" value={form.zip_code ?? ''} onChange={e => setForm(f => ({ ...f, zip_code: e.target.value }))} />
+                    <div className="relative">
+                      <input
+                        className="input pr-8"
+                        placeholder="00000-000"
+                        value={form.zip_code ?? ''}
+                        onChange={e => {
+                          const formatted = formatCep(e.target.value)
+                          setForm(f => ({ ...f, zip_code: formatted }))
+                          cepLookup.searchOnComplete(formatted)
+                        }}
+                      />
+                      {cepLookup.loading && (
+                        <Loader2 size={14} className="animate-spin absolute right-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                      )}
+                    </div>
                   </div>
-                  <div className="sm:col-span-2">
-                    <label className="label">Endereço</label>
-                    <input className="input" value={form.address ?? ''} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
+                  <div>
+                    <label className="label">Logradouro</label>
+                    <input className="input" placeholder="Rua, Av..." value={form.address ?? ''} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="label">Número</label>
+                    <input className="input" placeholder="123" value={form.number ?? ''} onChange={e => setForm(f => ({ ...f, number: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="label">Complemento</label>
+                    <input className="input" placeholder="Sala, bloco..." value={form.complement ?? ''} onChange={e => setForm(f => ({ ...f, complement: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="label">Bairro</label>
+                    <input className="input" value={form.neighborhood ?? ''} onChange={e => setForm(f => ({ ...f, neighborhood: e.target.value }))} />
                   </div>
                   <div>
                     <label className="label">Cidade</label>
