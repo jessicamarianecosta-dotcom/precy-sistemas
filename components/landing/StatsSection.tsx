@@ -1,12 +1,11 @@
 'use client'
-import { AnimatedCounter } from './AnimatedCounter'
 import { useRef, useState, useEffect } from 'react'
 
-const stats = [
-  { icon: '⏰', value: 47, suffix: 'min', label: 'economizados por dia', detail: 'Em média por usuária' },
-  { icon: '💰', value: 340, prefix: 'R$', suffix: '/mês', label: 'de prejuízo evitado', detail: 'Por precificação errada' },
-  { icon: '📈', value: 94, suffix: '%', label: 'das usuárias crescem', detail: 'Nos 3 primeiros meses' },
-  { icon: '⭐', value: 4.9, suffix: '/5', label: 'avaliação média', detail: 'Baseado em +200 reviews', decimals: 1 },
+const resolves = [
+  { icon: '💰', text: 'Preço calculado com material + mão de obra + lucro, sem chute' },
+  { icon: '🛒', text: 'Pedidos organizados, sem depender da memória ou do WhatsApp' },
+  { icon: '📄', text: 'Orçamento profissional em PDF, pronto em 1 clique' },
+  { icon: '📊', text: 'Visão clara do que entra e sai do seu negócio' },
 ]
 
 export function StatsSection() {
@@ -37,15 +36,15 @@ export function StatsSection() {
       <div className="relative max-w-5xl mx-auto">
         <div className="text-center mb-12">
           <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2">
-            Resultados que falam por si
+            O que o Precy+ resolve, de verdade
           </h2>
-          <p className="text-white/70 text-sm">Dados reais das nossas usuárias</p>
+          <p className="text-white/70 text-sm">Sem promessa vazia — só o que o sistema entrega hoje</p>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {stats.map((s, i) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {resolves.map((r, i) => (
             <div
-              key={s.label}
-              className="text-center rounded-2xl p-5"
+              key={r.text}
+              className="flex items-center gap-4 rounded-2xl p-5"
               style={{
                 background: 'rgba(255,255,255,0.12)',
                 backdropFilter: 'blur(12px)',
@@ -55,17 +54,8 @@ export function StatsSection() {
                 transition: `all 0.5s ease ${i * 0.12}s`,
               }}
             >
-              <div className="text-3xl mb-2">{s.icon}</div>
-              <div className="text-2xl sm:text-3xl font-bold text-white">
-                <AnimatedCounter
-                  to={s.value}
-                  prefix={s.prefix}
-                  suffix={s.suffix}
-                  decimals={s.decimals ?? 0}
-                />
-              </div>
-              <p className="text-white/90 text-xs font-semibold mt-1">{s.label}</p>
-              <p className="text-white/50 text-[10px] mt-0.5">{s.detail}</p>
+              <span className="text-2xl flex-shrink-0">{r.icon}</span>
+              <p className="text-white text-sm font-medium leading-snug">{r.text}</p>
             </div>
           ))}
         </div>

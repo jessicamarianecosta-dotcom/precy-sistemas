@@ -114,31 +114,6 @@ const features = [
   },
 ]
 
-/* ─── Testimonials ─── */
-const testimonials = [
-  {
-    name: 'Ana Clara',
-    role: 'Papelaria personalizada',
-    text: 'Antes eu chutava o preço e ficava no prejuízo. Com o Precy+ eu finalmente sei o que cobrar e ainda organizo todos os meus pedidos num só lugar.',
-    avatar: 'AC',
-    saved: 'Economizou R$420/mês',
-  },
-  {
-    name: 'Fernanda Lima',
-    role: 'Velas artesanais',
-    text: 'O orçamento em PDF impressionou meus clientes. Parece uma empresa grande, mas sou só eu. O sistema é lindo e muito fácil de usar.',
-    avatar: 'FL',
-    saved: 'Lucro aumentou 38%',
-  },
-  {
-    name: 'Juliana Souza',
-    role: 'Cosméticos naturais',
-    text: 'O dashboard me mostra tudo de manhã cedo. Faturamento, pedidos, estoque. Não fico mais perdida nos grupos do WhatsApp.',
-    avatar: 'JS',
-    saved: '3h por semana economizadas',
-  },
-]
-
 /* ─── How it works ─── */
 const steps = [
   {
@@ -185,7 +160,7 @@ export default function LandingPage() {
             {[
               { href: '#funcionalidades', label: 'Funcionalidades' },
               { href: '#preview', label: 'Preview' },
-              { href: '#depoimentos', label: 'Depoimentos' },
+              { href: '#depoimentos', label: 'Nossa história' },
               { href: '#planos', label: 'Planos' },
               { href: '#faq', label: 'Dúvidas' },
             ].map(l => (
@@ -275,25 +250,14 @@ export default function LandingPage() {
               </div>
 
               {/* Trust */}
-              <div className="flex items-center gap-4 mt-8">
-                <div className="flex -space-x-2">
-                  {['AC','FL','JS','MR','PT'].map((i, idx) => (
-                    <div key={i}
-                      className="w-8 h-8 rounded-full border-2 border-white dark:border-[#1C1714] flex items-center justify-center text-[10px] font-bold text-white"
-                      style={{ background: ['#8B6C4F','#B8956A','#5C8B4F','#3A7EC4','#C4893A'][idx], zIndex: 5 - idx }}>
-                      {i}
-                    </div>
-                  ))}
-                </div>
-                <div>
-                  <div className="flex gap-0.5 mb-0.5">
-                    {[1,2,3,4,5].map(i => <span key={i} className="text-[#C4893A] text-xs">★</span>)}
-                  </div>
-                  <p className="text-xs text-[#7A6855] dark:text-stone-400">
-                    <strong className="text-[#2C2018] dark:text-stone-200">+200 empreendedoras</strong> confiam no Precy+
-                  </p>
-                </div>
+              <div className="flex items-center gap-2 mt-8">
+                <span className="inline-flex items-center gap-2 border border-[#EDE8E2] dark:border-[#3A3028] bg-white dark:bg-[#2A2220] text-[#5C8B4F] text-xs font-semibold px-4 py-1.5 rounded-full">
+                  🌱 Sistema novo, construído com cuidado
+                </span>
               </div>
+              <p className="text-xs text-[#7A6855] dark:text-stone-400 mt-2">
+                Feito por quem também empreende — pra quem cansou de precificar no chute.
+              </p>
             </div>
 
             {/* Right — dashboard animado */}
@@ -406,45 +370,24 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── TESTIMONIALS ── */}
+      {/* ── POR QUE O PRECY+ EXISTE ── */}
       <section id="depoimentos" className="py-24 px-4 sm:px-6">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-14">
-            <span className="inline-flex items-center gap-2 bg-[rgba(139,108,79,0.1)] text-[#8B6C4F] text-xs font-semibold px-4 py-2 rounded-full mb-4">
-              💬 Depoimentos
-            </span>
-            <h2 className="text-3xl sm:text-4xl font-bold text-[#2C2018] dark:text-stone-100 mb-4">
-              Quem usa, aprova
-            </h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {testimonials.map(t => (
-              <div key={t.name}
-                className="rounded-2xl border border-[#EDE8E2] dark:border-[#3A3028] bg-white dark:bg-[#2A2220] p-6 space-y-4 hover:border-[#8B6C4F] hover:shadow-[0_4px_24px_rgba(139,108,79,0.1)] transition-all duration-300">
-                <div className="flex gap-1">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <span key={i} className="text-[#C4893A] text-sm">★</span>
-                  ))}
-                </div>
-                <p className="text-sm text-[#7A6855] dark:text-stone-400 leading-relaxed italic">
-                  &ldquo;{t.text}&rdquo;
-                </p>
-                <div className="flex items-center gap-3 pt-2 border-t border-[#EDE8E2] dark:border-[#3A3028]">
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ background: 'rgba(139,108,79,0.1)' }}>
-                    <span className="text-[#8B6C4F] font-semibold text-sm">{t.avatar}</span>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-[#2C2018] dark:text-stone-100">{t.name}</p>
-                    <p className="text-xs text-[#B8A898]">{t.role}</p>
-                  </div>
-                  <span className="ml-auto text-[10px] font-semibold px-2.5 py-1 rounded-full"
-                    style={{ background: 'rgba(92,139,79,0.12)', color: '#5C8B4F' }}>
-                    {t.saved}
-                  </span>
-                </div>
-              </div>
-            ))}
+        <div className="max-w-3xl mx-auto text-center">
+          <span className="inline-flex items-center gap-2 bg-[rgba(139,108,79,0.1)] text-[#8B6C4F] text-xs font-semibold px-4 py-2 rounded-full mb-4">
+            💛 Nossa história
+          </span>
+          <h2 className="text-3xl sm:text-4xl font-bold text-[#2C2018] dark:text-stone-100 mb-8">
+            Por que criei o Precy+
+          </h2>
+          <div className="rounded-2xl border border-[#EDE8E2] dark:border-[#3A3028] bg-white dark:bg-[#2A2220] p-8 sm:p-10 text-left">
+            <p className="text-base sm:text-lg text-[#7A6855] dark:text-stone-400 leading-relaxed italic mb-6">
+              &ldquo;Eu via todo dia empreendedoras cobrando errado — não por falta de esforço,
+              mas por falta de ferramenta. O Precy+ nasceu pra resolver isso: calcular preço
+              certo, organizar pedidos e mostrar o lucro real, sem planilha e sem chute.&rdquo;
+            </p>
+            <p className="text-sm font-semibold text-[#2C2018] dark:text-stone-100">
+              — Jéssica Mariane Costa, criadora do Precy+
+            </p>
           </div>
         </div>
       </section>
@@ -471,16 +414,10 @@ export default function LandingPage() {
               <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
                 Pronta para precificar com confiança?
               </h2>
-              <p className="text-white/80 text-lg mb-3 max-w-xl mx-auto">
-                Junte-se a mais de 200 empreendedoras que já usam o Precy+ para crescer
-                com organização, clareza e resultados reais.
+              <p className="text-white/80 text-lg mb-8 max-w-xl mx-auto">
+                Comece a usar o Precy+ para organizar seu negócio com clareza,
+                preço certo e resultados reais.
               </p>
-              <div className="flex items-center justify-center gap-1.5 mb-8">
-                <div className="flex gap-0.5">
-                  {[1,2,3,4,5].map(i => <span key={i} className="text-white text-sm">★</span>)}
-                </div>
-                <span className="text-white/70 text-xs font-medium">4,9/5 · +200 avaliações</span>
-              </div>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
                 <Link href="/cadastro"
                   className="bg-white text-[#8B6C4F] font-semibold py-3.5 px-8 rounded-xl hover:bg-[#FAF7F4] active:scale-[0.98] transition-all shadow-lg w-full sm:w-auto">
