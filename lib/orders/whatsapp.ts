@@ -77,6 +77,23 @@ export function buildOrderReadyMessage(data: WhatsappOrderNotifyData): string {
   return lines.join('\n')
 }
 
+/**
+ * No celular, o wa.me faz o deep-link direto pro app e preserva os emojis
+ * sem problema. No computador, o mesmo wa.me passa por um redirecionamento
+ * (wa.me → api.whatsapp.com/send) que, nos testes, chegou corrompendo
+ * especificamente os emojis (texto acentuado e demais símbolos chegam
+ * intactos). Por isso, no desktop usamos o endereço direto do WhatsApp Web,
+ * pulando esse redirecionamento problemático.
+ */
+export function isMobileDevice(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+}
+
 export function buildWhatsappUrl(phoneDigits: string, message: string): string {
-  return `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}`
+  const encodedMessage = encodeURIComponent(message)
+  if (isMobileDevice()) {
+    return `https://wa.me/${phoneDigits}?text=${encodedMessage}`
+  }
+  return `https://web.whatsapp.com/send?phone=${phoneDigits}&text=${encodedMessage}`
 }
