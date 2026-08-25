@@ -72,6 +72,7 @@ import { formatCurrency as fmtGlobal } from '@/lib/utils/format'
 import { useSubscription } from '@/hooks/useSubscription'
 import { recalcOrderPaymentStatus, recalcCustomerTotalPurchases, registerSchedulePayment, syncOrderPaymentSchedule } from '@/lib/orders/recalc'
 import { PdfExportMenu } from '@/components/orders/PdfExportMenu'
+import { WhatsAppNotifyButton } from '@/components/orders/WhatsAppNotifyButton'
 import {
   OrderFinanceSection, DEFAULT_ORDER_FINANCE_FORM, type OrderFinanceFormState,
 } from '@/components/orders/OrderFinanceSection'
@@ -355,6 +356,17 @@ function PedidosPage() {
     }
     loadCompany()
   }, [])
+
+  const companyAddress = (companyData?.address as string) || null
+
+  function orderWhatsappCustomer(order: any): { id: string; name: string; phone: string | null } | null {
+    if (!order.customer_id) return null
+    return {
+      id: order.customer_id,
+      name: order.customers?.name || 'Cliente',
+      phone: order.customers?.phone ?? null,
+    }
+  }
 
   /* ─────────────────────────────────────────────
      QUERIES
@@ -1688,6 +1700,19 @@ function PedidosPage() {
                       )}
                     </div>
                     <div className="flex flex-col gap-1 flex-shrink-0 self-center">
+                      {order.status === 'ready' && (
+                        <WhatsAppNotifyButton
+                          orderId={order.id}
+                          orderNumber={order.order_number}
+                          orderTotal={Number(order.total)}
+                          customer={orderWhatsappCustomer(order)}
+                          companyAddress={companyAddress}
+                          companyId={companyId!}
+                          whatsappNotifiedAt={order.whatsapp_notified_at}
+                          className="!p-1.5 !rounded-xl"
+                          onNotified={() => queryClient.invalidateQueries({ queryKey: ['orders', companyId] })}
+                        />
+                      )}
                       <button
                         onClick={(e) => { e.stopPropagation(); openOrder(order) }}
                         className="p-1.5 rounded-xl text-text-muted hover:text-primary hover:bg-primary-50"
@@ -1794,6 +1819,22 @@ function PedidosPage() {
                                   {format(new Date(order.due_date), 'dd/MM/yyyy', { locale: ptBR })}
                                 </div>
                               )}
+                              {order.status === 'ready' && (
+                                <div className="mt-2 pt-2 border-t border-border/50 dark:border-border-dark/50" onClick={(e) => e.stopPropagation()}>
+                                  <WhatsAppNotifyButton
+                                    orderId={order.id}
+                                    orderNumber={order.order_number}
+                                    orderTotal={Number(order.total)}
+                                    customer={orderWhatsappCustomer(order)}
+                                    companyAddress={companyAddress}
+                                    companyId={companyId!}
+                                    whatsappNotifiedAt={order.whatsapp_notified_at}
+                                    variant="full"
+                                    className="!w-full !justify-center !text-[11px] !py-1.5"
+                                    onNotified={() => queryClient.invalidateQueries({ queryKey: ['orders', companyId] })}
+                                  />
+                                </div>
+                              )}
                             </div>
                           ))
                         )}
@@ -1870,6 +1911,18 @@ function PedidosPage() {
                               >
                                 <FileStack size={12} />
                               </button>
+                              {order.status === 'ready' && (
+                                <WhatsAppNotifyButton
+                                  orderId={order.id}
+                                  orderNumber={order.order_number}
+                                  orderTotal={Number(order.total)}
+                                  customer={orderWhatsappCustomer(order)}
+                                  companyAddress={companyAddress}
+                                  companyId={companyId!}
+                                  whatsappNotifiedAt={order.whatsapp_notified_at}
+                                  onNotified={() => queryClient.invalidateQueries({ queryKey: ['orders', companyId] })}
+                                />
+                              )}
                               <button
                                 onClick={(e) => { e.stopPropagation(); openOrder(order) }}
                                 className="p-1 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"
@@ -2085,6 +2138,18 @@ function PedidosPage() {
                               >
                                 <FileStack size={12} />
                               </button>
+                              {order.status === 'ready' && (
+                                <WhatsAppNotifyButton
+                                  orderId={order.id}
+                                  orderNumber={order.order_number}
+                                  orderTotal={Number(order.total)}
+                                  customer={orderWhatsappCustomer(order)}
+                                  companyAddress={companyAddress}
+                                  companyId={companyId!}
+                                  whatsappNotifiedAt={order.whatsapp_notified_at}
+                                  onNotified={() => queryClient.invalidateQueries({ queryKey: ['orders', companyId] })}
+                                />
+                              )}
                               <button
                                 onClick={(e) => { e.stopPropagation(); openOrder(order) }}
                                 className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors"
@@ -2162,6 +2227,23 @@ function PedidosPage() {
                 )}
               </div>
               <div className="flex items-center gap-1">
+                {editingId && (() => {
+                  const orderRecord: any = (orders ?? []).find((o: any) => o.id === editingId)
+                  if (!orderRecord || orderRecord.status !== 'ready') return null
+                  return (
+                    <WhatsAppNotifyButton
+                      orderId={editingId}
+                      orderNumber={orderRecord.order_number}
+                      orderTotal={Number(watch('total')) || Number(orderRecord.total)}
+                      customer={orderWhatsappCustomer(orderRecord)}
+                      companyAddress={companyAddress}
+                      companyId={companyId!}
+                      whatsappNotifiedAt={orderRecord.whatsapp_notified_at}
+                      variant="full"
+                      onNotified={() => queryClient.invalidateQueries({ queryKey: ['orders', companyId] })}
+                    />
+                  )
+                })()}
                 {editingId && (
                   <PdfExportMenu
                     variant="full"
