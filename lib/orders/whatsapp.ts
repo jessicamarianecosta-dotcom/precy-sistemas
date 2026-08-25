@@ -1,6 +1,20 @@
 import { formatCurrency } from '@/lib/utils/format'
 
 /**
+ * Emojis gerados a partir do código numérico Unicode (não como caracteres
+ * literais no arquivo) — evita que qualquer etapa da cadeia de build/deploy
+ * (editor, Git, bundler) corrompa esses caracteres especiais em trânsito.
+ */
+const EMOJI = {
+  smile:   String.fromCodePoint(0x1f60a), // 😊
+  heart:   String.fromCodePoint(0x1f495), // 💕
+  pin:     String.fromCodePoint(0x1f4cd), // 📍
+  scooter: String.fromCodePoint(0x1f6f5), // 🛵
+  receipt: String.fromCodePoint(0x1f9fe), // 🧾
+  warning: String.fromCodePoint(0x26a0, 0xfe0f), // ⚠️
+}
+
+/**
  * Normaliza um telefone brasileiro (qualquer formatação) para o padrão
  * exigido pelo link wa.me: DDI 55 + DDD + número, apenas dígitos.
  * Não altera o valor salvo no cadastro do cliente — uso só para o link.
@@ -37,28 +51,28 @@ export interface WhatsappOrderNotifyData {
  */
 export function buildOrderReadyMessage(data: WhatsappOrderNotifyData): string {
   const lines: string[] = []
-  lines.push(`😊 Olá, ${data.customerName}!`)
+  lines.push(`${EMOJI.smile} Olá, ${data.customerName}!`)
   lines.push('')
-  lines.push(`Seu pedido #${data.orderNumber || '—'} já está pronto e disponível para retirada. 💕`)
+  lines.push(`Seu pedido #${data.orderNumber || '—'} já está pronto e disponível para retirada. ${EMOJI.heart}`)
 
   if (data.companyAddress) {
     lines.push('')
-    lines.push('📍 Endereço para retirada:')
+    lines.push(`${EMOJI.pin} Endereço para retirada:`)
     lines.push(data.companyAddress)
   }
 
   lines.push('')
-  lines.push('🛵 A retirada pode ser feita pessoalmente ou você pode enviar um motoboy pelo aplicativo — nesse caso, envie o link de acompanhamento da corrida ou avise quando o entregador chegar no endereço.')
+  lines.push(`${EMOJI.scooter} A retirada pode ser feita pessoalmente ou você pode enviar um motoboy pelo aplicativo — nesse caso, envie o link de acompanhamento da corrida ou avise quando o entregador chegar no endereço.`)
   lines.push('')
-  lines.push(`🧾 Não esqueça de informar o número do pedido (#${data.orderNumber || '—'}) na hora da retirada.`)
+  lines.push(`${EMOJI.receipt} Não esqueça de informar o número do pedido (#${data.orderNumber || '—'}) na hora da retirada.`)
 
   if (data.pendingAmount > 0) {
     lines.push('')
-    lines.push(`⚠️ Identificamos um valor pendente de ${formatCurrency(data.pendingAmount)}. Pedimos, por gentileza, que a pendência seja regularizada antes da retirada do pedido.`)
+    lines.push(`${EMOJI.warning} Identificamos um valor pendente de ${formatCurrency(data.pendingAmount)}. Pedimos, por gentileza, que a pendência seja regularizada antes da retirada do pedido.`)
   }
 
   lines.push('')
-  lines.push('Aguardamos você! 😊')
+  lines.push(`Aguardamos você! ${EMOJI.smile}`)
 
   return lines.join('\n')
 }
