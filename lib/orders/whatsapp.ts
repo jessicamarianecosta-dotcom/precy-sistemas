@@ -47,6 +47,11 @@ export function buildOrderReadyMessage(data: WhatsappOrderNotifyData): string {
     lines.push(data.companyAddress)
   }
 
+  lines.push('')
+  lines.push('🛵 A retirada pode ser feita pessoalmente ou você pode enviar um motoboy pelo aplicativo — nesse caso, envie o link de acompanhamento da corrida ou avise quando o entregador chegar no endereço.')
+  lines.push('')
+  lines.push(`🧾 Não esqueça de informar o número do pedido (#${data.orderNumber || '—'}) na hora da retirada.`)
+
   if (data.pendingAmount > 0) {
     lines.push('')
     lines.push(`⚠️ Identificamos um valor pendente de ${formatCurrency(data.pendingAmount)}. Pedimos, por gentileza, que a pendência seja regularizada antes da retirada do pedido.`)
