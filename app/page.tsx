@@ -372,22 +372,30 @@ export default function LandingPage() {
 
       {/* ── POR QUE O PRECY+ EXISTE ── */}
       <section id="depoimentos" className="py-24 px-4 sm:px-6">
-        <div className="max-w-3xl mx-auto text-center">
-          <span className="inline-flex items-center gap-2 bg-[rgba(139,108,79,0.1)] text-[#8B6C4F] text-xs font-semibold px-4 py-2 rounded-full mb-4">
-            💛 Nossa história
+        <div className="max-w-2xl mx-auto text-center">
+          <span className="inline-flex items-center gap-2 bg-[rgba(139,108,79,0.1)] text-[#8B6C4F] text-xs font-semibold px-4 py-2 rounded-full mb-6">
+            💬 Por que existe o Precy+
           </span>
-          <h2 className="text-3xl sm:text-4xl font-bold text-[#2C2018] dark:text-stone-100 mb-8">
-            Por que criei o Precy+
-          </h2>
-          <div className="rounded-2xl border border-[#EDE8E2] dark:border-[#3A3028] bg-white dark:bg-[#2A2220] p-8 sm:p-10 text-left">
-            <p className="text-base sm:text-lg text-[#7A6855] dark:text-stone-400 leading-relaxed italic mb-6">
-              &ldquo;Eu via todo dia empreendedoras cobrando errado — não por falta de esforço,
-              mas por falta de ferramenta. O Precy+ nasceu pra resolver isso: calcular preço
-              certo, organizar pedidos e mostrar o lucro real, sem planilha e sem chute.&rdquo;
-            </p>
-            <p className="text-sm font-semibold text-[#2C2018] dark:text-stone-100">
-              — Jéssica Mariane Costa, criadora do Precy+
-            </p>
+
+          <blockquote className="text-lg sm:text-xl leading-relaxed text-[#2C2018] dark:text-stone-200 mb-6">
+            &ldquo;Antes de criar o Precy+, já usei outros sistemas do mercado voltados
+            pra quem trabalha com produção sob encomenda. Nenhum me dava o controle
+            completo que eu precisava. Foi só quando comecei a organizar tudo de
+            verdade que percebi: eu estava tendo prejuízo sem saber, porque nunca
+            tive um controle financeiro real do meu negócio. Criei o Precy+ pra
+            resolver exatamente isso — pra nenhuma empreendedora passar pelo que eu
+            passei.&rdquo;
+          </blockquote>
+
+          <div className="flex items-center justify-center gap-3">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0"
+              style={{ background: 'rgba(139,108,79,0.12)', color: '#8B6C4F' }}>
+              JC
+            </div>
+            <div className="text-left">
+              <p className="text-sm font-medium text-[#2C2018] dark:text-stone-100">Jessica Costa</p>
+              <p className="text-xs text-[#7A6855] dark:text-stone-400">Fundadora do Precy+</p>
+            </div>
           </div>
         </div>
       </section>
