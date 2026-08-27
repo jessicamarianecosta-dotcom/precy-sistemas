@@ -551,33 +551,66 @@ export default function OrcamentosPage() {
   async function handleDuplicateBudget(b: any) {
     if (!companyId) return
     setDuplicatingBudget(b.id)
+    let createdBudgetId: string | null = null
     try {
       // 1. Buscar itens do orçamento original
-      const { data: bi } = await (supabase.from('budget_items') as any)
+      const { data: bi, error: biErr } = await (supabase.from('budget_items') as any)
         .select('*').eq('budget_id', b.id)
+      if (biErr) throw biErr
 
-      // 2. Criar novo orçamento com os mesmos dados — status 'draft', novo budget_number
-      const { id: _id, created_at: _c, updated_at: _u, budget_number: _bn,
-              converted_to_order_id: _co, ...rest } = b
-      const newPayload = {
-        ...rest,
+      // 2. Montar payload APENAS com colunas reais de `budgets`.
+      //    `b` vem da query da lista com `.select('*,customers(...)')`, portanto
+      //    contém a relação aninhada `customers` — que NÃO é uma coluna e faria
+      //    o insert falhar ("Could not find the 'customers' column of 'budgets'").
+      //    O cliente é referenciado pela coluna `customer_id`.
+      const basePayload = {
         company_id:  companyId,
-        budget_number: '',   // trigger gera ORC-XXXX automaticamente
-        status:      'draft',
+        customer_id: b.customer_id ?? null,
+        budget_number: '',            // trigger set_budget_number gera ORC-XXXX
+        status:      'draft',         // status inicial padrão (default da coluna)
+        subtotal:    b.subtotal ?? 0,
+        discount:    b.discount ?? 0,
+        total:       b.total ?? 0,
         notes:       b.notes ? `Cópia de ${b.budget_number || 'ORC'} — ${b.notes}` : null,
+        valid_until: b.valid_until ?? null,
+        // converted_to_order_id é intencionalmente omitido → novo orçamento
+        // não fica vinculado ao pedido do original
+      }
+      const extraPayload = {
+        payment_method:  b.payment_method ?? null,
+        pay_condition:   b.pay_condition ?? null,
+        installments:    b.installments ?? null,
+        signal_amount:   b.signal_amount ?? null,
+        prazo_type:      b.prazo_type ?? null,
+        prazo_dias:      b.prazo_dias ?? null,
+        prazo_due_date:  b.prazo_due_date ?? null,
+        delivery_type:   b.delivery_type ?? null,
+        delivery_fee:    b.delivery_fee ?? 0,
+        delivery_addr:   b.delivery_addr ?? null,
+        delivery_days:   b.delivery_days ?? null,
+        production_days: b.production_days ?? null,
       }
 
-      const { data: newBudget, error } = await (supabase.from('budgets') as any)
-        .insert([newPayload]).select('id').single()
-      if (error) throw error
+      let insRes: any = await (supabase.from('budgets') as any)
+        .insert([{ ...basePayload, ...extraPayload }]).select('id').single()
+      if (insRes?.error?.code === '42703') {
+        insRes = await (supabase.from('budgets') as any)
+          .insert([basePayload]).select('id').single()
+      }
+      if (insRes?.error) throw insRes.error
+      const newBudget = insRes.data
+      createdBudgetId = newBudget?.id ?? null
 
-      // 3. Duplicar itens
+      // 3. Duplicar itens — novos registros apontando para o novo orçamento
       if ((bi ?? []).length > 0 && newBudget?.id) {
-        const rows = (bi as any[]).map(({ id: _iid, budget_id: _bid, ...item }) => ({
-          ...item,
-          budget_id: newBudget.id,
-        }))
-        await (supabase.from('budget_items') as any).insert(rows)
+        const rows = (bi as any[]).map(
+          ({ id: _iid, budget_id: _bid, created_at: _ic, updated_at: _iu, ...item }) => ({
+            ...item,
+            budget_id: newBudget.id,
+          })
+        )
+        const { error: itemsErr } = await (supabase.from('budget_items') as any).insert(rows)
+        if (itemsErr) throw itemsErr
       }
 
       qc.invalidateQueries({ queryKey: ['budgets', companyId] })
@@ -589,7 +622,13 @@ export default function OrcamentosPage() {
         .eq('id', newBudget.id).single()
       if (fullNew) openEdit(fullNew)
     } catch (err: unknown) {
-      toast('error', `Erro ao duplicar: ${(err as Error).message}`)
+      // Rollback: evita orçamento órfão/incompleto se a cópia dos itens falhar
+      if (createdBudgetId) {
+        await (supabase.from('budgets') as any).delete().eq('id', createdBudgetId)
+        qc.invalidateQueries({ queryKey: ['budgets', companyId] })
+      }
+      console.error('[handleDuplicateBudget] falha ao duplicar orçamento', err)
+      toast('error', 'Não foi possível duplicar o orçamento. Tente novamente.')
     } finally {
       setDuplicatingBudget(null)
     }
