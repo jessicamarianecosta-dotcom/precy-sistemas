@@ -55,6 +55,7 @@ import {
   Box,
   ChevronUp,
   FileStack,
+  Copy,
 } from 'lucide-react'
 
 import { useForm } from 'react-hook-form'
@@ -341,6 +342,8 @@ function PedidosPage() {
   const [viewingPaymentId, setViewingPaymentId] = useState<string | null>(null)
   const [confirmDeletePaymentId, setConfirmDeletePaymentId] = useState<string | null>(null)
   const [confirmDeleteOrderId, setConfirmDeleteOrderId] = useState<string | null>(null)
+  const [confirmDuplicateOrder, setConfirmDuplicateOrder] = useState<any | null>(null)
+  const [duplicatingOrderId, setDuplicatingOrderId] = useState<string | null>(null)
 
   /* Texto exibido nos campos de Valor/Porcentagem do modal de recebimento (aceita vírgula) */
   const [amountDisplayText, setAmountDisplayText] = useState('')
@@ -1293,6 +1296,102 @@ function PedidosPage() {
   })
 
   /* ─────────────────────────────────────────────
+     DUPLICAR PEDIDO
+
+     Cria um NOVO pedido independente a partir dos dados comerciais do
+     original. `order` vem da lista, carregada com `.select('*, customers(...)')`,
+     então tem a relação aninhada `customers` — por isso o payload abaixo é
+     uma whitelist explícita das colunas REAIS de `orders` (mesmo cuidado do
+     bug corrigido em Orçamentos: nunca mandar `customers` para o insert).
+
+     Não copia: id, número, datas, pagamentos, parcelas, baixa de estoque,
+     históricos, vínculo com catálogo/frete. O novo pedido nasce como uma
+     venda nova: status 'pending', payment_status 'pending', saldo = total.
+
+     Estoque: a baixa de estoque só acontece na confirmação de pagamento do
+     Catálogo Online (app/api/webhooks/infinitypay). Pedido manual — criado
+     aqui ou pelo formulário — nunca dá baixa automática, então a duplicação
+     segue exatamente a mesma regra sem nenhum tratamento especial.
+  ───────────────────────────────────────────── */
+
+  const duplicateMutation = useMutation({
+    mutationFn: async (order: any) => {
+      // 1. Itens do pedido original
+      const { data: originalItems, error: itemsErr } = await (supabase.from('order_items') as any)
+        .select('*').eq('order_id', order.id)
+      if (itemsErr) throw itemsErr
+
+      // 2. Payload só com colunas reais de `orders`
+      const payload = {
+        company_id:         companyId!,
+        customer_id:        order.customer_id,       // mesmo cliente, mesma relação
+        order_number:       '',                       // trigger set_order_number gera PED-XXXX
+        status:             'pending',                // status inicial padrão de pedido novo
+        payment_status:     'pending',                // nova operação financeira — nada recebido
+        source:             'manual',
+        service_name:       order.service_name ?? null,
+        description:        order.description ?? null,
+        subtotal:           Number(order.subtotal) || 0,
+        discount:           Number(order.discount) || 0,
+        delivery_fee:       Number(order.delivery_fee) || 0,
+        additional_charges: Number(order.additional_charges) || 0,
+        total:              Number(order.total) || 0,
+        remaining_amount:   Number(order.total) || 0, // saldo devedor = total
+        signal_amount:      0,
+        notes:              order.notes ?? null,
+        priority:           order.priority ?? 'normal',
+        payment_method:     order.payment_method ?? null,
+        product_id:         order.product_id ?? null,
+        responsavel:        order.responsavel ?? null,
+      }
+
+      const { data: created, error: orderErr } = await (supabase.from('orders') as any)
+        .insert([payload]).select('id, order_number').single()
+      if (orderErr) throw orderErr
+
+      // 3. Itens — novos registros apontando para o novo pedido
+      if ((originalItems ?? []).length > 0) {
+        const rows = (originalItems as any[]).map(
+          ({ id: _id, order_id: _oid, created_at: _c, updated_at: _u, ...item }) => ({
+            ...item,
+            order_id: created.id,
+          })
+        )
+        const { error: insErr } = await (supabase.from('order_items') as any).insert(rows)
+        if (insErr) {
+          // Rollback — evita pedido sem itens (FK order_items→orders é ON DELETE CASCADE)
+          await (supabase.from('orders') as any).delete().eq('id', created.id)
+          throw insErr
+        }
+      }
+
+      // 4. Recarrega o registro completo para abrir em edição
+      const { data: fullNew } = await (supabase.from('orders') as any)
+        .select('*, customers(name, phone)').eq('id', created.id).single()
+
+      return {
+        record: fullNew ?? { id: created.id },
+        orderNumber: (created.order_number as string | null) ?? null,
+      }
+    },
+    onSuccess: ({ record, orderNumber }) => {
+      queryClient.invalidateQueries({ queryKey: ['orders', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard', companyId] })
+      queryClient.invalidateQueries({ queryKey: ['contas-a-receber', companyId] })
+      setConfirmDuplicateOrder(null)
+      setDuplicatingOrderId(null)
+      toast('success', `Pedido duplicado com sucesso!${orderNumber ? ` Novo nº ${orderNumber}` : ''}`)
+      openOrder(record)
+    },
+    onError: (err: any) => {
+      console.error('[pedidos] erro ao duplicar pedido:', err)
+      setDuplicatingOrderId(null)
+      setConfirmDuplicateOrder(null)
+      toast('error', 'Não foi possível duplicar o pedido. Tente novamente.')
+    },
+  })
+
+  /* ─────────────────────────────────────────────
      OPEN ORDER
   ───────────────────────────────────────────── */
 
@@ -1720,6 +1819,14 @@ function PedidosPage() {
                         <Edit2 size={13} />
                       </button>
                       <button
+                        onClick={(e) => { e.stopPropagation(); setConfirmDuplicateOrder(order) }}
+                        disabled={duplicatingOrderId === order.id}
+                        className="p-1.5 rounded-xl text-text-muted hover:text-primary hover:bg-primary-50 disabled:opacity-50"
+                        title="Duplicar pedido"
+                      >
+                        {duplicatingOrderId === order.id ? <Loader2 size={13} className="animate-spin" /> : <Copy size={13} />}
+                      </button>
+                      <button
                         onClick={(e) => { e.stopPropagation(); setConfirmDeleteOrderId(order.id) }}
                         className="p-1.5 rounded-xl text-text-muted hover:text-error hover:bg-error-light"
                       >
@@ -1783,6 +1890,14 @@ function PedidosPage() {
                                   )}
                                 </span>
                                 <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setConfirmDuplicateOrder(order) }}
+                                    disabled={duplicatingOrderId === order.id}
+                                    className="p-0.5 rounded text-text-muted/60 hover:text-primary disabled:opacity-50"
+                                    title="Duplicar pedido"
+                                  >
+                                    {duplicatingOrderId === order.id ? <Loader2 size={11} className="animate-spin" /> : <Copy size={11} />}
+                                  </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); setConfirmDeleteOrderId(order.id) }}
                                     className="p-0.5 rounded text-text-muted/60 hover:text-error"
@@ -1929,6 +2044,14 @@ function PedidosPage() {
                                 title="Editar pedido"
                               >
                                 <Edit2 size={12} />
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setConfirmDuplicateOrder(order) }}
+                                disabled={duplicatingOrderId === order.id}
+                                className="p-1 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors disabled:opacity-50"
+                                title="Duplicar pedido"
+                              >
+                                {duplicatingOrderId === order.id ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />}
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); setConfirmDeleteOrderId(order.id) }}
@@ -2156,6 +2279,14 @@ function PedidosPage() {
                                 title="Editar pedido"
                               >
                                 <Edit2 size={12} />
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setConfirmDuplicateOrder(order) }}
+                                disabled={duplicatingOrderId === order.id}
+                                className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors disabled:opacity-50"
+                                title="Duplicar pedido"
+                              >
+                                {duplicatingOrderId === order.id ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />}
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); setConfirmDeleteOrderId(order.id) }}
@@ -3495,6 +3626,58 @@ function PedidosPage() {
               >
                 {deleteMutation.isPending && <Loader2 size={14} className="animate-spin" />}
                 Excluir pedido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════
+          MODAL CONFIRMAR DUPLICAÇÃO DE PEDIDO
+      ══════════════════════════════════ */}
+
+      {confirmDuplicateOrder && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => !duplicateMutation.isPending && setConfirmDuplicateOrder(null)}
+          />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm animate-scaleIn overflow-hidden p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center flex-shrink-0">
+                <Copy size={18} className="text-primary" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">Duplicar pedido?</h2>
+                <p className="text-xs text-text-muted mt-0.5">
+                  {confirmDuplicateOrder.order_number
+                    ? `A partir de ${confirmDuplicateOrder.order_number}`
+                    : 'Cópia do pedido selecionado'}
+                </p>
+              </div>
+            </div>
+            <p className="text-[11px] text-text-muted mb-4">
+              Será criado um novo pedido com os mesmos produtos e informações comerciais.
+              O novo pedido recebe um novo número, começa como <strong>Pendente</strong> e
+              sem pagamentos — o pedido original não é alterado.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                disabled={duplicateMutation.isPending}
+                onClick={() => setConfirmDuplicateOrder(null)}
+                className="btn-secondary flex-1"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={duplicateMutation.isPending}
+                onClick={() => { setDuplicatingOrderId(confirmDuplicateOrder.id); duplicateMutation.mutate(confirmDuplicateOrder) }}
+                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-primary text-white text-sm font-semibold py-2.5 hover:bg-primary/90 transition-colors disabled:opacity-50"
+              >
+                {duplicateMutation.isPending && <Loader2 size={14} className="animate-spin" />}
+                Duplicar pedido
               </button>
             </div>
           </div>
