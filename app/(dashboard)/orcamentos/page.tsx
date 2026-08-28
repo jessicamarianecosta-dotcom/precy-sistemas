@@ -73,6 +73,11 @@ const DELIVERY_OPTIONS=[
   {value:'carrier',  label:'Transportadora', emoji:'🚚'},
 ]
 
+/* Prazo de produção sugerido para orçamentos novos (ou como fallback quando
+   um orçamento antigo não tem nada gravado em budgets.production_days).
+   Nunca sobrescreve um valor já salvo. */
+const DEFAULT_PRODUCTION_DAYS='2 a 3 dias úteis'
+
 export default function OrcamentosPage() {
   const supabase=createClient(), qc=useQueryClient(), {toast}=useToast(), {companyId}=useCompanyId()
   const [showWizard,setShowWizard]=useState(false)
@@ -168,7 +173,7 @@ export default function OrcamentosPage() {
     setInstall(2);setSignalAmt(0);setSignalMode('value');setSignalPct(50)
     setPrazoType('dias');setPrazoDays(30);setPrazoDate('');setIssueDate(new Date())
     setDelivType('pickup');setDelivFee(0);setDelivAddr('');setValidUntil(format(addDays(new Date(),20),'yyyy-MM-dd'))
-    setProdDays('');setDelivDays('');setNotes('');setStatus('draft');setShowWizard(true)
+    setProdDays(DEFAULT_PRODUCTION_DAYS);setDelivDays('');setNotes('');setStatus('draft');setShowWizard(true)
   }
 
   async function openEdit(b:any){
@@ -213,11 +218,15 @@ export default function OrcamentosPage() {
     setPrazoDays(Number((b as any).prazo_dias)||30)
     setPrazoDate((b as any).prazo_due_date?String((b as any).prazo_due_date).split('T')[0]:'')
     setIssueDate(b.created_at?new Date(b.created_at):new Date())
-    // Entrega
-    setDelivType('pickup');setDelivFee(0);setDelivAddr('')
+    // Entrega — restaura o que foi salvo (colunas budgets.delivery_*)
+    setDelivType((b as any).delivery_type||'pickup')
+    setDelivFee(Number((b as any).delivery_fee)||0)
+    setDelivAddr((b as any).delivery_addr||'')
     // Prazos
     setValidUntil(b.valid_until?b.valid_until.split('T')[0]:'')
-    setProdDays('');setDelivDays('')
+    // production_days salvo tem prioridade; só usa o padrão se estiver vazio
+    setProdDays((b as any).production_days||DEFAULT_PRODUCTION_DAYS)
+    setDelivDays((b as any).delivery_days||'')
     // Notas + status
     setNotes(b.notes||'');setStatus(b.status||'draft')
     setStep(1);setShowWizard(true)
