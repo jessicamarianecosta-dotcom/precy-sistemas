@@ -11,7 +11,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toaster'
 import { formatCurrency } from '@/lib/utils/format'
 import {
-  normalizePhoneToWhatsapp, buildOrderReadyMessage, buildWhatsappUrl,
+  normalizePhoneToWhatsapp, buildOrderReadyMessage, openWhatsappConversation,
 } from '@/lib/orders/whatsapp'
 
 interface WhatsAppNotifyButtonProps {
@@ -83,8 +83,9 @@ export function WhatsAppNotifyButton({
 
   async function handleConfirm() {
     if (!confirm) return
-    window.open(buildWhatsappUrl(confirm.phoneDigits, confirm.message), '_blank', 'noopener,noreferrer')
 
+    // Registra o aviso antes de abrir o WhatsApp: no Android a abertura é uma
+    // navegação top-level (Intent URL) e o código abaixo não rodaria depois.
     const { data } = await (supabase.from('orders') as any)
       .select('whatsapp_notification_count')
       .eq('id', orderId)
@@ -100,6 +101,8 @@ export function WhatsAppNotifyButton({
     toast('success', 'WhatsApp aberto para envio.')
     setConfirm(null)
     onNotified?.()
+
+    openWhatsappConversation(confirm.phoneDigits, confirm.message)
   }
 
   const label = whatsappNotifiedAt

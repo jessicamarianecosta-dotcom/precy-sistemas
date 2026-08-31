@@ -97,3 +97,66 @@ export function buildWhatsappUrl(phoneDigits: string, message: string): string {
   }
   return `https://web.whatsapp.com/send?phone=${phoneDigits}&text=${encodedMessage}`
 }
+
+function isAndroidDevice(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return /Android/i.test(navigator.userAgent)
+}
+
+function isIOSDevice(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent
+  // iPadOS 13+ se apresenta como "Macintosh" — detecta pelo touch.
+  return /iPhone|iPad|iPod/i.test(ua) ||
+    (/Macintosh/i.test(ua) && typeof document !== 'undefined' && 'ontouchend' in document)
+}
+
+/**
+ * Abre a conversa do WhatsApp com a mensagem já preenchida, escolhendo a
+ * melhor estratégia por plataforma. Nunca envia nada — o usuário ainda
+ * precisa tocar em "Enviar" dentro do app.
+ *
+ * Android: usa um Intent URL apontando para o pacote do WhatsApp Business
+ * (com.whatsapp.w4b). Se o Business não estiver instalado, o próprio Android
+ * usa o `browser_fallback_url` (wa.me), que então abre o WhatsApp normal ou,
+ * na ausência dele, a versão web. Estratégia progressiva sem depender só do
+ * user-agent para decidir qual app existe.
+ *
+ * iOS: tenta o esquema `whatsapp://` e cai para o link https (wa.me) caso o
+ * app não responda.
+ *
+ * Desktop: mantém o comportamento atual (WhatsApp Web direto).
+ */
+export function openWhatsappConversation(phoneDigits: string, message: string): void {
+  if (typeof window === 'undefined') return
+  if (!phoneDigits) return
+
+  const encodedMessage = encodeURIComponent(message)
+  const httpsUrl = `https://wa.me/${phoneDigits}?text=${encodedMessage}`
+
+  if (isAndroidDevice()) {
+    const fallback = encodeURIComponent(httpsUrl)
+    const intentUrl =
+      `intent://send?phone=${phoneDigits}&text=${encodedMessage}` +
+      `#Intent;scheme=whatsapp;package=com.whatsapp.w4b;S.browser_fallback_url=${fallback};end`
+    // Intent URLs precisam de navegação top-level; window.open abriria "about:blank".
+    window.location.href = intentUrl
+    return
+  }
+
+  if (isIOSDevice()) {
+    const appUrl = `whatsapp://send?phone=${phoneDigits}&text=${encodedMessage}`
+    let switched = false
+    const onHide = () => { switched = true }
+    document.addEventListener('visibilitychange', onHide, { once: true })
+    window.location.href = appUrl
+    window.setTimeout(() => {
+      document.removeEventListener('visibilitychange', onHide)
+      if (!switched && !document.hidden) window.location.href = httpsUrl
+    }, 1200)
+    return
+  }
+
+  // Desktop
+  window.open(buildWhatsappUrl(phoneDigits, message), '_blank', 'noopener,noreferrer')
+}
