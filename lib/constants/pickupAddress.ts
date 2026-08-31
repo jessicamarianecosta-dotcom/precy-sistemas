@@ -17,7 +17,7 @@ export const PICKUP_ADDRESS = {
   cep: '81925-260',
 } as const
 
-/** Texto de uma linha — salvo em `budgets.delivery_addr` / `orders.delivery_addr`. */
+/** Texto de uma linha — salvo em `budgets.delivery_addr` (a tabela `orders` não tem esse campo). */
 export const PICKUP_ADDRESS_TEXT =
   'Rua Lupionópolis, 1473 - Sítio Cercado, Curitiba/PR - CEP 81925-260'
 

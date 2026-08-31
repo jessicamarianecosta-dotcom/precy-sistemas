@@ -417,10 +417,24 @@ export default function OrcamentosPage() {
   /* ─── Converter Orçamento → Pedido ─── */
   async function handleConvertToOrder(b: any) {
     if (!companyId) return
+    if (converting) return // já há uma conversão em andamento (anti duplo-clique)
 
-    // Anti-duplicação: se já tem pedido vinculado, apenas navegar
+    // Anti-duplicação: se já tem pedido vinculado, não cria outro — leva para o pedido
     if (b.converted_to_order_id) {
-      toast('error', 'Pedido já criado para este orçamento.')
+      toast('info', 'Este orçamento já foi convertido. Abrindo o pedido vinculado…')
+      window.location.href = '/pedidos'
+      return
+    }
+
+    // Revalida no banco antes de criar (evita corrida se a lista estiver desatualizada)
+    const { data: fresh } = await (supabase.from('budgets') as any)
+      .select('converted_to_order_id')
+      .eq('id', b.id)
+      .maybeSingle()
+    if (fresh?.converted_to_order_id) {
+      toast('info', 'Este orçamento já foi convertido. Abrindo o pedido vinculado…')
+      qc.invalidateQueries({ queryKey: ['budgets', companyId] })
+      window.location.href = '/pedidos'
       return
     }
 
@@ -456,33 +470,25 @@ export default function OrcamentosPage() {
         signal_amount:  sigAmt,
         remaining_amount: remaining,
         notes:          b.notes || null,
-        due_date:       b.delivery_days
-          ? new Date(Date.now() + Number(b.delivery_days) * 86400000).toISOString()
-          : null,
+        // delivery_days é texto livre ("até 5 dias", "3"...) — só vira data se for numérico puro
+        due_date:       (() => {
+          const n = Number(b.delivery_days)
+          return Number.isFinite(n) && n > 0
+            ? new Date(Date.now() + n * 86400000).toISOString()
+            : null
+        })(),
         priority:       'normal',
         quote_id:       b.id,          // vínculo com orçamento original
       }
 
-      // Modalidade + endereço de entrega (colunas orders.delivery_* — migration 078).
-      // Retirada usa sempre o endereço fixo da LumiLife; demais modalidades herdam o do orçamento.
-      const orderDeliveryPayload = {
-        delivery_type: b.delivery_type ?? null,
-        delivery_addr: b.delivery_type === 'pickup'
-          ? PICKUP_ADDRESS_TEXT
-          : (b.delivery_addr ?? null),
-      }
-
-      let orderRes: any = await (supabase.from('orders') as any)
-        .insert([{ ...orderPayload, ...orderDeliveryPayload }])
+      // A tabela `orders` NÃO possui colunas de entrega (delivery_type/delivery_addr).
+      // Esses dados permanecem no orçamento e são acessados pelo pedido via `quote_id`
+      // (ver lib/pdf/orderQuoteData + handleGeneratePDF em Pedidos). Retirada = endereço
+      // fixo da LumiLife, resolvido a partir do orçamento vinculado.
+      const { data: order, error: orderErr } = await (supabase.from('orders') as any)
+        .insert([orderPayload])
         .select('id, order_number')
         .single()
-      if (orderRes?.error?.code === '42703') {
-        orderRes = await (supabase.from('orders') as any)
-          .insert([orderPayload])
-          .select('id, order_number')
-          .single()
-      }
-      const { data: order, error: orderErr } = orderRes
 
       if (orderErr) throw new Error(orderErr.message)
 
@@ -544,9 +550,10 @@ export default function OrcamentosPage() {
         }])
       }
 
-      // 6. Agenda: se tem data de entrega, criar tarefa
-      if (b.delivery_days && order?.id) {
-        const dueDate = new Date(Date.now() + Number(b.delivery_days) * 86400000)
+      // 6. Agenda: se o prazo de entrega for numérico (dias), criar tarefa
+      const delivDaysNum = Number(b.delivery_days)
+      if (Number.isFinite(delivDaysNum) && delivDaysNum > 0 && order?.id) {
+        const dueDate = new Date(Date.now() + delivDaysNum * 86400000)
         await (supabase.from('calendar_tasks') as any).insert([{
           company_id:  companyId,
           title:       `Entrega — ${order.order_number}`,

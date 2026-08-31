@@ -9,6 +9,11 @@
    order_number, order_date/created_at, status, notes, payment_method,
    signal_amount, subtotal, discount, delivery_fee, additional_charges,
    total, due_date.
+
+   `orders` NÃO tem colunas de entrega. Quando o pedido veio de um orçamento
+   (order.quote_id), a modalidade/endereço/prazos de entrega são lidos do
+   orçamento de origem (`sourceBudget`) — sem duplicar dados no pedido.
+   Retirada sempre resolve para o endereço fixo da LumiLife.
    ============================================================ */
 
 import { toSlug } from '@/lib/utils/slug'
@@ -37,9 +42,19 @@ const fmtDate = (iso?: string | null) => {
   }
 }
 
-/** Mapeia o pedido para o "budget" que `generateBudgetPDF` consome. */
-export function orderToBudgetShape(order: Record<string, unknown>): Record<string, unknown> {
+/**
+ * Mapeia o pedido para o "budget" que `generateBudgetPDF` consome.
+ *
+ * @param order        registro de `orders` (com relação `customers`)
+ * @param sourceBudget orçamento de origem (order.quote_id), quando existir —
+ *                     fonte da modalidade/endereço/prazos de entrega.
+ */
+export function orderToBudgetShape(
+  order: Record<string, unknown>,
+  sourceBudget?: Record<string, unknown> | null,
+): Record<string, unknown> {
   const o = order as any
+  const sb = (sourceBudget ?? {}) as any
   const rawMethod = o.payment_method ? String(o.payment_method) : ''
   const method = rawMethod
     ? (PAYMENT_METHOD_LABELS[rawMethod] ?? rawMethod)
@@ -47,33 +62,36 @@ export function orderToBudgetShape(order: Record<string, unknown>): Record<strin
   const signal = Number(o.signal_amount) || 0
   const due = fmtDate(o.due_date)
 
+  const deliveryType = String(sb.delivery_type ?? '')
+  const isPickupType = deliveryType === 'pickup'
+
   return {
     budget_number: o.order_number ?? 'PEDIDO',
     created_at: o.order_date ?? o.created_at ?? null,
-    valid_until: null,
+    valid_until: sb.valid_until ?? null,
     status: o.status === 'cancelled' ? 'rejected' : 'approved',
     notes: o.notes ?? '',
 
-    payment_method: method,
-    pay_condition: signal > 0 ? 'entrada' : '',
-    installments: 0,
+    // Pagamento: valores atuais do pedido têm prioridade; condição/prazo herdam do orçamento.
+    payment_method: method || String(sb.payment_method ?? ''),
+    pay_condition: sb.pay_condition ?? (signal > 0 ? 'entrada' : ''),
+    installments: Number(sb.installments) || 0,
     signal_amount: signal,
+    prazo_type: sb.prazo_type ?? '',
+    prazo_dias: Number(sb.prazo_dias) || 0,
+    prazo_due_date: sb.prazo_due_date ?? null,
 
     subtotal: Number(o.subtotal) || 0,
     discount: Number(o.discount) || 0,
-    delivery_fee: o.delivery_type === 'pickup' ? 0 : (Number(o.delivery_fee) || 0),
+    delivery_fee: isPickupType ? 0 : (Number(o.delivery_fee) || Number(sb.delivery_fee) || 0),
     additional_charges: Number(o.additional_charges) || 0,
     total: Number(o.total) || 0,
 
-    // Modalidade de entrega herdada do pedido (colunas orders.delivery_* — migration 078).
-    // Retirada usa sempre o endereço fixo da LumiLife.
-    delivery_type: o.delivery_type ?? '',
-    delivery_addr: o.delivery_type === 'pickup'
-      ? PICKUP_ADDRESS_TEXT
-      : (o.delivery_addr ?? ''),
-
-    // Pedidos não possuem prazo de produção próprio — só o prazo de entrega (due_date).
-    delivery_days: due,
+    // Entrega: lida do orçamento de origem. Retirada = endereço fixo da LumiLife.
+    delivery_type: deliveryType,
+    delivery_addr: isPickupType ? PICKUP_ADDRESS_TEXT : (sb.delivery_addr ?? ''),
+    delivery_days: sb.delivery_days || due,
+    production_days: sb.production_days ?? '',
 
     customers: o.customers ?? {},
   }

@@ -1344,19 +1344,9 @@ function PedidosPage() {
         product_id:         order.product_id ?? null,
         responsavel:        order.responsavel ?? null,
       }
-      // Modalidade + endereço de entrega (colunas orders.delivery_* — migration 078).
-      const deliveryPayload = {
-        delivery_type: order.delivery_type ?? null,
-        delivery_addr: order.delivery_addr ?? null,
-      }
 
-      let createdRes: any = await (supabase.from('orders') as any)
-        .insert([{ ...payload, ...deliveryPayload }]).select('id, order_number').single()
-      if (createdRes?.error?.code === '42703') {
-        createdRes = await (supabase.from('orders') as any)
-          .insert([payload]).select('id, order_number').single()
-      }
-      const { data: created, error: orderErr } = createdRes
+      const { data: created, error: orderErr } = await (supabase.from('orders') as any)
+        .insert([payload]).select('id, order_number').single()
       if (orderErr) throw orderErr
 
       // 3. Itens — novos registros apontando para o novo pedido
@@ -1499,10 +1489,20 @@ function PedidosPage() {
         const { orderToBudgetShape, orderQuoteFileName } = await import('@/lib/pdf/orderQuoteData')
         const { getOrderItems } = await import('@/lib/pdf/getOrderItems')
         const src = (fullOrder ?? order) as Record<string, unknown>
+        // Entrega (modalidade/endereço/prazos) vive no orçamento de origem — orders não guarda isso.
+        let sourceBudget: Record<string, unknown> | null = null
+        const quoteId = (src as any).quote_id as string | undefined
+        if (quoteId) {
+          const { data: b } = await (supabase.from('budgets') as any)
+            .select('delivery_type, delivery_addr, delivery_fee, delivery_days, production_days, valid_until, payment_method, pay_condition, installments, prazo_type, prazo_dias, prazo_due_date')
+            .eq('id', quoteId)
+            .maybeSingle()
+          sourceBudget = b ?? null
+        }
         // getOrderItems cobre pedidos legados (produto único, sem order_items).
         const effectiveItems = getOrderItems(src, itemRows ?? [])
         await generateBudgetPDF({
-          budget: orderToBudgetShape(src),
+          budget: orderToBudgetShape(src, sourceBudget),
           items: effectiveItems as unknown as Record<string, unknown>[],
           company: companyData,
           fileName: orderQuoteFileName(src),
