@@ -13,11 +13,11 @@
    `orders` NÃO tem colunas de entrega. Quando o pedido veio de um orçamento
    (order.quote_id), a modalidade/endereço/prazos de entrega são lidos do
    orçamento de origem (`sourceBudget`) — sem duplicar dados no pedido.
-   Retirada sempre resolve para o endereço fixo da LumiLife.
+   Retirada: o endereço é o da PRÓPRIA empresa (resolvido no generateBudgetPDF
+   a partir de `company`), nunca um endereço global.
    ============================================================ */
 
 import { toSlug } from '@/lib/utils/slug'
-import { PICKUP_ADDRESS_TEXT } from '@/lib/constants/pickupAddress'
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   pix: 'PIX',
@@ -64,6 +64,8 @@ export function orderToBudgetShape(
 
   const deliveryType = String(sb.delivery_type ?? '')
   const isPickupType = deliveryType === 'pickup'
+  // Retirada: endereço resolvido pelo generateBudgetPDF a partir de `company`.
+  // Demais modalidades: usa o endereço que o orçamento gravou.
 
   return {
     budget_number: o.order_number ?? 'PEDIDO',
@@ -87,9 +89,10 @@ export function orderToBudgetShape(
     additional_charges: Number(o.additional_charges) || 0,
     total: Number(o.total) || 0,
 
-    // Entrega: lida do orçamento de origem. Retirada = endereço fixo da LumiLife.
+    // Entrega: lida do orçamento de origem. Retirada → generateBudgetPDF resolve
+    // o endereço a partir de `company` (endereço da própria empresa).
     delivery_type: deliveryType,
-    delivery_addr: isPickupType ? PICKUP_ADDRESS_TEXT : (sb.delivery_addr ?? ''),
+    delivery_addr: isPickupType ? '' : (sb.delivery_addr ?? ''),
     delivery_days: sb.delivery_days || due,
     production_days: sb.production_days ?? '',
 

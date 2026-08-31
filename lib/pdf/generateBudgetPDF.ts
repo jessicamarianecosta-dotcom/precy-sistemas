@@ -6,7 +6,7 @@
 import { formatCurrency } from '@/lib/utils/format'
 import { getBudgetItems } from '@/lib/pdf/getBudgetItems'
 import { formatDimDisplay } from '@/lib/utils/dimensions'
-import { PICKUP_ADDRESS_LINES } from '@/lib/constants/pickupAddress'
+import { companyPickupAddressLines } from '@/lib/company/pickupAddress'
 
 interface PDFParams {
   budget:  Record<string, unknown>
@@ -42,6 +42,7 @@ export async function generateBudgetPDF({ budget, items, company, fileName }: PD
   const coSite   = X(co.website  ?? '')
   const logoUrl  = co.logo_url as string | undefined
   const primary  = String(co.primary_color ?? '#1a1208')
+  const pickupLines = companyPickupAddressLines(co)
 
   /* ── Orçamento ── */
   const bNum    = X(b.budget_number ?? 'ORC-0001')
@@ -436,7 +437,9 @@ export async function generateBudgetPDF({ budget, items, company, fileName }: PD
       </div>
       <div class="crow">
         <span class="ck">Local de retirada</span>
-        <span class="cv">${X((PICKUP_ADDRESS_LINES as readonly string[]).join('\n'))}</span>
+        <span class="cv">${pickupLines.length > 0
+          ? X(pickupLines.join('\n'))
+          : '<span style="color:#b91c1c;">Endereço da empresa não cadastrado (Configurações)</span>'}</span>
       </div>` : bDelTyp ? `
       <div class="crow">
         <span class="ck">Entrega</span>

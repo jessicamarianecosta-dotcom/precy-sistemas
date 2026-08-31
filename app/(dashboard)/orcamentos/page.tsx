@@ -19,7 +19,7 @@ import {
   Eye, Search, Edit3, Edit2, Minus, Info, ShoppingBag, ExternalLink, Copy,
 } from 'lucide-react'
 import { calculateAreaM2, formatAreaM2, formatDimDisplay, getDimBlock } from '@/lib/utils/dimensions'
-import { PICKUP_ADDRESS_TEXT, PICKUP_ADDRESS_LINES } from '@/lib/constants/pickupAddress'
+import { companyPickupAddressLines, companyPickupAddressText } from '@/lib/company/pickupAddress'
 
 interface BudgetItem {
   id: string; type: 'product'|'service'|'manual'; name: string
@@ -313,7 +313,9 @@ export default function OrcamentosPage() {
         ),
         delivery_type:   deliveryType||null,
         delivery_fee:    deliveryType==='pickup' ? 0 : (deliveryFee||0),
-        delivery_addr:   deliveryType==='pickup' ? PICKUP_ADDRESS_TEXT : (deliveryAddr||null),
+        delivery_addr:   deliveryType==='pickup'
+          ? (companyPickupAddressText(companyData as any) || null)
+          : (deliveryAddr||null),
         delivery_days:   delivDays||null,
         production_days: prodDays||null,
       }
@@ -1175,15 +1177,27 @@ export default function OrcamentosPage() {
                       </button>
                     ))}
                   </div>
-                  {deliveryType==='pickup'&&(
+                  {deliveryType==='pickup'&&(()=>{
+                    const pickupLines=companyPickupAddressLines(companyData as any)
+                    return (
                     <div className="p-4 rounded-xl bg-primary-50/40 dark:bg-primary/5 border border-primary/20">
                       <p className="flex items-center gap-1.5 text-xs font-semibold text-primary mb-1.5">📍 Local de retirada</p>
-                      <div className="text-sm text-text-primary dark:text-stone-100 leading-relaxed">
-                        {PICKUP_ADDRESS_LINES.map(l=><p key={l}>{l}</p>)}
-                      </div>
-                      <p className="text-[11px] text-text-muted dark:text-stone-500 mt-2">Endereço preenchido automaticamente — o cliente retira o pedido neste endereço.</p>
+                      {pickupLines.length>0?(
+                        <>
+                          <div className="text-sm text-text-primary dark:text-stone-100 leading-relaxed">
+                            {pickupLines.map(l=><p key={l}>{l}</p>)}
+                          </div>
+                          <p className="text-[11px] text-text-muted dark:text-stone-500 mt-2">Endereço da sua empresa (Configurações) — o cliente retira o pedido aqui.</p>
+                        </>
+                      ):(
+                        <>
+                          <p className="text-xs text-text-secondary dark:text-stone-400">Cadastre o endereço da empresa em Configurações para utilizá-lo como local de retirada.</p>
+                          <a href="/configuracoes" className="inline-flex items-center gap-1 mt-2 text-xs font-medium text-primary hover:opacity-80">Configurar endereço →</a>
+                        </>
+                      )}
                     </div>
-                  )}
+                    )
+                  })()}
                   {deliveryType!=='pickup'&&(
                     <div className="space-y-3 p-4 rounded-xl bg-primary-50/30 dark:bg-primary/5 border border-border dark:border-stone-700">
                       <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Endereço de entrega</label><input className="input text-sm" placeholder="Rua, número, bairro..." value={deliveryAddr} onChange={e=>setDelivAddr(e.target.value)}/></div>
