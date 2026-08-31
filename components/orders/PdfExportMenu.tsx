@@ -1,13 +1,16 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Download, FileText, Printer, ChevronDown, Loader2 } from 'lucide-react'
+import { Download, FileText, Printer, ChevronDown, Loader2, ReceiptText } from 'lucide-react'
 
-export type PdfMode = 'cliente' | 'producao'
+export type PdfMode = 'cliente' | 'producao' | 'orcamento'
+
+/** Só estes dois modos podem ser "padrão" da empresa. */
+export type PdfDefaultTemplate = 'cliente' | 'producao'
 
 interface Props {
   generating: boolean
-  defaultTemplate?: PdfMode
+  defaultTemplate?: PdfDefaultTemplate
   onSelect: (mode: PdfMode) => void
   variant?: 'full' | 'icon'
 }
@@ -27,7 +30,7 @@ export function PdfExportMenu({ generating, defaultTemplate = 'cliente', onSelec
 
   function pick(mode: PdfMode) {
     setOpen(false)
-    onSelect(mode)
+    if (!generating) onSelect(mode)
   }
 
   return (
@@ -79,6 +82,15 @@ export function PdfExportMenu({ generating, defaultTemplate = 'cliente', onSelec
             {defaultTemplate === 'producao' && (
               <span className="text-[9px] font-semibold text-text-muted uppercase tracking-wide">padrão</span>
             )}
+          </button>
+          <div className="my-1 border-t border-border dark:border-border-dark" />
+          <button
+            type="button"
+            onClick={() => pick('orcamento')}
+            className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-left text-text-primary dark:text-stone-200 hover:bg-primary-50 dark:hover:bg-white/5 transition-colors"
+          >
+            <ReceiptText size={14} className="text-primary flex-shrink-0" />
+            <span className="flex-1">📄 Baixar orçamento</span>
           </button>
         </div>
       )}

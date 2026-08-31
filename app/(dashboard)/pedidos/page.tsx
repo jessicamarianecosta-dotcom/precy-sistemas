@@ -72,7 +72,7 @@ import { ptBR } from 'date-fns/locale'
 import { formatCurrency as fmtGlobal } from '@/lib/utils/format'
 import { useSubscription } from '@/hooks/useSubscription'
 import { recalcOrderPaymentStatus, recalcCustomerTotalPurchases, registerSchedulePayment, syncOrderPaymentSchedule } from '@/lib/orders/recalc'
-import { PdfExportMenu } from '@/components/orders/PdfExportMenu'
+import { PdfExportMenu, type PdfMode } from '@/components/orders/PdfExportMenu'
 import { WhatsAppNotifyButton } from '@/components/orders/WhatsAppNotifyButton'
 import {
   OrderFinanceSection, DEFAULT_ORDER_FINANCE_FORM, type OrderFinanceFormState,
@@ -1468,8 +1468,9 @@ function PedidosPage() {
     setShowModal(true)
   }
 
-  async function handleGeneratePDF(order: Record<string, unknown>, mode: 'cliente' | 'producao' = 'cliente') {
+  async function handleGeneratePDF(order: Record<string, unknown>, mode: PdfMode = 'cliente') {
     const orderId = order.id as string
+    if (generatingPdfId) return
     setGeneratingPdfId(orderId)
     try {
       const { getOrderArtFiles } = await import('@/lib/pdf/getOrderArtFiles')
@@ -1482,6 +1483,22 @@ function PedidosPage() {
       const { data: itemRows } = await (supabase.from('order_items') as any)
         .select('*, products(name, description, width, height, area, measurement_unit, finishings, finishing_type, technical_notes)')
         .eq('order_id', orderId)
+
+      if (mode === 'orcamento') {
+        const { generateBudgetPDF } = await import('@/lib/pdf/generateBudgetPDF')
+        const { orderToBudgetShape, orderQuoteFileName } = await import('@/lib/pdf/orderQuoteData')
+        const { getOrderItems } = await import('@/lib/pdf/getOrderItems')
+        const src = (fullOrder ?? order) as Record<string, unknown>
+        // getOrderItems cobre pedidos legados (produto único, sem order_items).
+        const effectiveItems = getOrderItems(src, itemRows ?? [])
+        await generateBudgetPDF({
+          budget: orderToBudgetShape(src),
+          items: effectiveItems as unknown as Record<string, unknown>[],
+          company: companyData,
+          fileName: orderQuoteFileName(src),
+        })
+        return
+      }
 
       const artFiles = await getOrderArtFiles(orderId)
 
@@ -1510,7 +1527,9 @@ function PedidosPage() {
       }
     } catch (err) {
       console.error('[pdf]', err)
-      toast('error', 'Erro ao gerar PDF.')
+      toast('error', mode === 'orcamento'
+        ? 'Não foi possível gerar o orçamento. Tente novamente.'
+        : 'Erro ao gerar PDF.')
     } finally {
       setGeneratingPdfId(null)
     }

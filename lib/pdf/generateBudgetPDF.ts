@@ -11,6 +11,8 @@ interface PDFParams {
   budget:  Record<string, unknown>
   items:   Record<string, unknown>[]
   company: Record<string, unknown> | null
+  /** Sobrescreve o <title> do documento (usado como nome sugerido no "Salvar como PDF"). */
+  fileName?: string
 }
 
 const R = (v: unknown) => formatCurrency(Number(v) || 0)
@@ -24,7 +26,7 @@ const D = (iso?: string | null) => {
 const X = (s: unknown) =>
   String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')
 
-export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
+export async function generateBudgetPDF({ budget, items, company, fileName }: PDFParams) {
   const co   = company as any ?? {}
   const b    = budget  as any ?? {}
   const cust = b.customers as any ?? {}
@@ -63,7 +65,8 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
   const bSub  = Number(b.subtotal) || items.reduce((s,i) => s + (Number(i.subtotal)||0), 0)
   const bDisc = Number(b.discount) || 0
   const bFee  = bDelFee
-  const bTot  = Number(b.total) || Math.max(0, bSub + bFee - bDisc)
+  const bAdd  = Number(b.additional_charges) || 0
+  const bTot  = Number(b.total) || Math.max(0, bSub + bFee + bAdd - bDisc)
   const bSig  = bSigAmount
   const bRem  = Math.max(0, bTot - bSig)
 
@@ -146,7 +149,7 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Orçamento ${bNum} — ${coName}</title>
+<title>${fileName ? X(fileName) : `Orçamento ${bNum} — ${coName}`}</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;}
   @page{size:A4 portrait;margin:13mm 11mm 15mm 11mm;}
@@ -471,6 +474,11 @@ export async function generateBudgetPDF({ budget, items, company }: PDFParams) {
       <div class="frow fee">
         <span class="fl">Frete</span>
         <span class="fv">+ ${R(bFee)}</span>
+      </div>` : ''}
+      ${bAdd > 0 ? `
+      <div class="frow fee">
+        <span class="fl">Acréscimos</span>
+        <span class="fv">+ ${R(bAdd)}</span>
       </div>` : ''}
       ${bDisc > 0 ? `
       <div class="frow disc">
