@@ -1344,9 +1344,19 @@ function PedidosPage() {
         product_id:         order.product_id ?? null,
         responsavel:        order.responsavel ?? null,
       }
+      // Modalidade + endereço de entrega (colunas orders.delivery_* — migration 078).
+      const deliveryPayload = {
+        delivery_type: order.delivery_type ?? null,
+        delivery_addr: order.delivery_addr ?? null,
+      }
 
-      const { data: created, error: orderErr } = await (supabase.from('orders') as any)
-        .insert([payload]).select('id, order_number').single()
+      let createdRes: any = await (supabase.from('orders') as any)
+        .insert([{ ...payload, ...deliveryPayload }]).select('id, order_number').single()
+      if (createdRes?.error?.code === '42703') {
+        createdRes = await (supabase.from('orders') as any)
+          .insert([payload]).select('id, order_number').single()
+      }
+      const { data: created, error: orderErr } = createdRes
       if (orderErr) throw orderErr
 
       // 3. Itens — novos registros apontando para o novo pedido

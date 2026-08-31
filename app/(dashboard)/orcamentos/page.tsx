@@ -19,6 +19,7 @@ import {
   Eye, Search, Edit3, Edit2, Minus, Info, ShoppingBag, ExternalLink, Copy,
 } from 'lucide-react'
 import { calculateAreaM2, formatAreaM2, formatDimDisplay, getDimBlock } from '@/lib/utils/dimensions'
+import { PICKUP_ADDRESS_TEXT, PICKUP_ADDRESS_LINES } from '@/lib/constants/pickupAddress'
 
 interface BudgetItem {
   id: string; type: 'product'|'service'|'manual'; name: string
@@ -311,8 +312,8 @@ export default function OrcamentosPage() {
           prazoType==='data' ? (prazoDate||null) : format(prazoVencimento(issueDate,prazoDays),'yyyy-MM-dd')
         ),
         delivery_type:   deliveryType||null,
-        delivery_fee:    deliveryFee||0,
-        delivery_addr:   deliveryAddr||null,
+        delivery_fee:    deliveryType==='pickup' ? 0 : (deliveryFee||0),
+        delivery_addr:   deliveryType==='pickup' ? PICKUP_ADDRESS_TEXT : (deliveryAddr||null),
         delivery_days:   delivDays||null,
         production_days: prodDays||null,
       }
@@ -462,10 +463,26 @@ export default function OrcamentosPage() {
         quote_id:       b.id,          // vínculo com orçamento original
       }
 
-      const { data: order, error: orderErr } = await (supabase.from('orders') as any)
-        .insert([orderPayload])
+      // Modalidade + endereço de entrega (colunas orders.delivery_* — migration 078).
+      // Retirada usa sempre o endereço fixo da LumiLife; demais modalidades herdam o do orçamento.
+      const orderDeliveryPayload = {
+        delivery_type: b.delivery_type ?? null,
+        delivery_addr: b.delivery_type === 'pickup'
+          ? PICKUP_ADDRESS_TEXT
+          : (b.delivery_addr ?? null),
+      }
+
+      let orderRes: any = await (supabase.from('orders') as any)
+        .insert([{ ...orderPayload, ...orderDeliveryPayload }])
         .select('id, order_number')
         .single()
+      if (orderRes?.error?.code === '42703') {
+        orderRes = await (supabase.from('orders') as any)
+          .insert([orderPayload])
+          .select('id, order_number')
+          .single()
+      }
+      const { data: order, error: orderErr } = orderRes
 
       if (orderErr) throw new Error(orderErr.message)
 
@@ -1158,6 +1175,15 @@ export default function OrcamentosPage() {
                       </button>
                     ))}
                   </div>
+                  {deliveryType==='pickup'&&(
+                    <div className="p-4 rounded-xl bg-primary-50/40 dark:bg-primary/5 border border-primary/20">
+                      <p className="flex items-center gap-1.5 text-xs font-semibold text-primary mb-1.5">📍 Local de retirada</p>
+                      <div className="text-sm text-text-primary dark:text-stone-100 leading-relaxed">
+                        {PICKUP_ADDRESS_LINES.map(l=><p key={l}>{l}</p>)}
+                      </div>
+                      <p className="text-[11px] text-text-muted dark:text-stone-500 mt-2">Endereço preenchido automaticamente — o cliente retira o pedido neste endereço.</p>
+                    </div>
+                  )}
                   {deliveryType!=='pickup'&&(
                     <div className="space-y-3 p-4 rounded-xl bg-primary-50/30 dark:bg-primary/5 border border-border dark:border-stone-700">
                       <div><label className="block text-xs font-medium text-text-primary dark:text-stone-200 mb-1">Endereço de entrega</label><input className="input text-sm" placeholder="Rua, número, bairro..." value={deliveryAddr} onChange={e=>setDelivAddr(e.target.value)}/></div>

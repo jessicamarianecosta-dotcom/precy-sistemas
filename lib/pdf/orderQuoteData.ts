@@ -12,6 +12,7 @@
    ============================================================ */
 
 import { toSlug } from '@/lib/utils/slug'
+import { PICKUP_ADDRESS_TEXT } from '@/lib/constants/pickupAddress'
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   pix: 'PIX',
@@ -60,11 +61,18 @@ export function orderToBudgetShape(order: Record<string, unknown>): Record<strin
 
     subtotal: Number(o.subtotal) || 0,
     discount: Number(o.discount) || 0,
-    delivery_fee: Number(o.delivery_fee) || 0,
+    delivery_fee: o.delivery_type === 'pickup' ? 0 : (Number(o.delivery_fee) || 0),
     additional_charges: Number(o.additional_charges) || 0,
     total: Number(o.total) || 0,
 
-    // Pedidos não possuem endereço/prazo de produção próprios — só o prazo de entrega (due_date).
+    // Modalidade de entrega herdada do pedido (colunas orders.delivery_* — migration 078).
+    // Retirada usa sempre o endereço fixo da LumiLife.
+    delivery_type: o.delivery_type ?? '',
+    delivery_addr: o.delivery_type === 'pickup'
+      ? PICKUP_ADDRESS_TEXT
+      : (o.delivery_addr ?? ''),
+
+    // Pedidos não possuem prazo de produção próprio — só o prazo de entrega (due_date).
     delivery_days: due,
 
     customers: o.customers ?? {},

@@ -6,6 +6,7 @@
 import { formatCurrency } from '@/lib/utils/format'
 import { getBudgetItems } from '@/lib/pdf/getBudgetItems'
 import { formatDimDisplay } from '@/lib/utils/dimensions'
+import { PICKUP_ADDRESS_LINES } from '@/lib/constants/pickupAddress'
 
 interface PDFParams {
   budget:  Record<string, unknown>
@@ -428,11 +429,18 @@ export async function generateBudgetPDF({ budget, items, company, fileName }: PD
         <span class="cv" style="color:#b91c1c;font-weight:600;">${R(rem)}</span>
       </div>`
       })() : ''}
-      ${bDelTyp ? `
+      ${bDelTyp === 'pickup' ? `
+      <div class="crow">
+        <span class="ck">Entrega</span>
+        <span class="cv">Retirada</span>
+      </div>
+      <div class="crow">
+        <span class="ck">Local de retirada</span>
+        <span class="cv">${X((PICKUP_ADDRESS_LINES as readonly string[]).join('\n'))}</span>
+      </div>` : bDelTyp ? `
       <div class="crow">
         <span class="ck">Entrega</span>
         <span class="cv">${
-          bDelTyp==='pickup'   ? 'Retirada no local'    :
           bDelTyp==='delivery' ? 'Entrega'              :
           bDelTyp==='motoboy'  ? 'Motoboy'              :
           bDelTyp==='correios' ? 'Correios'             :
