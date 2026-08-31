@@ -91,11 +91,9 @@ export async function generateBudgetPDF({ budget, items, company, fileName }: PD
     converted: { label:'Convertido', bg:'#fef9c3', fg:'#a16207'  },
   }
   const statusInfo = STATUS[bStatus] ?? STATUS.draft
-  const payBadge = bSig >= bTot && bTot > 0
-    ? { label:'PAGO',              bg:'#dcfce7', fg:'#15803d' }
-    : bSig > 0
-    ? { label:'PAGAMENTO PARCIAL', bg:'#fef9c3', fg:'#a16207' }
-    : { label:'PENDENTE',          bg:'#f0ece6', fg:'#7a6855' }
+  // Orçamento é proposta: não há recebimento registrado nesta etapa. A entrada
+  // acordada (bSig) é só uma CONDIÇÃO de pagamento — nunca implica valor pago.
+  const payBadge = { label:'AGUARDANDO PAGAMENTO', bg:'#f0ece6', fg:'#7a6855' }
 
   /* ── Logo ── */
   const logoHTML = logoUrl
@@ -422,12 +420,12 @@ export async function generateBudgetPDF({ budget, items, company, fileName }: PD
         const remPct = Math.round((100-pct)*10)/10
         return `
       <div class="crow">
-        <span class="ck" style="color:#166534;font-weight:600;">✓ Sinal/entrada recebido (${pct}%)</span>
-        <span class="cv" style="color:#166534;font-weight:600;">${R(bSig)}</span>
+        <span class="ck">Entrada a pagar (${pct}%)</span>
+        <span class="cv" style="font-weight:600;">${R(bSig)}</span>
       </div>
       <div class="crow">
-        <span class="ck" style="color:#b91c1c;">Saldo pendente (${remPct}%)</span>
-        <span class="cv" style="color:#b91c1c;font-weight:600;">${R(rem)}</span>
+        <span class="ck">Saldo a pagar (${remPct}%)</span>
+        <span class="cv" style="font-weight:600;">${R(rem)}</span>
       </div>`
       })() : ''}
       ${bDelTyp === 'pickup' ? `
@@ -505,11 +503,11 @@ export async function generateBudgetPDF({ budget, items, company, fileName }: PD
         const remPct = Math.round((100-pct)*10)/10
         return `
       <div class="fsep">
-        <span class="fsl" style="color:#166534;font-weight:600;">✓ Sinal recebido (${pct}%)</span>
-        <span class="fsv" style="color:#166534;">${R(bSig)}</span>
+        <span class="fsl" style="font-weight:600;">Entrada a pagar (${pct}%)</span>
+        <span class="fsv">${R(bSig)}</span>
       </div>
       <div class="fsep">
-        <span class="fsl" style="color:#b91c1c;font-weight:600;">Saldo a pagar (${remPct}%)</span>
+        <span class="fsl" style="font-weight:600;">Saldo a pagar (${remPct}%)</span>
         <span class="fsv rem">${R(bRem)}</span>
       </div>`
       })() : ''}

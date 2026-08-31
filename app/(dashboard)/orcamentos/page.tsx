@@ -1082,20 +1082,27 @@ export default function OrcamentosPage() {
                             </div>
                           </div>
                         )}
-                        {/* Resumo visual */}
+                        {/* Resumo visual — condição de pagamento acordada, NÃO um recebimento */}
                         <div className="rounded-xl overflow-hidden border border-primary/15">
-                          <div className="flex items-center justify-between px-3 py-2 bg-success-light dark:bg-success/10">
-                            <span className="text-xs font-semibold text-success-dark dark:text-success">✓ Entrada ({entradaPct}%)</span>
-                            <span className="text-sm font-bold text-success-dark dark:text-success">{fmt(entradaVal)}</span>
+                          <div className="flex items-center justify-between px-3 py-2 bg-primary-50/60 dark:bg-primary/5">
+                            <span className="flex flex-col">
+                              <span className="text-xs font-semibold text-text-primary dark:text-stone-100">Entrada ({entradaPct}%)</span>
+                              <span className="text-[10px] text-text-muted dark:text-stone-400">A pagar antecipadamente</span>
+                            </span>
+                            <span className="text-sm font-bold text-text-primary dark:text-stone-100">{fmt(entradaVal)}</span>
                           </div>
                           <div className="flex items-center justify-between px-3 py-2 bg-white dark:bg-surface-dark border-t border-primary/10">
-                            <span className="text-xs text-text-muted dark:text-stone-400">Saldo restante ({Math.round((100-entradaPct)*10)/10}%)</span>
+                            <span className="flex flex-col">
+                              <span className="text-xs font-semibold text-text-primary dark:text-stone-100">Saldo restante ({Math.round((100-entradaPct)*10)/10}%)</span>
+                              <span className="text-[10px] text-text-muted dark:text-stone-400">A pagar posteriormente</span>
+                            </span>
                             <span className="text-sm font-bold text-primary">{fmt(restante)}</span>
                           </div>
-                          <div className="h-1.5 w-full bg-primary/10">
-                            <div className="h-full bg-success-dark dark:bg-success transition-all duration-300" style={{width:`${Math.min(100,entradaPct)}%`}}/>
-                          </div>
                         </div>
+                        <p className="text-[10px] text-text-muted dark:text-stone-400 leading-snug">
+                          Isto define <span className="font-semibold">como</span> o cliente vai pagar. O recebimento só é
+                          registrado no financeiro quando você lançar o pagamento no pedido.
+                        </p>
                       </div>
                     )
                   })()}
