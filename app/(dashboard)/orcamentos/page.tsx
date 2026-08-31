@@ -448,9 +448,11 @@ export default function OrcamentosPage() {
       const customer = b.customers as any
       const customerId = b.customer_id
 
-      // 2. Calcular signal_amount correto (entrada)
+      // 2. Entrada acordada no orçamento — apenas informativa. NÃO é recebimento:
+      //    aprovar orçamento não registra pagamento. O dinheiro só entra quando
+      //    o usuário clicar em "Registrar Recebimento" no pedido.
       const sigAmt = Number(b.signal_amount) || 0
-      const remaining = Math.max(0, Number(b.total) - sigAmt)
+      const orderTotal = Number(b.total) || 0
 
       // 3. Criar pedido na tabela orders
       const orderPayload: Record<string, unknown> = {
@@ -462,13 +464,13 @@ export default function OrcamentosPage() {
           : (customer?.name ? `Pedido — ${customer.name}` : 'Pedido'),
         description:    b.notes || null,
         status:         'pending',
-        payment_status: sigAmt > 0 ? 'partial' : 'pending',
+        payment_status: 'pending',           // nada recebido até registro manual
         payment_method: b.payment_method  || null,
         subtotal:       Number(b.subtotal) || 0,
         discount:       Number(b.discount) || 0,
-        total:          Number(b.total)    || 0,
-        signal_amount:  sigAmt,
-        remaining_amount: remaining,
+        total:          orderTotal,
+        signal_amount:  sigAmt,               // entrada acordada (informativo)
+        remaining_amount: orderTotal,         // saldo devedor = total (nada recebido)
         notes:          b.notes || null,
         // delivery_days é texto livre ("até 5 dias", "3"...) — só vira data se for numérico puro
         due_date:       (() => {
@@ -537,18 +539,9 @@ export default function OrcamentosPage() {
         updated_at:           new Date().toISOString(),
       }).eq('id', b.id)
 
-      // 5. Integração financeira: se tinha entrada/sinal, registrar lançamento
-      if (sigAmt > 0 && order?.id) {
-        await (supabase.from('financial_transactions') as any).insert([{
-          company_id:  companyId,
-          order_id:    order.id,
-          type:        'income',
-          category:    'vendas',
-          amount:      sigAmt,
-          description: `Entrada — ${order.order_number} (do orç. ${b.budget_number || b.id.slice(0,8)})`,
-          date:        new Date().toISOString().split('T')[0],
-        }])
-      }
+      // 5. (sem lançamento financeiro automático) — a entrada/sinal do orçamento
+      //    é só uma condição acordada; o recebimento é registrado manualmente
+      //    pelo usuário em "Registrar Recebimento" no pedido.
 
       // 6. Agenda: se o prazo de entrega for numérico (dias), criar tarefa
       const delivDaysNum = Number(b.delivery_days)

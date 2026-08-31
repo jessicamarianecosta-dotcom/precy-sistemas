@@ -25,7 +25,9 @@ export interface OrderFinanceFormState {
 const today = () => format(new Date(), 'yyyy-MM-dd')
 
 export const DEFAULT_ORDER_FINANCE_FORM: OrderFinanceFormState = {
-  receivedNow:         true,
+  // Pedido nasce SEM recebimento. O dinheiro só entra quando o usuário
+  // registra manualmente em "Registrar Recebimento" (ou marca "Recebido agora? Sim").
+  receivedNow:         false,
   receivedDate:         today(),
   dueDate:               today(),
   cardBrand:             '',
