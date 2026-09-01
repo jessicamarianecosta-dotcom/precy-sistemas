@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { X, MessageCircle, Mail, Loader2 } from 'lucide-react'
 import { DEFAULT_REQUEST_MESSAGE } from './types'
+import { normalizePhoneToWhatsapp, openWhatsappConversation } from '@/lib/orders/whatsapp'
 
 interface Props {
   customerName?: string | null
@@ -10,12 +11,6 @@ interface Props {
   customerEmail?: string | null
   onClose: () => void
   onConfirm: (opts: { message: string; sentVia: ('whatsapp' | 'email')[] }) => Promise<void> | void
-}
-
-function buildWhatsappUrl(phone: string, message: string): string {
-  const digits = phone.replace(/\D/g, '')
-  const withCountry = digits.length <= 11 ? `55${digits}` : digits
-  return `https://wa.me/${withCountry}?text=${encodeURIComponent(message)}`
 }
 
 function buildMailtoUrl(email: string, message: string): string {
@@ -38,7 +33,10 @@ export function RequestNewArtModal({ customerName, customerPhone, customerEmail,
     try {
       const sentVia: ('whatsapp' | 'email')[] = []
       if (viaWhatsapp && customerPhone) {
-        window.open(buildWhatsappUrl(customerPhone, message), '_blank')
+        // Mesmo fluxo do "Avisar cliente": no desktop abre o WhatsApp Web
+        // (sessão já conectada no Chrome), nunca o app pessoal.
+        const digits = normalizePhoneToWhatsapp(customerPhone)
+        if (digits) openWhatsappConversation(digits, message)
         sentVia.push('whatsapp')
       }
       if (viaEmail && customerEmail) {

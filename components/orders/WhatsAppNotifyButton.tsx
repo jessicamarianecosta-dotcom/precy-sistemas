@@ -203,6 +203,10 @@ export function WhatsAppNotifyButton({
               <p className="text-text-muted dark:text-stone-400">{customer.phone}</p>
               <p className="text-text-muted dark:text-stone-400">Pedido: #{orderNumber || '—'} · {formatCurrency(orderTotal)}</p>
             </div>
+            <p className="text-[11px] text-text-muted dark:text-stone-400 mb-3 leading-snug">
+              No computador abre em uma nova aba do WhatsApp Web, usando a conta já conectada
+              neste navegador. O status do pedido <span className="font-semibold">não muda</span> — continua Pronto.
+            </p>
             <div className="flex gap-2">
               <button type="button" onClick={() => setConfirm(null)} className="btn-secondary flex-1 text-xs">
                 Cancelar

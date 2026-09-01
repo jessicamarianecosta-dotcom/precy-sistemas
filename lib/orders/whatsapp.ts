@@ -90,12 +90,20 @@ export function isMobileDevice(): boolean {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
 }
 
+/** URL da conversa no WhatsApp Web — mantém tudo dentro do navegador
+ *  (mesma janela do Chrome, mesma sessão já autenticada). Nunca redireciona
+ *  para wa.me / api.whatsapp.com, que exibem a tela intermediária e podem
+ *  disparar o app nativo (WhatsApp pessoal) via `whatsapp://`. */
+export function buildWhatsappWebUrl(phoneDigits: string, message: string): string {
+  return `https://web.whatsapp.com/send?phone=${phoneDigits}&text=${encodeURIComponent(message)}`
+}
+
 export function buildWhatsappUrl(phoneDigits: string, message: string): string {
   const encodedMessage = encodeURIComponent(message)
   if (isMobileDevice()) {
     return `https://wa.me/${phoneDigits}?text=${encodedMessage}`
   }
-  return `https://web.whatsapp.com/send?phone=${phoneDigits}&text=${encodedMessage}`
+  return buildWhatsappWebUrl(phoneDigits, message)
 }
 
 function isAndroidDevice(): boolean {
@@ -103,12 +111,22 @@ function isAndroidDevice(): boolean {
   return /Android/i.test(navigator.userAgent)
 }
 
+/**
+ * Só considera "iOS de verdade" iPhone/iPod, ou um iPad — inclusive o iPadOS
+ * 13+ que se apresenta como "Macintosh". A distinção do iPad-disfarçado-de-Mac
+ * é feita por `navigator.maxTouchPoints > 1`: iPad tem 5, Mac de mesa tem 0.
+ *
+ * O check antigo (`'ontouchend' in document`) dava falso-positivo em
+ * Chrome/Safari no macOS de mesa, jogando o usuário de computador no
+ * deep link `whatsapp://` — que abre o app nativo (WhatsApp pessoal).
+ */
 function isIOSDevice(): boolean {
   if (typeof navigator === 'undefined') return false
   const ua = navigator.userAgent
-  // iPadOS 13+ se apresenta como "Macintosh" — detecta pelo touch.
-  return /iPhone|iPad|iPod/i.test(ua) ||
-    (/Macintosh/i.test(ua) && typeof document !== 'undefined' && 'ontouchend' in document)
+  if (/iPhone|iPod/i.test(ua)) return true
+  const maxTouch = typeof navigator.maxTouchPoints === 'number' ? navigator.maxTouchPoints : 0
+  if (/iPad/i.test(ua)) return true
+  return /Macintosh/i.test(ua) && maxTouch > 1
 }
 
 /**
@@ -125,7 +143,10 @@ function isIOSDevice(): boolean {
  * iOS: tenta o esquema `whatsapp://` e cai para o link https (wa.me) caso o
  * app não responda.
  *
- * Desktop: mantém o comportamento atual (WhatsApp Web direto).
+ * Desktop (Windows / macOS / Linux — inclusive Mac de mesa): SEMPRE abre o
+ * WhatsApp Web numa nova aba do mesmo Chrome, usando a sessão já autenticada
+ * (ex.: o WhatsApp Business da empresa). Nunca usa `whatsapp://` nem wa.me no
+ * desktop, justamente para não cair no app nativo / WhatsApp pessoal.
  */
 export function openWhatsappConversation(phoneDigits: string, message: string): void {
   if (typeof window === 'undefined') return
@@ -157,6 +178,15 @@ export function openWhatsappConversation(phoneDigits: string, message: string): 
     return
   }
 
-  // Desktop
-  window.open(buildWhatsappUrl(phoneDigits, message), '_blank', 'noopener,noreferrer')
+  // Desktop — WhatsApp Web em nova aba, na sessão já conectada no Chrome.
+  const webUrl = buildWhatsappWebUrl(phoneDigits, message)
+  const win = window.open(webUrl, '_blank')
+  if (win) {
+    // Evita que a aba do WhatsApp tenha referência de volta à janela do Precy+.
+    win.opener = null
+  } else {
+    // Pop-up bloqueado: navega a própria aba como último recurso (o usuário
+    // volta ao Precy+ pelo histórico). Ainda assim, é WhatsApp Web — não o app.
+    window.location.href = webUrl
+  }
 }
