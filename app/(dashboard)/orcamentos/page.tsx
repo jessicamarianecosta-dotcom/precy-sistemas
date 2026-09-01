@@ -386,15 +386,21 @@ export default function OrcamentosPage() {
   async function handleGeneratePDF(b:any){
     setGenerating(true)
     try{
-      const[{generateBudgetPDF},{getBudgetItems}]=await Promise.all([
+      const[{generateBudgetPDF},{getBudgetItems},{getOrderArtFiles}]=await Promise.all([
         import('@/lib/pdf/generateBudgetPDF'),
         import('@/lib/pdf/getBudgetItems'),
+        import('@/lib/pdf/getOrderArtFiles'),
       ])
 
       // Orçamento completo com cliente expandido
       const {data:fullBudget}=await(supabase.from('budgets')as any)
         .select('*,customers(id,name,email,phone,city,state,cpf_cnpj,address)')
         .eq('id',b.id).single()
+
+      // Arte: o orçamento não tem arquivos próprios — se já virou pedido,
+      // busca a arte anexada a esse pedido (order_files via converted_to_order_id).
+      const convertedOrderId = (fullBudget ?? b)?.converted_to_order_id as string | undefined
+      const artFiles = convertedOrderId ? await getOrderArtFiles(convertedOrderId) : []
 
       // Itens com produto vinculado (para resolver nome e specs via JOIN)
       const {data:bi}=await(supabase.from('budget_items')as any)
@@ -408,6 +414,7 @@ export default function OrcamentosPage() {
         budget: fullBudget??b,
         items:  effectiveItems as any,
         company:companyData,
+        artFiles,
       })
     }catch(err){
       console.error('[pdf]',err)

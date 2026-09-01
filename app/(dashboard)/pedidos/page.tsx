@@ -1484,6 +1484,8 @@ function PedidosPage() {
         .select('*, products(name, description, width, height, area, measurement_unit, finishings, finishing_type, technical_notes)')
         .eq('order_id', orderId)
 
+      const artFiles = await getOrderArtFiles(orderId)
+
       if (mode === 'orcamento') {
         const { generateBudgetPDF } = await import('@/lib/pdf/generateBudgetPDF')
         const { orderToBudgetShape, orderQuoteFileName } = await import('@/lib/pdf/orderQuoteData')
@@ -1506,11 +1508,10 @@ function PedidosPage() {
           items: effectiveItems as unknown as Record<string, unknown>[],
           company: companyData,
           fileName: orderQuoteFileName(src),
+          artFiles,
         })
         return
       }
-
-      const artFiles = await getOrderArtFiles(orderId)
 
       if (mode === 'producao') {
         const { generateProductionSheet } = await import('@/lib/pdf/generateProductionSheet')

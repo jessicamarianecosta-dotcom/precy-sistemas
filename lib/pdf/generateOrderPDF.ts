@@ -332,7 +332,7 @@ export async function generateOrderPDF({ order, items, payments, company, artFil
      encolhe proporcionalmente sem NUNCA cortar (nada de object-fit:cover
      numa caixa quadrada fixa). Espaço em branco ao redor é aceitável. */
   .art-w{padding:0 26px 14px;}
-  .art-grid{display:flex;flex-wrap:wrap;gap:12px;}
+  .art-grid{display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px;}
   .art-card{display:block;width:auto;max-width:220px;text-decoration:none;
     border:1px solid #ede9e3;border-radius:8px;overflow:hidden;
     background:#fff;page-break-inside:avoid;}

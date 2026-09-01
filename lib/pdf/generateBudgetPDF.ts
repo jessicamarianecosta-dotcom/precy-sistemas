@@ -7,6 +7,8 @@ import { formatCurrency } from '@/lib/utils/format'
 import { getBudgetItems } from '@/lib/pdf/getBudgetItems'
 import { formatDimDisplay } from '@/lib/utils/dimensions'
 import { companyPickupAddressLines } from '@/lib/company/pickupAddress'
+import { getFileKind, getDownloadUrl } from '@/lib/utils/fileIcons'
+import type { OrderFile } from '@/components/orders/types'
 
 interface PDFParams {
   budget:  Record<string, unknown>
@@ -14,6 +16,8 @@ interface PDFParams {
   company: Record<string, unknown> | null
   /** Sobrescreve o <title> do documento (usado como nome sugerido no "Salvar como PDF"). */
   fileName?: string
+  /** Arte(s) anexada(s) ao pedido de origem — exibidas inteiras, sem corte. */
+  artFiles?: OrderFile[]
 }
 
 const R = (v: unknown) => formatCurrency(Number(v) || 0)
@@ -27,7 +31,7 @@ const D = (iso?: string | null) => {
 const X = (s: unknown) =>
   String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')
 
-export async function generateBudgetPDF({ budget, items, company, fileName }: PDFParams) {
+export async function generateBudgetPDF({ budget, items, company, fileName, artFiles }: PDFParams) {
   const co   = company as any ?? {}
   const b    = budget  as any ?? {}
   const cust = b.customers as any ?? {}
@@ -144,6 +148,30 @@ export async function generateBudgetPDF({ budget, items, company, fileName }: PD
         </tr>`
       }).join('')
 
+  /* ── Arte enviada pelo cliente — inteira, proporção preservada, sem corte ── */
+  const artFilesList = (artFiles ?? []).filter(f => f?.file_url)
+  const artCardsHTML = artFilesList.map(f => {
+    const kind = getFileKind(f.file_name)
+    const dl   = getDownloadUrl(f.file_url, f.file_name)
+    if (kind.isImage) {
+      return `
+      <a href="${f.file_url}" target="_blank" class="art-card" title="Abrir em tamanho original">
+        <img src="${f.file_url}" alt="${X(f.file_name)}">
+        <div class="art-name">${X(f.file_name)}</div>
+      </a>`
+    }
+    return `
+      <a href="${dl}" target="_blank" class="art-card art-file">
+        <div class="art-file-icon">${kind.label}</div>
+        <div class="art-name">${X(f.file_name)}</div>
+      </a>`
+  }).join('')
+  const artBlockHTML = artFilesList.length > 0 ? `
+<div class="slbl">Arte enviada pelo cliente</div>
+<div class="art-w">
+  <div class="art-grid">${artCardsHTML}</div>
+</div>` : ''
+
   /* ── HTML ── */
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -175,7 +203,7 @@ export async function generateBudgetPDF({ budget, items, company, fileName }: PD
     border:1px solid rgba(255,255,255,.2)!important;}
   .page{
     background:#fff;width:210mm;min-height:297mm;
-    margin:20px auto;box-shadow:0 4px 40px rgba(0,0,0,.18);overflow:hidden;
+    margin:20px auto;box-shadow:0 4px 40px rgba(0,0,0,.18);overflow:visible;
   }
   /* stripe */
   .stripe{height:4px;background:${primary};}
@@ -283,6 +311,22 @@ export async function generateBudgetPDF({ budget, items, company, fileName }: PD
   .sc:last-child{padding-right:0;}
   .sl{border-top:1.5px solid #1a1208;padding-top:5px;
     font-size:9px;color:#bbb;letter-spacing:.3px;}
+  /* arte do cliente — imagem inteira, proporção preservada (sem object-fit:cover) */
+  .art-w{padding:0 26px 14px;}
+  .art-grid{display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px;}
+  .art-card{display:block;width:auto;max-width:220px;text-decoration:none;
+    border:1px solid #ede9e3;border-radius:8px;overflow:hidden;
+    background:#fff;page-break-inside:avoid;}
+  .art-card img{display:block;margin:0 auto;
+    max-width:220px;max-height:170px;width:auto;height:auto;object-fit:contain;
+    background:#f5f2ee;}
+  .art-file{display:flex;flex-direction:column;align-items:center;
+    justify-content:center;width:140px;height:140px;background:#f5f2ee;}
+  .art-file-icon{font-size:10px;font-weight:700;letter-spacing:1px;
+    color:${primary};text-transform:uppercase;}
+  .art-name{font-size:9.5px;color:#888;padding:6px 8px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    border-top:1px solid #ede9e3;}
   /* obs */
   .obs-w{padding:0 26px 14px;}
   .obs-box{background:#fffdf7;border:1px solid #e0d8c0;
@@ -520,6 +564,9 @@ export async function generateBudgetPDF({ budget, items, company, fileName }: PD
   </div>
 
 </div>
+
+<!-- ── ARTE ENVIADA PELO CLIENTE ── -->
+${artBlockHTML}
 
 <!-- ── OBSERVAÇÕES ── -->
 ${bNotes ? `
