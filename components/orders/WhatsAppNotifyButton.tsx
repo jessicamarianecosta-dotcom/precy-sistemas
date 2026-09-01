@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { MessageCircle, X, Loader2, AlertTriangle } from 'lucide-react'
+import { MessageCircle, X, Loader2, AlertTriangle, Monitor } from 'lucide-react'
 import { clsx } from 'clsx'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -12,6 +12,8 @@ import { useToast } from '@/components/ui/Toaster'
 import { formatCurrency } from '@/lib/utils/format'
 import {
   normalizePhoneToWhatsapp, buildOrderReadyMessage, openWhatsappConversation,
+  isDesktopForWhatsapp, getDesktopWhatsappMode, setDesktopWhatsappMode,
+  type DesktopWhatsappMode,
 } from '@/lib/orders/whatsapp'
 
 interface WhatsAppNotifyButtonProps {
@@ -28,9 +30,11 @@ interface WhatsAppNotifyButtonProps {
 }
 
 /**
- * Botão "Avisar cliente pelo WhatsApp" — abre o wa.me com a mensagem de
- * pedido pronto já preenchida. Nunca envia nada automaticamente: só
- * registra que o link foi aberto (whatsapp_notified_at/count).
+ * Botão "Avisar cliente pelo WhatsApp" — abre a conversa do cliente com a
+ * mensagem de pedido pronto já preenchida (WhatsApp Web no computador,
+ * app no celular). Nunca envia nada automaticamente e NUNCA altera o
+ * status do pedido: só registra que o aviso foi aberto
+ * (whatsapp_notified_at / whatsapp_notification_count).
  */
 export function WhatsAppNotifyButton({
   orderId, orderNumber, orderTotal, customer, companyAddress, companyId,
@@ -44,6 +48,19 @@ export function WhatsAppNotifyButton({
   const [sending, setSending] = useState(false)
   const [confirm, setConfirm] = useState<{ phoneDigits: string; message: string } | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  // Só no computador: escolha entre WhatsApp Web e app do WhatsApp Business.
+  const [isDesktop, setIsDesktop] = useState(false)
+  const [desktopMode, setDesktopModeState] = useState<DesktopWhatsappMode>('web')
+  useEffect(() => {
+    setIsDesktop(isDesktopForWhatsapp())
+    setDesktopModeState(getDesktopWhatsappMode())
+  }, [])
+
+  function changeDesktopMode(mode: DesktopWhatsappMode) {
+    setDesktopWhatsappMode(mode)
+    setDesktopModeState(mode)
+  }
 
   async function handleOpen() {
     if (loading || sending || confirm) return
@@ -203,9 +220,42 @@ export function WhatsAppNotifyButton({
               <p className="text-text-muted dark:text-stone-400">{customer.phone}</p>
               <p className="text-text-muted dark:text-stone-400">Pedido: #{orderNumber || '—'} · {formatCurrency(orderTotal)}</p>
             </div>
+            {isDesktop && (
+              <div className="mb-3">
+                <div className="flex items-center gap-1.5 text-[11px] font-medium text-text-secondary dark:text-stone-300 mb-1.5">
+                  <Monitor size={12} /> No computador, abrir por:
+                </div>
+                <div className="flex items-center gap-1 bg-primary-50 dark:bg-white/5 rounded-xl p-1">
+                  <button
+                    type="button"
+                    onClick={() => changeDesktopMode('web')}
+                    className={clsx(
+                      'flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-colors',
+                      desktopMode === 'web' ? 'bg-white dark:bg-surface-dark text-primary shadow-sm' : 'text-text-muted'
+                    )}
+                  >
+                    WhatsApp Web
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => changeDesktopMode('app')}
+                    className={clsx(
+                      'flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-colors',
+                      desktopMode === 'app' ? 'bg-white dark:bg-surface-dark text-primary shadow-sm' : 'text-text-muted'
+                    )}
+                  >
+                    App WhatsApp Business
+                  </button>
+                </div>
+                <p className="text-[10px] text-text-muted dark:text-stone-400 mt-1.5 leading-snug">
+                  {desktopMode === 'web'
+                    ? 'Abre numa nova aba usando a conta conectada neste navegador. Se aparecer seu número pessoal, é essa a conta logada no WhatsApp Web deste perfil do Chrome.'
+                    : 'Abre pelo aplicativo de WhatsApp instalado no computador (use se o WhatsApp Business é o seu app padrão).'}
+                </p>
+              </div>
+            )}
             <p className="text-[11px] text-text-muted dark:text-stone-400 mb-3 leading-snug">
-              No computador abre em uma nova aba do WhatsApp Web, usando a conta já conectada
-              neste navegador. O status do pedido <span className="font-semibold">não muda</span> — continua Pronto.
+              O status do pedido <span className="font-semibold">não muda</span> — continua Pronto.
             </p>
             <div className="flex gap-2">
               <button type="button" onClick={() => setConfirm(null)} className="btn-secondary flex-1 text-xs">

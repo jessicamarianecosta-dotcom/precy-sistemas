@@ -98,6 +98,42 @@ export function buildWhatsappWebUrl(phoneDigits: string, message: string): strin
   return `https://web.whatsapp.com/send?phone=${phoneDigits}&text=${encodeURIComponent(message)}`
 }
 
+/* ────────────────────────────────────────────────────────────────
+   Preferência de como abrir o WhatsApp NO COMPUTADOR
+   ────────────────────────────────────────────────────────────────
+   O `web.whatsapp.com` mostra sempre a conta vinculada NAQUELE perfil
+   do navegador. Se esse perfil está no WhatsApp pessoal, "Avisar
+   cliente" abre a conversa no número pessoal — não há como uma página
+   web escolher outra conta.
+
+   Para quem usa o WhatsApp Business em um APP no computador (ou num
+   perfil separado do Chrome onde o Business é a conta do sistema),
+   existe a opção "app": usa o esquema `whatsapp://`, que o Windows/
+   macOS entregam ao aplicativo padrão de WhatsApp.
+
+   Guardado só no navegador (localStorage) — sem banco, por dispositivo.
+*/
+export type DesktopWhatsappMode = 'web' | 'app'
+const DESKTOP_WA_MODE_KEY = 'precy:whatsapp-desktop-mode'
+
+export function getDesktopWhatsappMode(): DesktopWhatsappMode {
+  if (typeof window === 'undefined') return 'web'
+  try {
+    return window.localStorage.getItem(DESKTOP_WA_MODE_KEY) === 'app' ? 'app' : 'web'
+  } catch {
+    return 'web'
+  }
+}
+
+export function setDesktopWhatsappMode(mode: DesktopWhatsappMode): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(DESKTOP_WA_MODE_KEY, mode)
+  } catch {
+    /* localStorage indisponível — ignora */
+  }
+}
+
 export function buildWhatsappUrl(phoneDigits: string, message: string): string {
   const encodedMessage = encodeURIComponent(message)
   if (isMobileDevice()) {
@@ -129,6 +165,12 @@ function isIOSDevice(): boolean {
   return /Macintosh/i.test(ua) && maxTouch > 1
 }
 
+/** true em computador (não é Android nem iPhone/iPad). Usado só pela UI
+ *  para decidir se mostra a opção "WhatsApp Web × app WhatsApp Business". */
+export function isDesktopForWhatsapp(): boolean {
+  return !isAndroidDevice() && !isIOSDevice()
+}
+
 /**
  * Abre a conversa do WhatsApp com a mensagem já preenchida, escolhendo a
  * melhor estratégia por plataforma. Nunca envia nada — o usuário ainda
@@ -143,10 +185,13 @@ function isIOSDevice(): boolean {
  * iOS: tenta o esquema `whatsapp://` e cai para o link https (wa.me) caso o
  * app não responda.
  *
- * Desktop (Windows / macOS / Linux — inclusive Mac de mesa): SEMPRE abre o
- * WhatsApp Web numa nova aba do mesmo Chrome, usando a sessão já autenticada
- * (ex.: o WhatsApp Business da empresa). Nunca usa `whatsapp://` nem wa.me no
- * desktop, justamente para não cair no app nativo / WhatsApp pessoal.
+ * Desktop (Windows / macOS / Linux — inclusive Mac de mesa): por padrão
+ * abre o WhatsApp Web numa nova aba do mesmo navegador, usando a sessão já
+ * autenticada. Nunca usa wa.me / api.whatsapp.com (que exibem a tela
+ * intermediária e podem disparar o app). O esquema `whatsapp://` só é usado
+ * no desktop quando o usuário escolhe explicitamente o modo "app"
+ * (getDesktopWhatsappMode() === 'app'), para quem roda o WhatsApp Business
+ * como aplicativo no computador.
  */
 export function openWhatsappConversation(phoneDigits: string, message: string): void {
   if (typeof window === 'undefined') return
@@ -178,8 +223,29 @@ export function openWhatsappConversation(phoneDigits: string, message: string): 
     return
   }
 
-  // Desktop — WhatsApp Web em nova aba, na sessão já conectada no Chrome.
+  // Desktop.
   const webUrl = buildWhatsappWebUrl(phoneDigits, message)
+
+  // Modo "app": para quem usa o WhatsApp Business em aplicativo no
+  // computador. Entrega o esquema whatsapp:// ao app padrão do sistema e,
+  // se nada abrir em ~1,2s, cai para o WhatsApp Web em nova aba.
+  if (getDesktopWhatsappMode() === 'app') {
+    const appUrl = `whatsapp://send?phone=${phoneDigits}&text=${encodedMessage}`
+    let switched = false
+    const onHide = () => { switched = true }
+    document.addEventListener('visibilitychange', onHide, { once: true })
+    window.location.href = appUrl
+    window.setTimeout(() => {
+      document.removeEventListener('visibilitychange', onHide)
+      if (!switched && !document.hidden) {
+        const w = window.open(webUrl, '_blank')
+        if (w) w.opener = null
+      }
+    }, 1200)
+    return
+  }
+
+  // Modo "web" (padrão) — WhatsApp Web em nova aba, na sessão já conectada.
   const win = window.open(webUrl, '_blank')
   if (win) {
     // Evita que a aba do WhatsApp tenha referência de volta à janela do Precy+.
