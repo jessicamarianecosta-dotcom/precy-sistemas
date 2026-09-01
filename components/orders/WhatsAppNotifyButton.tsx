@@ -249,7 +249,7 @@ export function WhatsAppNotifyButton({
                 </div>
                 <p className="text-[10px] text-text-muted dark:text-stone-400 mt-1.5 leading-snug">
                   {desktopMode === 'web'
-                    ? 'Abre numa nova aba usando a conta conectada neste navegador. Se aparecer seu número pessoal, é essa a conta logada no WhatsApp Web deste perfil do Chrome.'
+                    ? 'Abre no WhatsApp Web usando a CONTA ATIVA. Se você tem mais de uma conta (pessoal + Business), troque a conta ativa para a comercial no WhatsApp Web (foto de perfil no canto) — ela fica como padrão.'
                     : 'Abre pelo aplicativo de WhatsApp instalado no computador (use se o WhatsApp Business é o seu app padrão).'}
                 </p>
               </div>
