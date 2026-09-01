@@ -41,10 +41,12 @@ export function WhatsAppNotifyButton({
   const { toast } = useToast()
 
   const [loading, setLoading] = useState(false)
+  const [sending, setSending] = useState(false)
   const [confirm, setConfirm] = useState<{ phoneDigits: string; message: string } | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   async function handleOpen() {
+    if (loading || sending || confirm) return
     if (!customer) {
       setErrorMsg('Este pedido não possui um cliente vinculado.')
       return
@@ -82,27 +84,36 @@ export function WhatsAppNotifyButton({
   }
 
   async function handleConfirm() {
-    if (!confirm) return
+    if (!confirm || sending) return
+    setSending(true)
 
-    // Registra o aviso antes de abrir o WhatsApp: no Android a abertura é uma
-    // navegação top-level (Intent URL) e o código abaixo não rodaria depois.
-    const { data } = await (supabase.from('orders') as any)
-      .select('whatsapp_notification_count')
-      .eq('id', orderId)
-      .single()
+    const target = confirm
 
-    await (supabase.from('orders') as any)
-      .update({
-        whatsapp_notified_at: new Date().toISOString(),
-        whatsapp_notification_count: (Number(data?.whatsapp_notification_count) || 0) + 1,
-      })
-      .eq('id', orderId)
+    try {
+      // Registra o aviso antes de abrir o WhatsApp: no Android a abertura é uma
+      // navegação top-level (Intent URL) e o código abaixo não rodaria depois.
+      // IMPORTANTE: este fluxo só toca em whatsapp_notified_at / _count.
+      // NUNCA altera orders.status — avisar o cliente ≠ pedido entregue.
+      const { data } = await (supabase.from('orders') as any)
+        .select('whatsapp_notification_count')
+        .eq('id', orderId)
+        .single()
 
-    toast('success', 'WhatsApp aberto para envio.')
-    setConfirm(null)
-    onNotified?.()
+      await (supabase.from('orders') as any)
+        .update({
+          whatsapp_notified_at: new Date().toISOString(),
+          whatsapp_notification_count: (Number(data?.whatsapp_notification_count) || 0) + 1,
+        })
+        .eq('id', orderId)
 
-    openWhatsappConversation(confirm.phoneDigits, confirm.message)
+      toast('success', 'WhatsApp aberto para envio.')
+      setConfirm(null)
+      onNotified?.()
+
+      openWhatsappConversation(target.phoneDigits, target.message)
+    } finally {
+      setSending(false)
+    }
   }
 
   const label = whatsappNotifiedAt
@@ -196,8 +207,8 @@ export function WhatsAppNotifyButton({
               <button type="button" onClick={() => setConfirm(null)} className="btn-secondary flex-1 text-xs">
                 Cancelar
               </button>
-              <button type="button" onClick={handleConfirm} className="btn-primary flex-1 text-xs flex items-center justify-center gap-1.5">
-                <MessageCircle size={13} /> Abrir WhatsApp
+              <button type="button" onClick={handleConfirm} disabled={sending} className="btn-primary flex-1 text-xs flex items-center justify-center gap-1.5 disabled:opacity-50">
+                {sending ? <Loader2 size={13} className="animate-spin" /> : <MessageCircle size={13} />} Abrir WhatsApp
               </button>
             </div>
           </div>

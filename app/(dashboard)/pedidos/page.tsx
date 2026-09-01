@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, Suspense } from 'react'
+import { useEffect, useRef, useState, Suspense } from 'react'
 import dynamic from 'next/dynamic'
 
 import {
@@ -282,6 +282,12 @@ function PedidosPage() {
   /* Mobile view */
   const [mobileView, setMobileView] = useState<'list' | 'kanban'>('list')
   const [mobileDragging, setMobileDragging] = useState<string | null>(null)
+  // Guarda a posição inicial do toque no card do kanban mobile para distinguir
+  // um TAP (abrir pedido / tocar num botão interno) de um ARRASTE real. Sem
+  // isso, um toque perto da borda do card era interpretado como "soltar" o
+  // pedido na coluna vizinha (ex.: Pronto → Entregue) por causa do
+  // document.elementFromPoint no touchend.
+  const mobileTouchRef = useRef<{ x: number; y: number; moved: boolean } | null>(null)
 
   useEffect(() => {
     try {
@@ -1894,18 +1900,37 @@ function PedidosPage() {
                               key={order.id}
                               data-order-id={order.id}
                               onClick={() => openOrder(order)}
-                              onTouchStart={() => setMobileDragging(order.id)}
-                              onTouchMove={(e) => e.preventDefault()}
+                              onTouchStart={(e) => {
+                                const t = e.touches[0]
+                                mobileTouchRef.current = { x: t.clientX, y: t.clientY, moved: false }
+                                setMobileDragging(order.id)
+                              }}
+                              onTouchMove={(e) => {
+                                e.preventDefault()
+                                const ref = mobileTouchRef.current
+                                if (ref) {
+                                  const t = e.touches[0]
+                                  if (Math.abs(t.clientX - ref.x) > 8 || Math.abs(t.clientY - ref.y) > 8) {
+                                    ref.moved = true
+                                  }
+                                }
+                              }}
                               onTouchEnd={(e) => {
-                                if (!mobileDragging) return
+                                const ref = mobileTouchRef.current
+                                const draggingId = mobileDragging
+                                mobileTouchRef.current = null
+                                setMobileDragging(null)
+                                // Só trata como mudança de status se houve um arraste real.
+                                // Um toque parado (tap) apenas abre o pedido via onClick e
+                                // NUNCA altera o status.
+                                if (!draggingId || !ref || !ref.moved) return
                                 const touch = e.changedTouches[0]
                                 const el = document.elementFromPoint(touch.clientX, touch.clientY)
                                 const targetCol = el?.closest('[data-status-col]') as HTMLElement | null
                                 const newStatus = targetCol?.dataset.statusCol
                                 if (newStatus && newStatus !== order.status) {
-                                  updateStatus.mutate({ id: mobileDragging, status: newStatus })
+                                  updateStatus.mutate({ id: draggingId, status: newStatus })
                                 }
-                                setMobileDragging(null)
                               }}
                               className={clsx(
                                 'bg-white dark:bg-surface-dark rounded-xl p-3 shadow-sm border border-border dark:border-border-dark cursor-pointer active:scale-[0.98] transition-transform',
@@ -1965,7 +1990,13 @@ function PedidosPage() {
                                 </div>
                               )}
                               {order.status === 'ready' && (
-                                <div className="mt-2 pt-2 border-t border-border/50 dark:border-border-dark/50" onClick={(e) => e.stopPropagation()}>
+                                <div
+                                  className="mt-2 pt-2 border-t border-border/50 dark:border-border-dark/50"
+                                  onClick={(e) => e.stopPropagation()}
+                                  onTouchStart={(e) => e.stopPropagation()}
+                                  onTouchMove={(e) => e.stopPropagation()}
+                                  onTouchEnd={(e) => e.stopPropagation()}
+                                >
                                   <WhatsAppNotifyButton
                                     orderId={order.id}
                                     orderNumber={order.order_number}
