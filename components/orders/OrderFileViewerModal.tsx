@@ -42,7 +42,16 @@ export function OrderFileViewerModal({ file, onClose }: Props) {
       <div className="absolute inset-0 bg-black/80" onClick={onClose} />
       <div
         ref={containerRef}
-        className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden"
+        // h-[92vh] (altura DEFINIDA, não só max-height) é o que permite ao <img>
+        // com max-height:100% (max-h-full) realmente caber a arte inteira: uma
+        // altura "auto" limitada por max-height não conta como definida para o
+        // CSS resolver porcentagem em descendentes, então o limite era ignorado
+        // e a arte voltava a renderizar em tamanho real (cortada). Só se aplica
+        // à pré-visualização de imagem — PDF (react-pdf) e outros tipos de
+        // arquivo continuam encolhendo ao conteúdo como antes.
+        className={`relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-4xl flex flex-col overflow-hidden ${
+          kind.isImage ? 'h-[92vh] max-h-[92vh]' : 'max-h-[92vh]'
+        }`}
       >
         {/* Header */}
         <div className="flex items-center justify-between gap-3 p-3 border-b border-border dark:border-border-dark flex-shrink-0">
@@ -76,12 +85,19 @@ export function OrderFileViewerModal({ file, onClose }: Props) {
         </div>
 
         {/* Conteúdo */}
-        <div className="flex-1 overflow-auto bg-stone-100 dark:bg-black/30 flex items-center justify-center p-4">
+        {/* min-h-0: sem isso, um item flex com overflow:auto tende a crescer para
+            caber o conteúdo (a arte em tamanho real) em vez de respeitar a altura
+            do modal — é o que fazia a arte parecer cortada mesmo com scroll disponível. */}
+        <div className="flex-1 min-h-0 overflow-auto bg-stone-100 dark:bg-black/30 flex items-center justify-center p-4">
           {kind.isImage && (
             <img
               src={file.file_url}
               alt={file.file_name}
-              className="max-w-none transition-transform"
+              // Por padrão (zoom=1) a arte cabe inteira na área visível do modal —
+              // nunca corta ao abrir. Zoom In amplia a partir daí; "max-w-none"
+              // antigo exibia a imagem no tamanho real do arquivo, que costuma
+              // ser maior que a tela e ficava cortada até o usuário rolar/dar zoom out.
+              className="max-w-full max-h-full object-contain transition-transform"
               style={{ transform: `scale(${zoom}) rotate(${rotation}deg)` }}
             />
           )}
