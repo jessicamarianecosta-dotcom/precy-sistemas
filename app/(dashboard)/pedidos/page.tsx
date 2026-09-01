@@ -1894,9 +1894,24 @@ function PedidosPage() {
                               key={order.id}
                               data-order-id={order.id}
                               onClick={() => openOrder(order)}
-                              onTouchStart={() => setMobileDragging(order.id)}
-                              onTouchMove={(e) => e.preventDefault()}
+                              onTouchStart={(e) => {
+                                // Toque em botão/link (ex: "Avisar cliente", duplicar,
+                                // excluir) nunca deve armar o gesto de arrastar — senão
+                                // um toque que termina sobre a coluna vizinha (ex: ao
+                                // lado de "Pronto" fica "Entregue") dispara mudança de
+                                // status sem o usuário ter arrastado o card.
+                                if ((e.target as HTMLElement).closest('button, a')) return
+                                setMobileDragging(order.id)
+                              }}
+                              onTouchMove={(e) => {
+                                if ((e.target as HTMLElement).closest('button, a')) return
+                                e.preventDefault()
+                              }}
                               onTouchEnd={(e) => {
+                                if ((e.target as HTMLElement).closest('button, a')) {
+                                  setMobileDragging(null)
+                                  return
+                                }
                                 if (!mobileDragging) return
                                 const touch = e.changedTouches[0]
                                 const el = document.elementFromPoint(touch.clientX, touch.clientY)
