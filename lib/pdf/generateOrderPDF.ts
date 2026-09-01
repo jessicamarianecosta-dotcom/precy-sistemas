@@ -239,7 +239,7 @@ export async function generateOrderPDF({ order, items, payments, company, artFil
     border:1px solid rgba(255,255,255,.2)!important;}
   .page{
     background:#fff;width:210mm;min-height:297mm;
-    margin:20px auto;box-shadow:0 4px 40px rgba(0,0,0,.18);overflow:hidden;
+    margin:20px auto;box-shadow:0 4px 40px rgba(0,0,0,.18);overflow:visible;
   }
   .stripe{height:4px;background:${primary};}
   .hdr{display:table;width:100%;padding:20px 26px 16px;
@@ -327,15 +327,20 @@ export async function generateOrderPDF({ order, items, payments, company, artFil
     border-left:3px solid #c8b060;
     border-radius:0 6px 6px 0;padding:12px 16px;}
   .obs-txt{font-size:11.5px;color:#666;line-height:1.8;}
+  /* Arte do cliente: cartão de largura livre (até 220px), imagem sem
+     width/height fixos — só max-width/max-height — então o navegador
+     encolhe proporcionalmente sem NUNCA cortar (nada de object-fit:cover
+     numa caixa quadrada fixa). Espaço em branco ao redor é aceitável. */
   .art-w{padding:0 26px 14px;}
   .art-grid{display:flex;flex-wrap:wrap;gap:12px;}
-  .art-card{display:block;width:140px;text-decoration:none;
+  .art-card{display:block;width:auto;max-width:220px;text-decoration:none;
     border:1px solid #ede9e3;border-radius:8px;overflow:hidden;
     background:#fff;page-break-inside:avoid;}
-  .art-card img{display:block;width:140px;height:140px;object-fit:cover;
+  .art-card img{display:block;margin:0 auto;
+    max-width:220px;max-height:170px;width:auto;height:auto;object-fit:contain;
     background:#f5f2ee;cursor:pointer;}
   .art-file{display:flex;flex-direction:column;align-items:center;
-    justify-content:center;height:140px;background:#f5f2ee;}
+    justify-content:center;width:140px;height:140px;background:#f5f2ee;}
   .art-file-icon{font-size:10px;font-weight:700;letter-spacing:1px;
     color:${primary};text-transform:uppercase;}
   .art-name{font-size:9.5px;color:#888;padding:6px 8px;
