@@ -274,7 +274,10 @@ export default function FornecedoresPage() {
     const doc = form.document ?? ''
     if (!isValidCnpjLength(doc)) { toast('error', 'Digite um CNPJ válido com 14 dígitos.'); return }
     const result = await cnpjLookup.search(doc)
-    if (!result.ok) toast(result.status === 'unavailable' ? 'warning' : 'error', result.message)
+    if (!result.ok) {
+      const soft = result.status === 'unavailable' || result.status === 'timeout'
+      toast(soft ? 'warning' : 'error', result.message)
+    }
   }
 
   // Purchase form

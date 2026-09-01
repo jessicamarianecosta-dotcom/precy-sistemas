@@ -28,7 +28,7 @@ export interface CnpjData {
 
 export type CnpjLookupResult =
   | { ok: true; data: CnpjData }
-  | { ok: false; status: 'invalid' | 'not_found' | 'unavailable'; message: string }
+  | { ok: false; status: 'invalid' | 'not_found' | 'timeout' | 'unavailable'; message: string }
 
 export function normalizeCnpj(value: string): string {
   return onlyDigits(value)
@@ -51,14 +51,17 @@ export async function fetchCnpjData(rawCnpj: string): Promise<CnpjLookupResult> 
       return { ok: false, status: 'not_found', message: 'CNPJ não encontrado. Confira o número e tente novamente.' }
     }
     if (res.status === 400) {
-      return { ok: false, status: 'invalid', message: body?.error ?? 'Digite um CNPJ válido.' }
+      return { ok: false, status: 'invalid', message: body?.error ?? 'Digite um CNPJ válido. Verifique os números informados.' }
+    }
+    if (res.status === 504 || body?.code === 'timeout') {
+      return { ok: false, status: 'timeout', message: 'A consulta de CNPJ demorou demais. Tente novamente em instantes.' }
     }
     if (!res.ok || !body?.data) {
-      return { ok: false, status: 'unavailable', message: 'Não foi possível consultar o CNPJ agora. Você pode preencher os dados manualmente.' }
+      return { ok: false, status: 'unavailable', message: 'Não foi possível consultar o CNPJ no momento. Tente novamente ou preencha os dados manualmente.' }
     }
 
     return { ok: true, data: body.data as CnpjData }
   } catch {
-    return { ok: false, status: 'unavailable', message: 'Não foi possível consultar o CNPJ agora. Você pode preencher os dados manualmente.' }
+    return { ok: false, status: 'unavailable', message: 'Não foi possível consultar o CNPJ no momento. Tente novamente ou preencha os dados manualmente.' }
   }
 }

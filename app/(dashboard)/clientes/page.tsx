@@ -183,7 +183,10 @@ export default function ClientesPage() {
       return
     }
     const result = await cnpjLookup.search(cpfCnpj)
-    if (!result.ok) toast(result.status === 'unavailable' ? 'warning' : 'error', result.message)
+    if (!result.ok) {
+      const soft = result.status === 'unavailable' || result.status === 'timeout'
+      toast(soft ? 'warning' : 'error', result.message)
+    }
   }
 
   /* ── Mutations ── */
