@@ -148,6 +148,24 @@ function isAndroidDevice(): boolean {
 }
 
 /**
+ * true quando a página está rodando como PWA instalada na tela inicial
+ * (modo standalone) — seja Android (`display-mode: standalone`) ou iOS
+ * (`navigator.standalone`). Nesse shell, URLs `intent://` são engolidas
+ * silenciosamente pelo Android (sem erro, sem navegação) — diferente de
+ * uma aba normal do Chrome, onde o `browser_fallback_url` do intent
+ * resolveria o problema.
+ */
+function isStandalonePwa(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    if (window.matchMedia?.('(display-mode: standalone)').matches) return true
+  } catch {
+    /* matchMedia indisponível — ignora */
+  }
+  return (window.navigator as unknown as { standalone?: boolean }).standalone === true
+}
+
+/**
  * Só considera "iOS de verdade" iPhone/iPod, ou um iPad — inclusive o iPadOS
  * 13+ que se apresenta como "Macintosh". A distinção do iPad-disfarçado-de-Mac
  * é feita por `navigator.maxTouchPoints > 1`: iPad tem 5, Mac de mesa tem 0.
@@ -201,12 +219,30 @@ export function openWhatsappConversation(phoneDigits: string, message: string): 
   const httpsUrl = `https://wa.me/${phoneDigits}?text=${encodedMessage}`
 
   if (isAndroidDevice()) {
+    if (isStandalonePwa()) {
+      // No PWA instalado (tela inicial), o intent:// é engolido em silêncio
+      // pelo shell do Android — sem erro e sem cair no browser_fallback_url.
+      // O wa.me faz esse handoff pro app sozinho e funciona nesse contexto.
+      window.location.href = httpsUrl
+      return
+    }
+
     const fallback = encodeURIComponent(httpsUrl)
     const intentUrl =
       `intent://send?phone=${phoneDigits}&text=${encodedMessage}` +
       `#Intent;scheme=whatsapp;package=com.whatsapp.w4b;S.browser_fallback_url=${fallback};end`
+
+    // Reforço além do browser_fallback_url do intent: se nada tirar a aba de
+    // foco em ~1,2s (nenhum app respondeu ao intent), cai pro link https.
+    let switched = false
+    const onHide = () => { switched = true }
+    document.addEventListener('visibilitychange', onHide, { once: true })
     // Intent URLs precisam de navegação top-level; window.open abriria "about:blank".
     window.location.href = intentUrl
+    window.setTimeout(() => {
+      document.removeEventListener('visibilitychange', onHide)
+      if (!switched && !document.hidden) window.location.href = httpsUrl
+    }, 1200)
     return
   }
 
