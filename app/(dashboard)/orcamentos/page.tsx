@@ -577,9 +577,45 @@ export default function OrcamentosPage() {
         })
       }
 
+      let insertedOrderItems: { id: string }[] = []
       if (itemRows.length > 0) {
-        const { error: itemsErr } = await (supabase.from('order_items') as any).insert(itemRows)
+        const { data: ins, error: itemsErr } = await (supabase.from('order_items') as any).insert(itemRows).select('id')
         if (itemsErr) throw new Error(itemsErr.message)
+        insertedOrderItems = ins ?? []
+      }
+
+      // 3c. Copiar a arte anexada a cada item do orçamento para o pedido recém-criado
+      // (budget_item_files -> order_files), sem exigir novo upload do usuário.
+      // Cópia dentro do mesmo bucket ("order-files"): não baixa nem reenvia o
+      // arquivo, só cria um novo objeto de Storage (copy) e uma linha em order_files.
+      // bi[idx] corresponde a insertedOrderItems[idx] porque itemRows foi construído
+      // 1:1 a partir de `bi` — o item sintético do fallback legado só existe quando
+      // `bi` está vazio, e nesse caso este bloco não roda (nada para copiar mesmo).
+      if (bi && bi.length > 0 && insertedOrderItems.length === bi.length) {
+        const { data: budgetFiles } = await (supabase.from('budget_item_files') as any)
+          .select('*').eq('budget_id', b.id)
+        if (budgetFiles && budgetFiles.length > 0) {
+          for (let idx = 0; idx < bi.length; idx++) {
+            const filesForItem = budgetFiles.filter((f: any) => f.budget_item_id === bi[idx].id)
+            for (const f of filesForItem) {
+              const ext = f.file_path.split('.').pop()
+              const newPath = `${companyId}/${order.id}/${uid()}.${ext}`
+              const { error: copyErr } = await supabase.storage.from('order-files').copy(f.file_path, newPath)
+              if (copyErr) { console.error('[convert] copiar arte do item', copyErr); continue }
+              const { data: urlData } = supabase.storage.from('order-files').getPublicUrl(newPath)
+              await (supabase.from('order_files') as any).insert([{
+                order_id:   order.id,
+                company_id: companyId,
+                file_name:  f.file_name,
+                file_url:   urlData.publicUrl,
+                file_path:  newPath,
+                file_size:  f.file_size,
+                mime_type:  f.mime_type,
+                uploaded_by:'equipe',
+              }])
+            }
+          }
+        }
       }
 
       // 4. Marcar orçamento como convertido + salvar referência do pedido

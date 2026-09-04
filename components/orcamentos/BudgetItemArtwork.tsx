@@ -36,7 +36,14 @@ export function BudgetItemArtwork({ budgetId, budgetItemId, file, onChanged }: P
       body.append('budgetItemId', budgetItemId)
       const res = await fetch('/api/orcamentos/upload-arquivo', { method: 'POST', body })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Erro ao enviar arquivo')
+      if (!res.ok) {
+        // Mensagens de validação (extensão/tamanho) já são pt-BR e amigáveis —
+        // mostradas como vieram. Qualquer outra falha (rede, banco, storage)
+        // vira mensagem genérica; o detalhe técnico vai só para o console.
+        const known = res.status === 400 && typeof data?.error === 'string'
+        console.error('[budget-item-artwork] upload falhou:', data?.error)
+        throw new Error(known ? data.error : 'Não foi possível anexar a arte. Tente novamente.')
+      }
       // Só remove a arte antiga depois que a nova foi enviada com sucesso —
       // evita ficar sem nenhuma arte caso o upload falhe no meio do caminho.
       if (replacing) {
@@ -45,7 +52,7 @@ export function BudgetItemArtwork({ budgetId, budgetItemId, file, onChanged }: P
       }
       onChanged()
     } catch (err: any) {
-      setError(err?.message ?? 'Erro ao enviar arquivo')
+      setError(err?.message ?? 'Não foi possível anexar a arte. Tente novamente.')
     } finally {
       setMode('idle')
     }
@@ -62,7 +69,8 @@ export function BudgetItemArtwork({ budgetId, budgetItemId, file, onChanged }: P
       if (delErr) throw delErr
       onChanged()
     } catch (err: any) {
-      setError(err?.message ?? 'Erro ao remover arquivo')
+      console.error('[budget-item-artwork] remover falhou:', err)
+      setError('Não foi possível remover a arte. Tente novamente.')
     } finally {
       setMode('idle')
     }
