@@ -20,6 +20,8 @@ import {
 } from 'lucide-react'
 import { calculateAreaM2, formatAreaM2, formatDimDisplay, getDimBlock } from '@/lib/utils/dimensions'
 import { companyPickupAddressLines, companyPickupAddressText } from '@/lib/company/pickupAddress'
+import { BudgetItemArtwork } from '@/components/orcamentos/BudgetItemArtwork'
+import { Paperclip } from 'lucide-react'
 
 interface BudgetItem {
   id: string; type: 'product'|'service'|'manual'; name: string
@@ -43,7 +45,17 @@ const STATUS_CONFIG: Record<string,{label:string;badge:string;icon:React.Element
   converted: { label:'Convertido', badge:'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300', icon:CheckCircle },
 }
 function fmt(v:number){ return formatCurrency(v) }
-function uid(){ return Math.random().toString(36).slice(2,10) }
+// UUID de verdade (não só uma string aleatória) — precisa ser um UUID válido
+// porque agora é usado como id definitivo de budget_items (ver saveMutation),
+// e arquivos de arte (budget_item_files) referenciam esse id via FK.
+function uid(){
+  return typeof crypto!=='undefined'&&crypto.randomUUID
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
+        const r=Math.random()*16|0, v=c==='x'?r:(r&0x3|0x8)
+        return v.toString(16)
+      })
+}
 // Contagem de prazo sempre começa no dia seguinte à emissão
 function prazoVencimento(issueDate:Date, days:number){ return addDays(startOfDay(issueDate), Math.max(1,days)) }
 function prazoEquivDays(issueDate:Date, dateStr:string){
@@ -149,6 +161,23 @@ export default function OrcamentosPage() {
       return r?.data??[]
     },
   })
+
+  // Arte anexada por item (só existe depois que o orçamento foi salvo pelo
+  // menos uma vez — mesma limitação de Pedidos, que também exige o pedido já
+  // salvo para anexar arquivos). Uma query só por orçamento, agrupada por item.
+  const {data:itemFiles,refetch:refetchItemFiles}=useQuery<import('@/components/orcamentos/types').BudgetItemFile[]>({
+    queryKey:['budget-item-files',editingBudgetId],
+    enabled:!!editingBudgetId,
+    queryFn:async()=>{
+      const r:any=await supabase.from('budget_item_files').select('*').eq('budget_id',editingBudgetId!).order('created_at',{ascending:false})
+      if(r.error)throw r.error
+      return r.data??[]
+    },
+  })
+  const filesByItem=(itemFiles??[]).reduce((acc:Record<string,import('@/components/orcamentos/types').BudgetItemFile>,f)=>{
+    if(!acc[f.budget_item_id])acc[f.budget_item_id]=f // mais recente primeiro (order by created_at desc)
+    return acc
+  },{})
 
   const subtotal=items.reduce((s,i)=>s+i.subtotal,0)
   const totalDisc=items.reduce((s,i)=>s+(i.unit_price*i.quantity*(i.discount/100)),0)+Number(globalDisc)
@@ -332,8 +361,17 @@ export default function OrcamentosPage() {
         }
         if(updateRes?.error)throw updateRes.error
         budgetId=editingBudgetId
-        // Deletar itens antigos e reinserir
-        await(supabase.from('budget_items')as any).delete().eq('budget_id',budgetId)
+        // Remove só os itens que o usuário de fato excluiu nesta edição —
+        // itens mantidos preservam seu id (upsert abaixo), o que é essencial
+        // para não perder a arte anexada (budget_item_files referencia
+        // budget_items.id via FK). Antes disso o código apagava e recriava
+        // TODOS os itens a cada save, gerando ids novos sempre.
+        const {data:existingItems}=await(supabase.from('budget_items')as any).select('id').eq('budget_id',budgetId)
+        const currentIds=new Set(items.map(i=>i.id))
+        const idsToDelete=(existingItems??[]).map((r:any)=>r.id).filter((id:string)=>!currentIds.has(id))
+        if(idsToDelete.length>0){
+          await(supabase.from('budget_items')as any).delete().in('id',idsToDelete)
+        }
       }else{
         // INSERT novo orçamento
         let budgetRes:any = await(supabase.from('budgets')as any)
@@ -349,7 +387,10 @@ export default function OrcamentosPage() {
       }
 
       if(budgetId&&items.length>0){
-        await(supabase.from('budget_items')as any).insert(items.map(i=>({
+        // upsert (não insert puro): preserva o id de cada item entre saves,
+        // para que a arte anexada (budget_item_files) não perca o vínculo.
+        await(supabase.from('budget_items')as any).upsert(items.map(i=>({
+          id:              i.id,
           budget_id:       budgetId,
           product_id:      i.product_id     || null,
           name:            i.name           || null,
@@ -942,20 +983,34 @@ export default function OrcamentosPage() {
                   {items.length>0?(
                     <div className="space-y-2">
                       {items.map(item=>(
-                        <div key={item.id} className="flex items-center gap-3 p-3.5 rounded-xl border border-border dark:border-stone-700 bg-white dark:bg-white/[0.02] hover:border-primary/40 transition-all group">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">{item.name||'Item sem nome'}</p>
-                                <p className="text-xs text-text-muted mt-0.5">{item.quantity}× {fmt(item.unit_price)}{item.discount>0&&<span className="ml-1 text-green-600 dark:text-green-400">−{item.discount}%</span>}</p>
+                        <div key={item.id} className="p-3.5 rounded-xl border border-border dark:border-stone-700 bg-white dark:bg-white/[0.02] hover:border-primary/40 transition-all group space-y-0">
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">{item.name||'Item sem nome'}</p>
+                                  <p className="text-xs text-text-muted mt-0.5">{item.quantity}× {fmt(item.unit_price)}{item.discount>0&&<span className="ml-1 text-green-600 dark:text-green-400">−{item.discount}%</span>}</p>
+                                </div>
+                                <p className="text-sm font-bold text-primary flex-shrink-0">{fmt(item.subtotal)}</p>
                               </div>
-                              <p className="text-sm font-bold text-primary flex-shrink-0">{fmt(item.subtotal)}</p>
+                            </div>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 sm:opacity-100 transition-opacity flex-shrink-0">
+                              <button type="button" onClick={()=>setEditItem(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>
+                              <button type="button" onClick={()=>removeItem(item.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 sm:opacity-100 transition-opacity flex-shrink-0">
-                            <button type="button" onClick={()=>setEditItem(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>
-                            <button type="button" onClick={()=>removeItem(item.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>
-                          </div>
+                          {editingBudgetId?(
+                            <BudgetItemArtwork
+                              budgetId={editingBudgetId}
+                              budgetItemId={item.id}
+                              file={filesByItem[item.id]??null}
+                              onChanged={()=>refetchItemFiles()}
+                            />
+                          ):(
+                            <p className="pt-2.5 mt-2.5 border-t border-border dark:border-stone-800 text-[11px] text-text-muted dark:text-stone-500 flex items-center gap-1.5">
+                              <Paperclip size={11}/> Salve o orçamento para anexar arte a este item.
+                            </p>
+                          )}
                         </div>
                       ))}
                       <div className="flex items-center gap-3 p-3 rounded-xl bg-primary-50/50 dark:bg-primary/5 border border-border dark:border-stone-700">
@@ -1242,14 +1297,22 @@ export default function OrcamentosPage() {
                     </div>
                     <div className="p-3.5 rounded-xl border border-border dark:border-stone-700 bg-white dark:bg-white/[0.02]">
                       <div className="flex items-center gap-2 mb-2"><Package size={13} className="text-primary"/><span className="text-xs font-semibold text-text-muted uppercase tracking-wider">{items.length} item{items.length!==1?'s':''}</span></div>
-                      <div className="space-y-1">
-                        {items.slice(0,3).map(item=>(
-                          <div key={item.id} className="flex justify-between text-sm">
-                            <span className="text-text-secondary dark:text-stone-400 break-words">{item.quantity}× {item.name}</span>
-                            <span className="font-medium text-text-primary dark:text-stone-100 ml-2 flex-shrink-0">{fmt(item.subtotal)}</span>
+                      <div className="space-y-1.5">
+                        {items.map(item=>(
+                          <div key={item.id}>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-text-secondary dark:text-stone-400 break-words">{item.quantity}× {item.name}</span>
+                              <span className="font-medium text-text-primary dark:text-stone-100 ml-2 flex-shrink-0">{fmt(item.subtotal)}</span>
+                            </div>
+                            {editingBudgetId&&(
+                              filesByItem[item.id]?(
+                                <p className="text-[11px] text-text-muted dark:text-stone-500 flex items-center gap-1"><Paperclip size={10}/> {filesByItem[item.id].file_name}</p>
+                              ):(
+                                <p className="text-[11px] text-warning-dark dark:text-warning flex items-center gap-1">⚠ Sem arte anexada</p>
+                              )
+                            )}
                           </div>
                         ))}
-                        {items.length>3&&<p className="text-xs text-text-muted">+{items.length-3} outros itens</p>}
                       </div>
                     </div>
                     <div className="p-3.5 rounded-xl border border-primary/20 bg-primary-50/30 dark:bg-primary/5">

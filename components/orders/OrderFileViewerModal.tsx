@@ -9,10 +9,9 @@ import {
   X, Download, ZoomIn, ZoomOut, RotateCw, Maximize, ChevronLeft, ChevronRight, Loader2,
 } from 'lucide-react'
 import { getFileKind, getDownloadUrl } from '@/lib/utils/fileIcons'
-import type { OrderFile } from './types'
 
 interface Props {
-  file: OrderFile
+  file: { file_name: string; file_url: string }
   onClose: () => void
 }
 
