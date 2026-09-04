@@ -1,5 +1,5 @@
 -- ============================================================
--- PRECY+ — Migration 078: Arquivos de arte por item de orçamento (budget_item_files)
+-- PRECY+ — Migration 079: Arquivos de arte por item de orçamento (budget_item_files)
 -- ============================================================
 -- Mesmo padrão de 054_order_files.sql (arte de pedido), mas vinculado ao
 -- ITEM do orçamento (budget_items), não só ao orçamento como um todo —
