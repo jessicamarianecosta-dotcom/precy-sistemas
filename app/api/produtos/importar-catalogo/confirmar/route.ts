@@ -15,6 +15,20 @@ interface ConfirmItem {
   needsReview?: boolean
 }
 
+// Nomes que o parser nunca deve produzir como resultado final, mas que
+// bloqueamos de novo aqui — nunca confiar só na tela de revisão ter feito
+// essa checagem. Um nome vazio ou um destes placeholders nunca vira produto,
+// mesmo que a requisição tenha sido montada/adulterada fora da tela normal.
+const BLOCKED_NAMES = new Set(['nao identificado', 'não identificado', 'not identified', 'sem nome', ''])
+
+function isValidProductName(name: unknown): name is string {
+  if (typeof name !== 'string') return false
+  const trimmed = name.trim()
+  if (trimmed.length < 2) return false
+  if (BLOCKED_NAMES.has(trimmed.toLowerCase())) return false
+  return true
+}
+
 /**
  * POST /api/produtos/importar-catalogo/confirmar
  * Body: { filename: string, sourceLabel?: string, items: ConfirmItem[] }
@@ -41,10 +55,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Nenhum item para importar' }, { status: 400 })
   }
 
-  const toCreate = items.filter(i => i.action === 'create')
-  const toUpdate = items.filter(i => i.action === 'update')
-  const skippedCount = items.filter(i => i.action === 'skip').length
   const errors: string[] = []
+
+  // Bloqueio de nome inválido/placeholder vale ANTES de separar create/update
+  // — um item assim nunca cria nem atualiza produto, mesmo que tenha vindo
+  // marcado como selecionado.
+  const invalidNamed = items.filter(i => i.action !== 'skip' && !isValidProductName(i.name))
+  for (const item of invalidNamed) {
+    errors.push(`Item sem nome identificado foi ignorado (não pode ser importado sem revisão manual).`)
+  }
+  const actionable = items.filter(i => i.action === 'skip' || isValidProductName(i.name))
+
+  const toCreate = actionable.filter(i => i.action === 'create')
+  const toUpdate = actionable.filter(i => i.action === 'update')
+  const skippedCount = items.filter(i => i.action === 'skip').length + invalidNamed.length
 
   // Mesma checagem de limite de plano do fluxo manual/da Biblioteca Precy+.
   if (toCreate.length > 0) {
