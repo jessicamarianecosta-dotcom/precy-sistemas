@@ -11,10 +11,12 @@ import {
   Package, Plus, Search, Edit2, Trash2, X, Loader2,
   Copy, ExternalLink, DollarSign, Clock, Layers,
   TrendingUp, ChevronRight, Tag, Zap, Ruler, FileText,
-  Images, SlidersHorizontal, Save, AlertCircle,
+  Images, SlidersHorizontal, Save, AlertCircle, Upload,
 } from 'lucide-react'
 import { ProductGalleryUpload } from '@/components/catalog/ProductGalleryUpload'
 import { VariationsEditor, type VariationsEditorHandle } from '@/components/catalog/VariationsEditor'
+import { ImportCatalogModal } from '@/components/catalog/ImportCatalogModal'
+import { isCatalogImportAdmin } from '@/lib/catalog/importAccess'
 import { calculateAreaM2, formatAreaM2, formatDimDisplay, getDimBlock } from '@/lib/utils/dimensions'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -169,6 +171,20 @@ export default function ProdutosPage() {
   const sub           = useSubscription()
   const isPro         = sub?.data?.isPro ?? false
   const router        = useRouter()
+
+  // "Importar Catálogo": exclusivo desta conta (ver lib/catalog/importAccess.ts).
+  // Esconder o botão é só UX — a checagem que realmente protege a função
+  // roda de novo no servidor, em toda rota de /api/produtos/importar-catalogo.
+  const { data: userEmail } = useQuery({
+    queryKey: ['auth-user-email'],
+    staleTime: 10 * 60 * 1000,
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      return user?.email ?? null
+    },
+  })
+  const canImportCatalog = isCatalogImportAdmin(userEmail)
+  const [showImportModal, setShowImportModal] = useState(false)
 
   const { data: catalogCategories } = useQuery<{ id: string; name: string }[]>({
     queryKey: ['catalog_categories', companyId],
@@ -540,10 +556,18 @@ export default function ProdutosPage() {
             <input type="text" placeholder="Buscar produtos..." className="input pl-9"
               value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-          <button onClick={() => { reset(); setEditingId(null); setShowForm(true) }}
-            className="btn-primary flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
-            <Plus size={16} /> Novo Produto
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+            {canImportCatalog && (
+              <button onClick={() => setShowImportModal(true)}
+                className="btn-secondary flex items-center gap-2 flex-1 sm:flex-initial justify-center">
+                <Upload size={16} /> Importar Catálogo
+              </button>
+            )}
+            <button onClick={() => { reset(); setEditingId(null); setShowForm(true) }}
+              className="btn-primary flex items-center gap-2 flex-1 sm:flex-initial justify-center">
+              <Plus size={16} /> Novo Produto
+            </button>
+          </div>
         </div>
 
         {/* Tabela */}
@@ -1343,6 +1367,10 @@ export default function ProdutosPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {showImportModal && companyId && (
+        <ImportCatalogModal companyId={companyId} onClose={() => setShowImportModal(false)} />
       )}
     </div>
   )
