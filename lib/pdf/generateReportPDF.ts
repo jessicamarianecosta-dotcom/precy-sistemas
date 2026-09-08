@@ -308,7 +308,7 @@ export function generateReportPDF(data: ReportData) {
     @media print{
       html,body{background:#fff;}
       .no-print{display:none!important;}
-      .page{margin:0!important;box-shadow:none!important;width:100%!important;}
+      .page{margin:0!important;box-shadow:none!important;width:100%!important;min-height:0!important;}
       tr,div{page-break-inside:avoid;}
       .page-break{page-break-before:always;}
     }

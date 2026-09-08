@@ -220,7 +220,7 @@ export async function generateOrderPDF({ order, items, payments, company, artFil
   @media print{
     html,body{background:#fff;}
     .no-print{display:none!important;}
-    .page{margin:0!important;box-shadow:none!important;width:100%!important;}
+    .page{margin:0!important;box-shadow:none!important;width:100%!important;min-height:0!important;}
   }
   html,body{
     font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;
