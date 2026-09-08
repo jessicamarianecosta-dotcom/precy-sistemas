@@ -180,7 +180,7 @@ export async function generateProductionSheet({ order, items, company, artFiles 
   @media print{
     html,body{background:#fff;}
     .no-print{display:none!important;}
-    .page{margin:0!important;box-shadow:none!important;width:100%!important;overflow:visible!important;}
+    .page{margin:0!important;box-shadow:none!important;width:100%!important;min-height:0!important;overflow:visible!important;}
     /* identificação em toda página impressa (útil quando a arte gera folhas extras) */
     .print-tag{display:block;position:fixed;bottom:4mm;right:8mm;
       font-size:8px;letter-spacing:.5px;color:#aaa;}
