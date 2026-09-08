@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getPaymentAdapter } from '@/lib/catalog/payments'
+import { getShippingAdapter } from '@/lib/catalog/shipping'
+import { getShippingOriginSettings, resolveShippingItems } from '@/lib/catalog/shipping/resolveCartShipping'
 import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
 
@@ -15,7 +17,7 @@ interface CheckoutItem { productId: string; variantId?: string | null; quantity:
  * módulos (Financeiro/Clientes/Estoque/Agenda) quando o webhook confirma —
  * ver app/api/webhooks/infinitypay/route.ts.
  *
- * IMPORTANTE: preço/estoque/publicação são sempre revalidados aqui a
+ * IMPORTANTE: preço/estoque/publicação/frete são sempre revalidados aqui a
  * partir do banco — nunca confiar em valores vindos do carrinho do client.
  */
 export async function POST(request: Request) {
@@ -29,18 +31,24 @@ export async function POST(request: Request) {
   const slug = String(body?.slug ?? '')
   const items: CheckoutItem[] = Array.isArray(body?.items) ? body.items : []
   const customer = body?.customer ?? {}
-  // Nunca confiar cegamente no valor de frete vindo do client — só ele decide
-  // o total cobrado no pagamento. Sem re-cotação server-side (ver nota no
-  // relatório de auditoria), pelo menos garante que não é negativo/absurdo.
-  const rawShipping = Number(body?.shippingPrice ?? 0)
-  const shippingPrice = Number.isFinite(rawShipping) ? Math.min(Math.max(rawShipping, 0), 10000) : 0
+  // O client só informa QUAL serviço de frete foi escolhido (nome/id) — o
+  // preço nunca vem do client, é sempre recotado no servidor logo abaixo
+  // com o mesmo adapter/origem/peso usados na tela de frete.
+  const shippingServiceChosen = body?.shippingService ? String(body.shippingService) : null
   const artwork = body?.artwork ?? null
+  const destCep = String(customer.cep ?? '').replace(/\D/g, '')
 
   if (!slug || items.length === 0) {
     return NextResponse.json({ error: 'Dados insuficientes para finalizar o pedido' }, { status: 400 })
   }
   if (!customer.name || !customer.phone) {
     return NextResponse.json({ error: 'Nome e telefone são obrigatórios' }, { status: 400 })
+  }
+  if (destCep.length !== 8) {
+    return NextResponse.json({ error: 'CEP de entrega inválido' }, { status: 400 })
+  }
+  if (!shippingServiceChosen) {
+    return NextResponse.json({ error: 'Selecione uma opção de frete' }, { status: 400 })
   }
 
   const companyId = await resolveStoreCompanyId(slug)
@@ -142,6 +150,38 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Nenhum item válido no carrinho' }, { status: 400 })
   }
 
+  /* ── Recotar frete no servidor — preço nunca vem do client ──
+     Mesma origem/peso/adapter usados em /api/loja/frete; o client só disse
+     QUAL serviço quer (ex: "PAC"), o preço cobrado é sempre o desta cotação. */
+  const shippingOrigin = await getShippingOriginSettings(companyId)
+  if (!shippingOrigin) {
+    return NextResponse.json({
+      error: 'Esta loja ainda não configurou o endereço de envio. Fale com o vendedor.',
+    }, { status: 422 })
+  }
+  const shippingItemsForQuote = await resolveShippingItems(
+    companyId,
+    validItems.map(i => ({ productId: i.productId, quantity: i.quantity })),
+    shippingOrigin
+  )
+
+  let shippingPrice: number
+  let shippingServiceName: string
+  let shippingServiceId: string | undefined
+  try {
+    const shippingAdapter = getShippingAdapter()
+    const quotes = await shippingAdapter.quote(shippingOrigin.originCep, destCep, shippingItemsForQuote)
+    const chosen = quotes.find(q => q.service === shippingServiceChosen || q.serviceId === shippingServiceChosen)
+    if (!chosen) {
+      return NextResponse.json({ error: 'Opção de frete selecionada não é mais válida. Calcule o frete novamente.' }, { status: 409 })
+    }
+    shippingPrice = chosen.price
+    shippingServiceName = chosen.service
+    shippingServiceId = chosen.serviceId
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message ?? 'Erro ao validar o frete' }, { status: 502 })
+  }
+
   const subtotal = orderItems.reduce((s, i) => s + i.subtotal, 0)
   const total = subtotal + shippingPrice
 
@@ -154,6 +194,16 @@ export async function POST(request: Request) {
     .eq('phone', phone)
     .maybeSingle()
 
+  const structuredAddress = {
+    zip_code: destCep,
+    street: customer.street ?? null,
+    number: customer.number ?? null,
+    complement: customer.complement ?? null,
+    neighborhood: customer.district ?? null,
+    city: customer.city ?? null,
+    state: customer.state ?? null,
+  }
+
   if (existingCustomer) {
     customerId = existingCustomer.id
     await (supabaseAdmin.from('customers') as any)
@@ -161,6 +211,7 @@ export async function POST(request: Request) {
         name: customer.name,
         address: customer.address ?? null,
         cpf_cnpj: customer.cpfCnpj ?? null,
+        ...structuredAddress,
         updated_at: new Date().toISOString(),
       })
       .eq('id', customerId)
@@ -172,6 +223,7 @@ export async function POST(request: Request) {
         phone,
         address: customer.address ?? null,
         cpf_cnpj: customer.cpfCnpj ?? null,
+        ...structuredAddress,
       }])
       .select('id')
       .single()
@@ -205,6 +257,7 @@ export async function POST(request: Request) {
       notes: notesParts.join(' · ') || null,
       source: 'catalog',
       catalog_checkout_ref: checkoutRef,
+      shipping_service: shippingServiceName,
       art_status: artwork ? 'recebida' : 'nao_enviada',
     }])
     .select('id, order_number')

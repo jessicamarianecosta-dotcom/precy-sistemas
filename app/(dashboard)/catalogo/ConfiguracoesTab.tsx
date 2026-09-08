@@ -8,6 +8,7 @@ import { useCompanyId } from '@/hooks/useCompanyId'
 import { Loader2, Store } from 'lucide-react'
 import { toSlug } from '@/lib/utils/slug'
 import { StoreAddressCard } from '@/components/catalog/settings/StoreAddressCard'
+import { ShippingOriginCard } from '@/components/catalog/settings/ShippingOriginCard'
 import { BrandIdentityCard } from '@/components/catalog/settings/BrandIdentityCard'
 import { StoreColorsCard } from '@/components/catalog/settings/StoreColorsCard'
 import { StoreDescriptionCard } from '@/components/catalog/settings/StoreDescriptionCard'
@@ -69,6 +70,7 @@ export function ConfiguracoesTab() {
   return (
     <form onSubmit={e => { e.preventDefault(); saveMutation.mutate(current) }} className="space-y-5 max-w-4xl">
       <StoreAddressCard value={current} onChange={setForm} companyId={companyId} />
+      <ShippingOriginCard companyId={companyId} />
       <BrandIdentityCard value={current} onChange={setForm} />
       <StoreColorsCard value={current} onChange={setForm} />
       <StoreDescriptionCard value={current} onChange={setForm} />

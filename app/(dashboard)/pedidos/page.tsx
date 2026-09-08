@@ -88,6 +88,11 @@ const OrderFilesSection = dynamic(
   { ssr: false }
 )
 
+const ShipmentPanel = dynamic(
+  () => import('@/components/orders/ShipmentPanel').then(m => m.ShipmentPanel),
+  { ssr: false }
+)
+
 /* ─────────────────────────────────────────────
    STATUS
 ───────────────────────────────────────────── */
@@ -2630,6 +2635,8 @@ function PedidosPage() {
                       customerPhone={selectedCustomer?.phone}
                       customerEmail={selectedCustomer?.email}
                     />
+                    <div className="h-px bg-border dark:bg-border-dark" />
+                    <ShipmentPanel orderId={editingId} companyId={companyId} />
                     <div className="h-px bg-border dark:bg-border-dark" />
                   </>
                 ) : (
