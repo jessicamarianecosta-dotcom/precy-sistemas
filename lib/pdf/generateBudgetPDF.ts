@@ -8,6 +8,8 @@ import { getBudgetItems } from '@/lib/pdf/getBudgetItems'
 import { formatDimDisplay } from '@/lib/utils/dimensions'
 import { companyPickupAddressLines } from '@/lib/company/pickupAddress'
 import { getFileKind, getDownloadUrl } from '@/lib/utils/fileIcons'
+import { formatBudgetTitle } from '@/lib/pdf/budgetTitle'
+import { pixTypeLabel } from '@/lib/company/pix'
 import type { OrderFile } from '@/components/orders/types'
 
 interface PDFParams {
@@ -66,6 +68,14 @@ export async function generateBudgetPDF({ budget, items, company, fileName, artF
   const bPrazoType = X(b.prazo_type    ?? '')   // dias | data
   const bPrazoDias = Number(b.prazo_dias) || 0
   const bPrazoDue  = D(b.prazo_due_date as string | undefined)
+
+  /* ── Título de exibição: "Orçamento #1067 — Sipal" (nunca o nome da empresa) ── */
+  const docTitle = formatBudgetTitle(b.budget_number as string | undefined, cust.name as string | undefined)
+
+  /* ── PIX (snapshot gravado no orçamento no momento da criação) ── */
+  const bPixKey  = X(b.pix_key ?? '')
+  const bPixType = pixTypeLabel(b.pix_type as string | undefined)
+  const bPixLbl  = X(b.pix_label ?? '')
 
   /* ── Financeiro ── */
   const bSub  = Number(b.subtotal) || items.reduce((s,i) => s + (Number(i.subtotal)||0), 0)
@@ -177,7 +187,7 @@ export async function generateBudgetPDF({ budget, items, company, fileName, artF
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>${fileName ? X(fileName) : `Orçamento ${bNum} — ${coName}`}</title>
+<title>${fileName ? X(fileName) : X(docTitle)}</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;}
   @page{size:A4 portrait;margin:13mm 11mm 15mm 11mm;}
@@ -311,6 +321,14 @@ export async function generateBudgetPDF({ budget, items, company, fileName, artF
   .sc:last-child{padding-right:0;}
   .sl{border-top:1.5px solid #1a1208;padding-top:5px;
     font-size:9px;color:#bbb;letter-spacing:.3px;}
+  /* forma de pagamento — PIX */
+  .pix-w{padding:0 26px 14px;}
+  .pix-box{background:#faf8f5;border:1px solid #ede9e3;border-left:3px solid ${primary};
+    border-radius:0 8px 8px 0;padding:13px 16px;max-width:340px;}
+  .pix-badge{display:inline-block;background:${primary};color:#fff;font-size:9px;
+    font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+    padding:3px 10px;border-radius:20px;margin-bottom:8px;}
+  .pix-row{display:table;width:100%;padding:3px 0;font-size:11.5px;}
   /* arte do cliente — imagem inteira, proporção preservada (sem object-fit:cover) */
   .art-w{padding:0 26px 14px;}
   .art-grid{display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px;}
@@ -347,7 +365,7 @@ export async function generateBudgetPDF({ budget, items, company, fileName, artF
 <div class="toolbar no-print">
   <button class="btn btn-p" onclick="window.print()">⬇ Baixar / Imprimir PDF</button>
   <button class="btn btn-c" onclick="window.close()">Fechar</button>
-  <span class="tb-title">Orçamento ${bNum} · ${coName}</span>
+  <span class="tb-title">${X(docTitle)}</span>
 </div>
 
 <div class="page">
@@ -564,6 +582,18 @@ export async function generateBudgetPDF({ budget, items, company, fileName, artF
   </div>
 
 </div>
+
+<!-- ── FORMA DE PAGAMENTO (PIX) ── -->
+${bPixKey ? `
+<div class="slbl">Forma de Pagamento</div>
+<div class="pix-w">
+  <div class="pix-box">
+    <span class="pix-badge">PIX</span>
+    <div class="pix-row"><span class="ck">Chave</span><span class="cv" style="font-weight:600;">${bPixKey}</span></div>
+    ${bPixType ? `<div class="pix-row"><span class="ck">Tipo</span><span class="cv">${bPixType}</span></div>` : ''}
+    ${bPixLbl  ? `<div class="pix-row"><span class="ck">Titular</span><span class="cv">${bPixLbl}</span></div>` : ''}
+  </div>
+</div>` : ''}
 
 <!-- ── ARTE ENVIADA PELO CLIENTE ── -->
 ${artBlockHTML}

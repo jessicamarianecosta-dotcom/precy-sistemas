@@ -96,6 +96,12 @@ export function orderToBudgetShape(
     delivery_days: sb.delivery_days || due,
     production_days: sb.production_days ?? '',
 
+    // PIX: snapshot já gravado no próprio pedido (herdado do orçamento na
+    // conversão, ou capturado das Configurações se o pedido foi criado direto).
+    pix_type:  o.pix_type  ?? null,
+    pix_key:   o.pix_key   ?? null,
+    pix_label: o.pix_label ?? null,
+
     customers: o.customers ?? {},
   }
 }

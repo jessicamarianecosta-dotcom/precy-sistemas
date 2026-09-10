@@ -21,6 +21,7 @@ import { useRouter } from 'next/navigation'
 import { useSubscription } from '@/hooks/useSubscription'
 import { formatCep, formatCpfCnpj, onlyDigits } from '@/lib/utils/mask'
 import { useCepLookup } from '@/hooks/useCepLookup'
+import { PIX_TYPE_OPTIONS, type PixType } from '@/lib/company/pix'
 
 /* ─────────────────────────── Types & Schemas ─── */
 type Tab = 'empresa' | 'financeiro' | 'acabamentos' | 'conta'
@@ -130,6 +131,10 @@ export default function ConfiguracoesPage() {
   const [savingColors,   setSavingColors]  = useState(false)
   const [defaultPdfTemplate,    setDefaultPdfTemplate]    = useState<'cliente' | 'producao'>('cliente')
   const [savingPdfTemplate,     setSavingPdfTemplate]     = useState(false)
+  const [pixType,   setPixType]   = useState<PixType>('cnpj')
+  const [pixKey,    setPixKey]    = useState('')
+  const [pixLabel,  setPixLabel]  = useState('')
+  const [savingPix, setSavingPix] = useState(false)
   const [savingRoutine,  setSavingRoutine] = useState(false)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [upgradeAgreed,  setUpgradeAgreed]  = useState(false)
@@ -321,6 +326,9 @@ export default function ConfiguracoesPage() {
     if ((company as any)?.primary_color)  setPrimaryColor((company as any).primary_color)
     if ((company as any)?.secondary_color) setSecondaryColor((company as any).secondary_color)
     if ((company as any)?.default_pdf_template) setDefaultPdfTemplate((company as any).default_pdf_template)
+    if ((company as any)?.pix_type)  setPixType((company as any).pix_type)
+    setPixKey((company as any)?.pix_key ?? '')
+    setPixLabel((company as any)?.pix_label ?? '')
   }, [company, profile]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ─── Popular rotina do Supabase — UMA VEZ, com fallback localStorage ─── */
@@ -568,6 +576,28 @@ export default function ConfiguracoesPage() {
       showError(`Erro ao salvar modelo padrão: ${(err as Error).message}`)
     } finally {
       setSavingPdfTemplate(false)
+    }
+  }
+
+  /* ─── Salvar dados de pagamento (PIX) ─── */
+  async function handleSavePix() {
+    if (!companyId) return
+    setSavingPix(true)
+    try {
+      const key = pixKey.trim()
+      const { error } = await (supabase.from('companies') as any).update({
+        pix_type:   key ? pixType : null,
+        pix_key:    key || null,
+        pix_label:  pixLabel.trim() || null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', companyId)
+      if (error) throw error
+      queryClient.invalidateQueries({ queryKey: ['company', companyId] })
+      showSaved()
+    } catch (err: unknown) {
+      showError(`Erro ao salvar dados de pagamento: ${(err as Error).message}`)
+    } finally {
+      setSavingPix(false)
     }
   }
 
@@ -869,6 +899,57 @@ export default function ConfiguracoesPage() {
               {saveCompany.isPending ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle size={15} />}
               {saveCompany.isPending ? 'Salvando...' : 'Salvar dados da empresa'}
             </button>
+
+            {/* Dados de pagamento — PIX */}
+            <div className="card">
+              <SectionTitle icon={CreditCard} title="Dados de pagamento" subtitle="PIX — exibido automaticamente em orçamentos e pedidos" />
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <FieldLabel>Tipo de chave</FieldLabel>
+                    <select
+                      className="input"
+                      value={pixType}
+                      onChange={e => setPixType(e.target.value as PixType)}
+                    >
+                      {PIX_TYPE_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <FieldLabel>Chave PIX</FieldLabel>
+                    <input
+                      type="text"
+                      placeholder="Ex: 12.345.678/0001-00"
+                      className="input"
+                      value={pixKey}
+                      onChange={e => setPixKey(e.target.value)}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <FieldLabel>Nome/descrição (opcional)</FieldLabel>
+                    <input
+                      type="text"
+                      placeholder="Ex: Nome do titular da conta"
+                      className="input"
+                      value={pixLabel}
+                      onChange={e => setPixLabel(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <button type="button" onClick={handleSavePix} disabled={savingPix} className="btn-primary flex items-center gap-2 w-full sm:w-auto">
+                  {savingPix ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                  {savingPix ? 'Salvando...' : 'Salvar alterações'}
+                </button>
+                <div className="flex items-center gap-2 p-3 rounded-xl bg-info-light dark:bg-info/10 border border-info/20">
+                  <AlertCircle size={14} className="text-info flex-shrink-0" />
+                  <p className="text-xs text-info-dark dark:text-info">
+                    Cada empresa tem sua própria chave. Orçamentos e pedidos já criados mantêm a chave que estava configurada no momento da emissão — alterar aqui não muda documentos antigos.
+                  </p>
+                </div>
+              </div>
+            </div>
           </form>
         )}
 

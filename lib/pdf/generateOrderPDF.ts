@@ -7,6 +7,7 @@ import { formatCurrency } from '@/lib/utils/format'
 import { getOrderItems } from '@/lib/pdf/getOrderItems'
 import { formatDimDisplay } from '@/lib/utils/dimensions'
 import { getFileKind, getDownloadUrl } from '@/lib/utils/fileIcons'
+import { pixTypeLabel } from '@/lib/company/pix'
 import type { OrderFile } from '@/components/orders/types'
 
 interface PaymentRow {
@@ -70,6 +71,11 @@ export async function generateOrderPDF({ order, items, payments, company, artFil
   const oStatus = String(o.status ?? 'pending')
   const oPayStatus = String(o.payment_status ?? 'pending')
   const oPaidAt = D(o.paid_at)
+
+  /* ── PIX (snapshot gravado no pedido no momento da criação) ── */
+  const oPixKey  = X(o.pix_key ?? '')
+  const oPixType = pixTypeLabel(o.pix_type as string | undefined)
+  const oPixLbl  = X(o.pix_label ?? '')
 
   /* ── Cliente ── */
   const cName  = X(cust.name     ?? '—')
@@ -331,6 +337,15 @@ export async function generateOrderPDF({ order, items, payments, company, artFil
      width/height fixos — só max-width/max-height — então o navegador
      encolhe proporcionalmente sem NUNCA cortar (nada de object-fit:cover
      numa caixa quadrada fixa). Espaço em branco ao redor é aceitável. */
+  .pix-w{padding:0 26px 14px;}
+  .pix-box{background:#faf8f5;border:1px solid #ede9e3;border-left:3px solid ${primary};
+    border-radius:0 8px 8px 0;padding:13px 16px;max-width:340px;}
+  .pix-badge{display:inline-block;background:${primary};color:#fff;font-size:9px;
+    font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+    padding:3px 10px;border-radius:20px;margin-bottom:8px;}
+  .pix-row{display:table;width:100%;padding:3px 0;font-size:11.5px;}
+  .pix-row .ck{display:table-cell;color:#aaa;width:108px;vertical-align:top;}
+  .pix-row .cv{display:table-cell;color:#333;}
   .art-w{padding:0 26px 14px;}
   .art-grid{display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px;}
   .art-card{display:block;width:auto;max-width:220px;text-decoration:none;
@@ -481,6 +496,17 @@ ${paymentsBlockHTML}
     </div>
   </div>
 </div>
+
+${oPixKey ? `
+<div class="slbl">Forma de Pagamento</div>
+<div class="pix-w">
+  <div class="pix-box">
+    <span class="pix-badge">PIX</span>
+    <div class="pix-row"><span class="ck">Chave</span><span class="cv" style="font-weight:600;">${oPixKey}</span></div>
+    ${oPixType ? `<div class="pix-row"><span class="ck">Tipo</span><span class="cv">${oPixType}</span></div>` : ''}
+    ${oPixLbl  ? `<div class="pix-row"><span class="ck">Titular</span><span class="cv">${oPixLbl}</span></div>` : ''}
+  </div>
+</div>` : ''}
 
 ${oNotes ? `
 <div class="slbl">Observações</div>

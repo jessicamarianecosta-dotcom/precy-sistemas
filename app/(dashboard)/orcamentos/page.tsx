@@ -21,6 +21,7 @@ import {
 import { calculateAreaM2, formatAreaM2, formatDimDisplay, getDimBlock } from '@/lib/utils/dimensions'
 import { companyPickupAddressLines, companyPickupAddressText } from '@/lib/company/pickupAddress'
 import { BudgetItemArtwork } from '@/components/orcamentos/BudgetItemArtwork'
+import { extractPixSnapshot } from '@/lib/company/pix'
 import { Paperclip } from 'lucide-react'
 
 interface BudgetItem {
@@ -374,8 +375,12 @@ export default function OrcamentosPage() {
         }
       }else{
         // INSERT novo orçamento
+        // PIX: snapshot do que está configurado em Empresa AGORA — gravado só
+        // na criação, nunca reescrito numa edição futura (documento já emitido
+        // não deve mudar se o usuário trocar a chave depois nas Configurações).
+        const pixSnapshot = extractPixSnapshot(companyData)
         let budgetRes:any = await(supabase.from('budgets')as any)
-          .insert([{company_id:companyId!,...budgetPayload,budget_number:''}]).select('id').single()
+          .insert([{company_id:companyId!,...budgetPayload,...pixSnapshot,budget_number:''}]).select('id').single()
         // Se falhou por coluna inexistente, tentar com payload base
         if(budgetRes?.error?.code==='42703'){
           budgetRes=await(supabase.from('budgets')as any)
@@ -522,6 +527,9 @@ export default function OrcamentosPage() {
         signal_amount:  sigAmt,               // entrada acordada (informativo)
         remaining_amount: orderTotal,         // saldo devedor = total (nada recebido)
         notes:          b.notes || null,
+        // PIX: herda o snapshot já gravado no orçamento (não busca a chave
+        // atual da empresa de novo — o pedido nasce com o que foi cotado).
+        ...extractPixSnapshot(b),
         // delivery_days é texto livre ("até 5 dias", "3"...) — só vira data se for numérico puro
         due_date:       (() => {
           const n = Number(b.delivery_days)
@@ -702,9 +710,12 @@ export default function OrcamentosPage() {
         delivery_days:   b.delivery_days ?? null,
         production_days: b.production_days ?? null,
       }
+      // Duplicar é criar um novo documento — leva o PIX configurado agora nas
+      // Configurações, não o snapshot congelado do orçamento original.
+      const pixSnapshot = extractPixSnapshot(companyData)
 
       let insRes: any = await (supabase.from('budgets') as any)
-        .insert([{ ...basePayload, ...extraPayload }]).select('id').single()
+        .insert([{ ...basePayload, ...extraPayload, ...pixSnapshot }]).select('id').single()
       if (insRes?.error?.code === '42703') {
         insRes = await (supabase.from('budgets') as any)
           .insert([basePayload]).select('id').single()
@@ -1087,6 +1098,12 @@ export default function OrcamentosPage() {
                         </button>
                       ))}
                     </div>
+                    {payMethod==='PIX'&&!(companyData as any)?.pix_key&&(
+                      <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                        <Info size={12} className="flex-shrink-0"/>
+                        PIX não configurado. Cadastre sua chave em Configurações → Empresa para que ela apareça automaticamente no orçamento.
+                      </p>
+                    )}
                   </div>
                   <div>
                     <p className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Condição</p>
