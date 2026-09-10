@@ -82,6 +82,7 @@ import {
   SCHEDULE_STATUS_LABELS, ORDER_PAYMENT_METHODS, type OrderPaymentMethod,
 } from '@/lib/orders/paymentSchedule'
 import { fetchOrderReceivables } from '@/lib/orders/receivables'
+import { extractPixSnapshot } from '@/lib/company/pix'
 
 const OrderFilesSection = dynamic(
   () => import('@/components/orders/OrderFilesSection').then(m => m.OrderFilesSection),
@@ -916,8 +917,11 @@ function PedidosPage() {
         orderNumber = currentOrder?.order_number ?? null
         await recalcOrderPaymentStatus(supabase, editingId, companyId!, payload.total, currentOrder?.paid_at ?? null)
       } else {
+        // PIX: snapshot do que está configurado em Empresa agora — gravado só
+        // na criação do pedido, nunca reescrito numa edição futura.
+        const pixSnapshot = extractPixSnapshot(companyData)
         const { data: created, error } = await (supabase.from('orders') as any)
-          .insert([{ ...payload, company_id: companyId!, order_number: '' }])
+          .insert([{ ...payload, ...pixSnapshot, company_id: companyId!, order_number: '' }])
           .select('id, order_number')
           .single()
         if (error) throw new Error(error.message)
