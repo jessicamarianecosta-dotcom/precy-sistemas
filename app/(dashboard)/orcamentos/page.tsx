@@ -381,8 +381,9 @@ export default function OrcamentosPage() {
         const pixSnapshot = extractPixSnapshot(companyData)
         let budgetRes:any = await(supabase.from('budgets')as any)
           .insert([{company_id:companyId!,...budgetPayload,...pixSnapshot,budget_number:''}]).select('id').single()
-        // Se falhou por coluna inexistente, tentar com payload base
-        if(budgetRes?.error?.code==='42703'){
+        // Se falhou por coluna inexistente (42703 = Postgres, PGRST204 = schema
+        // cache do PostgREST — é o que normalmente aparece), tenta com payload base
+        if(budgetRes?.error?.code==='42703'||(budgetRes?.error?.code==='PGRST204'&&/pix_(key|type|label)/.test(budgetRes.error.message||''))){
           budgetRes=await(supabase.from('budgets')as any)
             .insert([{company_id:companyId!,...basePayload,budget_number:''}]).select('id').single()
         }
@@ -545,10 +546,23 @@ export default function OrcamentosPage() {
       // Esses dados permanecem no orçamento e são acessados pelo pedido via `quote_id`
       // (ver lib/pdf/orderQuoteData + handleGeneratePDF em Pedidos). Retirada = endereço
       // fixo da LumiLife, resolvido a partir do orçamento vinculado.
-      const { data: order, error: orderErr } = await (supabase.from('orders') as any)
+      let { data: order, error: orderErr } = await (supabase.from('orders') as any)
         .insert([orderPayload])
         .select('id, order_number')
         .single()
+
+      // Fallback temporário: se o banco de produção ainda não tem as colunas
+      // pix_type/pix_key/pix_label em `orders` (schema cache do PostgREST
+      // desatualizado — PGRST204), tenta de novo sem elas para não travar a
+      // aprovação do orçamento. Assim que a coluna existir no banco, esse
+      // fallback deixa de ser acionado e o PIX volta a ser gravado normalmente.
+      if (orderErr && orderErr.code === 'PGRST204' && /pix_(key|type|label)/.test(orderErr.message || '')) {
+        const { pix_type, pix_key, pix_label, ...payloadWithoutPix } = orderPayload as any
+        ;({ data: order, error: orderErr } = await (supabase.from('orders') as any)
+          .insert([payloadWithoutPix])
+          .select('id, order_number')
+          .single())
+      }
 
       if (orderErr) throw new Error(orderErr.message)
 
@@ -716,7 +730,7 @@ export default function OrcamentosPage() {
 
       let insRes: any = await (supabase.from('budgets') as any)
         .insert([{ ...basePayload, ...extraPayload, ...pixSnapshot }]).select('id').single()
-      if (insRes?.error?.code === '42703') {
+      if (insRes?.error?.code === '42703' || (insRes?.error?.code === 'PGRST204' && /pix_(key|type|label)/.test(insRes.error.message || ''))) {
         insRes = await (supabase.from('budgets') as any)
           .insert([basePayload]).select('id').single()
       }
