@@ -920,10 +920,22 @@ function PedidosPage() {
         // PIX: snapshot do que está configurado em Empresa agora — gravado só
         // na criação do pedido, nunca reescrito numa edição futura.
         const pixSnapshot = extractPixSnapshot(companyData)
-        const { data: created, error } = await (supabase.from('orders') as any)
+        let { data: created, error } = await (supabase.from('orders') as any)
           .insert([{ ...payload, ...pixSnapshot, company_id: companyId!, order_number: '' }])
           .select('id, order_number')
           .single()
+
+        // Fallback temporário: banco de produção ainda sem as colunas
+        // pix_type/pix_key/pix_label em `orders` (PGRST204) — tenta de novo
+        // sem elas para não travar a criação do pedido. Deixa de ser
+        // acionado assim que a migration 081 rodar no banco.
+        if (error && error.code === 'PGRST204' && /pix_(key|type|label)/.test(error.message || '')) {
+          ;({ data: created, error } = await (supabase.from('orders') as any)
+            .insert([{ ...payload, company_id: companyId!, order_number: '' }])
+            .select('id, order_number')
+            .single())
+        }
+
         if (error) throw new Error(error.message)
         orderId = created.id
         orderNumber = created.order_number ?? null
