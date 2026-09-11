@@ -595,7 +595,13 @@ export default function ConfiguracoesPage() {
       queryClient.invalidateQueries({ queryKey: ['company', companyId] })
       showSaved()
     } catch (err: unknown) {
-      showError(`Erro ao salvar dados de pagamento: ${(err as Error).message}`)
+      const e = err as { code?: string; message?: string }
+      const isMissingPixColumn = e?.code === 'PGRST204' && /pix_(key|type|label)/.test(e.message || '')
+      showError(
+        isMissingPixColumn
+          ? 'Erro ao salvar dados de pagamento: o banco de dados ainda não tem as colunas de PIX (migration 081_company_pix_payment.sql pendente de aplicação em produção).'
+          : `Erro ao salvar dados de pagamento: ${e?.message}`
+      )
     } finally {
       setSavingPix(false)
     }
