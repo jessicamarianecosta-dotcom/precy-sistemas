@@ -157,6 +157,23 @@ export async function POST(req: NextRequest) {
       locale: 'pt-BR',
     })
 
+    // Registro de "checkout iniciado" para o painel admin (ver migration 082
+    // e app/api/webhooks/stripe/route.ts, que atualiza para completed/expired).
+    // Melhor esforço: nunca deve impedir o usuário de seguir pro Stripe.
+    try {
+      await (supabaseAdmin.from('checkout_attempts') as any).insert({
+        company_id:                 company.id,
+        user_id:                    session.user.id,
+        stripe_checkout_session_id: checkoutSession.id,
+        stripe_customer_id:         customerId,
+        price_id:                   planConfig.price_id,
+        plan,
+        status:                     'started',
+      })
+    } catch (trackErr: any) {
+      console.error('[stripe/checkout] falha ao registrar checkout_attempts (não bloqueia o checkout):', trackErr?.message)
+    }
+
     return NextResponse.json({ url: checkoutSession.url })
   } catch (err: any) {
     console.error('[stripe/checkout]', err?.message ?? err)

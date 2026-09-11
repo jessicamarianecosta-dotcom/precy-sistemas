@@ -11,6 +11,20 @@ export const runtime = 'nodejs'
 
 const GRACE_DAYS = 5
 
+/**
+ * Atualiza o status de uma linha de checkout_attempts (ver migration 082)
+ * pelo stripe_checkout_session_id. Complementar ao rastreamento de
+ * assinatura já existente — nunca lança erro que interrompa o processamento
+ * do webhook: se a linha não existir (ex. checkout criado antes desta
+ * funcionalidade existir) ou o update falhar, só loga.
+ */
+async function markCheckoutAttempt(sessionId: string, status: 'completed' | 'expired') {
+  const { error } = await (supabaseAdmin.from('checkout_attempts') as any)
+    .update({ status })
+    .eq('stripe_checkout_session_id', sessionId)
+  if (error) console.error(`[webhook] markCheckoutAttempt(${status}) error:`, error.message)
+}
+
 export async function POST(req: NextRequest) {
   const body      = await req.text()
   const signature = req.headers.get('stripe-signature')
@@ -45,6 +59,18 @@ export async function POST(req: NextRequest) {
       case 'checkout.session.completed': {
         const cs = event.data.object as Stripe.Checkout.Session
         await syncCompanyFromCheckoutSession(cs, '[webhook]')
+        await markCheckoutAttempt(cs.id, 'completed')
+        break
+      }
+
+      /* ── Checkout Session expirou sem ser concluída ──
+         Evento oficial do Stripe (sessão não paga em até 24h) — não é uma
+         suposição nossa de "abandono", é o próprio Stripe confirmando que
+         a sessão morreu. Não sincroniza assinatura nenhuma, só fecha o
+         registro de checkout_attempts iniciado em /api/stripe/checkout. */
+      case 'checkout.session.expired': {
+        const cs = event.data.object as Stripe.Checkout.Session
+        await markCheckoutAttempt(cs.id, 'expired')
         break
       }
 

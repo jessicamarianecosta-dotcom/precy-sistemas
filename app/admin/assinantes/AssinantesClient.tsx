@@ -1,27 +1,22 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toaster'
 import { clsx } from 'clsx'
-import { Users, Search, ShieldCheck, ArrowLeft } from 'lucide-react'
+import { Users, Search, ShieldCheck, ArrowLeft, ChevronDown } from 'lucide-react'
 import type { Assinante } from '@/lib/admin/getAssinantes'
 
 const PLAN_LABEL: Record<string, string> = { basic: 'Basic', pro: 'Pro' }
 
-const STATUS_LABEL: Record<string, { label: string; badge: string }> = {
-  trialing:  { label: 'Em trial',    badge: 'badge-info' },
-  active:    { label: 'Pagante',     badge: 'badge-success' },
-  canceled:  { label: 'Cancelado',   badge: 'badge-error' },
-  expired:   { label: 'Cancelado',   badge: 'badge-error' },
-  past_due:  { label: 'Inadimplente', badge: 'badge-warning' },
-  none:      { label: 'Sem assinatura', badge: 'badge-error' },
-}
-
-function statusInfo(status: string | null) {
-  return STATUS_LABEL[status ?? 'none'] ?? { label: status ?? '—', badge: 'badge-error' }
+const CHECKOUT_LABEL: Record<string, { label: string; badge: string }> = {
+  started:   { label: 'Iniciado',  badge: 'badge-warning' },
+  completed: { label: 'Concluído', badge: 'badge-success' },
+  expired:   { label: 'Expirado',  badge: 'badge-neutral' },
+  abandoned: { label: 'Abandonado', badge: 'badge-error' },
+  failed:    { label: 'Falhou',    badge: 'badge-error' },
 }
 
 function fmtDate(d: string | null): string {
@@ -29,13 +24,9 @@ function fmtDate(d: string | null): string {
   try { return new Date(d).toLocaleDateString('pt-BR') } catch { return '—' }
 }
 
-function trialLabel(trialEnd: string | null): { text: string; warn: boolean } {
-  if (!trialEnd) return { text: '—', warn: false }
-  const diffMs = new Date(trialEnd).getTime() - Date.now()
-  const days = Math.ceil(diffMs / 86400000)
-  if (days < 0) return { text: 'Trial expirado', warn: true }
-  if (days === 0) return { text: 'Termina hoje', warn: true }
-  return { text: `${days} dia${days === 1 ? '' : 's'}`, warn: days <= 2 }
+function checkoutInfo(status: string | null) {
+  if (!status) return { label: '—', badge: 'badge-neutral' }
+  return CHECKOUT_LABEL[status] ?? { label: status, badge: 'badge-neutral' }
 }
 
 export function AssinantesClient({ initialData }: { initialData: Assinante[] }) {
@@ -43,6 +34,7 @@ export function AssinantesClient({ initialData }: { initialData: Assinante[] }) 
   const qc = useQueryClient()
   const { toast } = useToast()
   const [search, setSearch] = useState('')
+  const [expanded, setExpanded] = useState<string | null>(null)
 
   const { data: assinantes = initialData } = useQuery<Assinante[]>({
     queryKey: ['admin-assinantes'],
@@ -123,44 +115,83 @@ export function AssinantesClient({ initialData }: { initialData: Assinante[] }) 
         <table className="w-full">
           <thead>
             <tr className="border-b border-border dark:border-border-dark">
-              {['Empresa', 'Dono', 'E-mail', 'Cadastro', 'Trial', 'Status', 'Plano'].map(h => (
+              {['Empresa', 'Dono', 'E-mail', 'Cadastro', 'Último acesso', 'Uso', 'Trial', 'Status', 'Plano', 'Checkout'].map(h => (
                 <th key={h} className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider p-3 whitespace-nowrap">{h}</th>
               ))}
+              <th className="w-8" />
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-sm text-text-muted">
+                <td colSpan={11} className="p-8 text-center text-sm text-text-muted">
                   <Users size={22} className="mx-auto mb-2 opacity-50" />
                   Nenhum assinante encontrado.
                 </td>
               </tr>
             ) : filtered.map(a => {
-              const st = statusInfo(a.subscription_status)
-              const trial = trialLabel(a.trial_end)
-              const showPlan = a.subscription_status === 'active'
+              const showPlan = a.state === 'assinante_ativo' || a.state === 'cancelamento_agendado'
+              const chk = checkoutInfo(a.checkoutStatus)
+              const isOpen = expanded === a.id
               return (
-                <tr key={a.id} className="border-b border-border dark:border-border-dark last:border-0 hover:bg-primary-50/20 dark:hover:bg-white/[0.02]">
-                  <td className="p-3 text-sm font-semibold text-text-primary dark:text-stone-100 whitespace-nowrap">{a.name}</td>
-                  <td className="p-3 text-xs text-text-secondary dark:text-stone-400 whitespace-nowrap">{a.owner_name || '—'}</td>
-                  <td className="p-3 text-xs text-text-secondary dark:text-stone-400 whitespace-nowrap">{a.owner_email || a.email || '—'}</td>
-                  <td className="p-3 text-xs text-text-secondary dark:text-stone-400 whitespace-nowrap">{fmtDate(a.created_at)}</td>
-                  <td className={clsx('p-3 text-xs whitespace-nowrap', trial.warn ? 'text-error font-medium' : 'text-text-secondary dark:text-stone-400')}>
-                    {trial.text}
-                  </td>
-                  <td className="p-3 whitespace-nowrap">
-                    <span className={clsx('badge text-[10px]', st.badge)}>{st.label}</span>
-                  </td>
-                  <td className="p-3 text-xs text-text-secondary dark:text-stone-400 whitespace-nowrap">
-                    {showPlan ? (PLAN_LABEL[a.current_plan ?? ''] ?? a.current_plan ?? '—') : '—'}
-                  </td>
-                </tr>
+                <Fragment key={a.id}>
+                  <tr
+                    onClick={() => setExpanded(isOpen ? null : a.id)}
+                    className="border-b border-border dark:border-border-dark last:border-0 hover:bg-primary-50/20 dark:hover:bg-white/[0.02] cursor-pointer"
+                  >
+                    <td className="p-3 text-sm font-semibold text-text-primary dark:text-stone-100 whitespace-nowrap">{a.name}</td>
+                    <td className="p-3 text-xs text-text-secondary dark:text-stone-400 whitespace-nowrap">{a.owner_name || '—'}</td>
+                    <td className="p-3 text-xs text-text-secondary dark:text-stone-400 whitespace-nowrap">{a.owner_email || a.email || '—'}</td>
+                    <td className="p-3 text-xs text-text-secondary dark:text-stone-400 whitespace-nowrap">{fmtDate(a.created_at)}</td>
+                    <td className="p-3 text-xs text-text-secondary dark:text-stone-400 whitespace-nowrap">{a.lastAccessLabel}</td>
+                    <td className="p-3 whitespace-nowrap">
+                      <span className={clsx('badge text-[10px]', `badge-${a.usageBadge}`)}>{a.usageLabel}</span>
+                    </td>
+                    <td className={clsx('p-3 text-xs whitespace-nowrap', a.trialWarn ? 'text-error font-medium' : 'text-text-secondary dark:text-stone-400')}>
+                      {a.trialLabel}
+                    </td>
+                    <td className="p-3 whitespace-nowrap">
+                      <span className={clsx('badge text-[10px]', `badge-${a.statusBadge}`)}>{a.statusLabel}</span>
+                    </td>
+                    <td className="p-3 text-xs text-text-secondary dark:text-stone-400 whitespace-nowrap">
+                      {showPlan ? (PLAN_LABEL[a.current_plan ?? ''] ?? a.current_plan ?? '—') : '—'}
+                    </td>
+                    <td className="p-3 whitespace-nowrap">
+                      <span className={clsx('badge text-[10px]', chk.badge)}>{chk.label}</span>
+                    </td>
+                    <td className="p-3">
+                      <ChevronDown size={14} className={clsx('text-text-muted transition-transform', isOpen && 'rotate-180')} />
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr className="border-b border-border dark:border-border-dark bg-primary-50/10 dark:bg-white/[0.015]">
+                      <td colSpan={11} className="px-4 py-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 text-xs">
+                          <Detail label="Produtos" value={a.usageCounts.products} />
+                          <Detail label="Materiais" value={a.usageCounts.materials} />
+                          <Detail label="Clientes" value={a.usageCounts.customers} />
+                          <Detail label="Pedidos" value={a.usageCounts.orders} />
+                          <Detail label="Orçamentos" value={a.usageCounts.budgets} />
+                          <Detail label="Checkout em" value={fmtDate(a.checkoutAt)} />
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               )
             })}
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+function Detail({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-text-muted mb-0.5">{label}</div>
+      <div className="font-semibold text-text-primary dark:text-stone-100">{value}</div>
     </div>
   )
 }

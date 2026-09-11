@@ -137,6 +137,7 @@
   .badge-error { @apply bg-error-light text-error-dark; }
   .badge-info { @apply bg-info-light text-info-dark; }
   .badge-primary { @apply bg-primary-100 text-primary-800; }
+  .badge-neutral { @apply bg-stone-100 text-stone-500 dark:bg-white/5 dark:text-stone-400; }
 
   /* Page transitions */
   .page-enter {
