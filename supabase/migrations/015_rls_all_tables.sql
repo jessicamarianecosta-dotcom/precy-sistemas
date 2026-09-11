@@ -71,18 +71,12 @@ CREATE POLICY "companies_own" ON public.companies FOR ALL
   USING (user_id = auth.uid())
   WITH CHECK (user_id = auth.uid());
 
--- Tabela de consentimentos LGPD
-CREATE TABLE IF NOT EXISTS public.user_consents (
-  id          UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  user_id     UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
-  type        TEXT NOT NULL,
-  version     TEXT NOT NULL DEFAULT '1.0',
-  accepted_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
-);
-ALTER TABLE public.user_consents ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "user_consents_own" ON public.user_consents;
-CREATE POLICY "user_consents_own" ON public.user_consents FOR ALL
-  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+-- (Tabela de consentimentos LGPD: NÃO criada aqui. A migration 057
+-- (057_legal_acceptance.sql) é a fonte real dessa tabela, com o schema
+-- correto que o app usa — company_id, terms_version, privacy_version,
+-- accepted_ip, accepted_user_agent. Um CREATE TABLE com o schema antigo
+-- aqui já causou conflito com a 057 num banco onde a 015 chegou a rodar
+-- por completo; ver comentário na própria 057.)
 
 -- Storage policies: company-assets privado por autenticação
 DROP POLICY IF EXISTS "company_assets_select" ON storage.objects;
