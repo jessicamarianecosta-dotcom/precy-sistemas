@@ -105,6 +105,12 @@ export default function OrcamentosPage() {
   const [clientSearch,setClientSearch]=useState('')
   const [newClient,setNewClient]=useState<NewClientData>({name:'',phone:'',email:''})
   const [items,setItems]=useState<BudgetItem[]>([])
+  // ids de budget_items que já existem de fato no banco (carregados via openEdit).
+  // Um item recém-adicionado nesta sessão de edição só ganha essa persistência
+  // quando o orçamento é salvo — até lá, tentar anexar arte falha (o id do
+  // item ainda não existe em budget_items), então a UI oferece "Adicionar arte"
+  // só para itens já persistidos.
+  const [persistedItemIds,setPersistedItemIds]=useState<Set<string>>(new Set())
   const [globalDisc,setGlobalDisc]=useState(0)
   const [editItem,setEditItem]=useState<BudgetItem|null>(null)
   const [addMode,setAddMode]=useState<'product'|null>(null)
@@ -199,7 +205,7 @@ export default function OrcamentosPage() {
   }
   function openWizard(){
     setEditingBudgetId(null)
-    setStep(1);setItems([]);setClientId('');setClientSearch('');setNewClient({name:'',phone:'',email:''})
+    setStep(1);setItems([]);setPersistedItemIds(new Set());setClientId('');setClientSearch('');setNewClient({name:'',phone:'',email:''})
     setClientMode('existing');setGlobalDisc(0);setPayMethod('');setPayCond('avista')
     setInstall(2);setSignalAmt(0);setSignalMode('value');setSignalPct(50)
     setPrazoType('dias');setPrazoDays(30);setPrazoDate('');setIssueDate(new Date())
@@ -232,6 +238,7 @@ export default function OrcamentosPage() {
       price_per_m2:    i.price_per_m2    ?? undefined,
     }))
     setItems(loadedItems)
+    setPersistedItemIds(new Set((bi??[]).map((i:any)=>i.id)))
     // Cliente
     if(b.customer_id){setClientId(b.customer_id);setClientMode('existing')}
     else{setClientMode('existing');setClientId('')}
@@ -1060,7 +1067,7 @@ export default function OrcamentosPage() {
                               <button type="button" onClick={()=>removeItem(item.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>
                             </div>
                           </div>
-                          {editingBudgetId?(
+                          {editingBudgetId&&persistedItemIds.has(item.id)?(
                             <BudgetItemArtwork
                               budgetId={editingBudgetId}
                               budgetItemId={item.id}
