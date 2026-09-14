@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toaster'
@@ -96,6 +96,15 @@ export default function OrcamentosPage() {
   const supabase=createClient(), qc=useQueryClient(), {toast}=useToast(), {companyId}=useCompanyId()
   const [showWizard,setShowWizard]=useState(false)
   const [editingBudgetId,setEditingBudgetId]=useState<string|null>(null)
+  // true só quando o wizard foi aberto via "Editar" num orçamento que já existia
+  // antes desta sessão — usado apenas para textos da UI (título, toast), nunca
+  // para decidir se a API de arte pode ser chamada (isso é editingBudgetId).
+  const [openedAsEdit,setOpenedAsEdit]=useState(false)
+  // id do orçamento-rascunho criado silenciosamente por ensureBudgetId() (ver
+  // abaixo) para permitir anexar arte antes do "Salvar" final. Se o usuário
+  // fechar o wizard sem concluir o salvamento, esse rascunho é descartado.
+  const [autoCreatedDraftId,setAutoCreatedDraftId]=useState<string|null>(null)
+  const ensureBudgetIdRef=useRef<Promise<string>|null>(null)
   const [deleteId,setDeleteId]=useState<string|null>(null)
   const [generating,setGenerating]=useState(false)
   const [step,setStep]=useState<Step>(1)
@@ -205,6 +214,7 @@ export default function OrcamentosPage() {
   }
   function openWizard(){
     setEditingBudgetId(null)
+    setOpenedAsEdit(false);setAutoCreatedDraftId(null);ensureBudgetIdRef.current=null
     setStep(1);setItems([]);setPersistedItemIds(new Set());setClientId('');setClientSearch('');setNewClient({name:'',phone:'',email:''})
     setClientMode('existing');setGlobalDisc(0);setPayMethod('');setPayCond('avista')
     setInstall(2);setSignalAmt(0);setSignalMode('value');setSignalPct(50)
@@ -215,6 +225,7 @@ export default function OrcamentosPage() {
 
   async function openEdit(b:any){
     setEditingBudgetId(b.id)
+    setOpenedAsEdit(true);setAutoCreatedDraftId(null);ensureBudgetIdRef.current=Promise.resolve(b.id)
     // Carregar itens do orçamento
     const {data:bi}=await(supabase.from('budget_items')as any).select('*').eq('budget_id',b.id)
     const loadedItems=(bi??[]).map((i:any)=>({
@@ -269,8 +280,98 @@ export default function OrcamentosPage() {
     setNotes(b.notes||'');setStatus(b.status||'draft')
     setStep(1);setShowWizard(true)
   }
+  // Cria o cliente novo (se ainda não existir) e retorna o customer_id a usar.
+  // Extraído para ser reaproveitado tanto por ensureBudgetId (rascunho criado
+  // ao adicionar o 1º item, para liberar "Adicionar arte" antes do Salvar
+  // final) quanto pelo saveMutation — sem duplicar a lógica de criação.
+  async function resolveCustomerId():Promise<string|null>{
+    if(clientMode==='new'&&newClient.name.trim()){
+      const {data:nc,error}=await(supabase.from('customers')as any)
+        .insert([{company_id:companyId!,name:newClient.name.trim(),phone:newClient.phone||null,email:newClient.email||null}])
+        .select('id').single()
+      if(error)throw error
+      setClientId(nc.id);setClientMode('existing')
+      qc.invalidateQueries({queryKey:['customers-select',companyId]})
+      return nc.id
+    }
+    return clientId||null
+  }
+  // Mesmo shape de linha usado no upsert em massa do saveMutation — reaproveitado
+  // aqui para persistir um item isoladamente assim que ele é adicionado/editado.
+  function itemToRow(i:BudgetItem,budgetId:string){
+    return {
+      id:              i.id,
+      budget_id:       budgetId,
+      product_id:      i.product_id     || null,
+      name:            i.name           || null,
+      description:     i.description    || null,
+      quantity:        i.quantity,
+      unit_price:      i.unit_price,
+      subtotal:        i.subtotal,
+      width:           i.width          ?? null,
+      height:          i.height         ?? null,
+      area:            i.area           ?? null,
+      measurement_unit:i.measurement_unit?? null,
+      finishings:      i.finishings?.length ? i.finishings : null,
+      finishing_type:  i.finishing_type ?? null,
+      technical_notes: i.technical_notes?? null,
+      pricing_mode:    i.pricing_mode   ?? 'fixed',
+      price_per_m2:    i.price_per_m2   ?? null,
+    }
+  }
+  // Garante um budgetId real no banco, criando um orçamento-rascunho (status
+  // 'draft') na hora se ainda não existir um. É isso que permite anexar arte
+  // ANTES do "Salvar" final: o item.id já é um UUID definitivo (uid()), só
+  // faltava o orçamento existir para satisfazer a FK de budget_item_files.
+  // Se o usuário fechar o wizard sem salvar de verdade, esse rascunho é
+  // descartado (ver closeWizard). O saveMutation final só faz UPDATE nele,
+  // igual a uma edição normal — nenhuma arquitetura nova além desta.
+  async function ensureBudgetId():Promise<string>{
+    if(editingBudgetId)return editingBudgetId
+    if(!ensureBudgetIdRef.current){
+      ensureBudgetIdRef.current=(async()=>{
+        try{
+          const finalCustomerId=await resolveCustomerId()
+          const pixSnapshot=extractPixSnapshot(companyData)
+          let budgetRes:any=await(supabase.from('budgets')as any)
+            .insert([{company_id:companyId!,customer_id:finalCustomerId,status:'draft',budget_number:'',subtotal:0,discount:0,total:0,...pixSnapshot}])
+            .select('id').single()
+          if(budgetRes?.error?.code==='42703'||(budgetRes?.error?.code==='PGRST204'&&/pix_(key|type|label)/.test(budgetRes.error.message||''))){
+            budgetRes=await(supabase.from('budgets')as any)
+              .insert([{company_id:companyId!,customer_id:finalCustomerId,status:'draft',budget_number:'',subtotal:0,discount:0,total:0}])
+              .select('id').single()
+          }
+          const {data:budget,error}=budgetRes
+          if(error)throw error
+          setEditingBudgetId(budget.id);setAutoCreatedDraftId(budget.id)
+          return budget.id as string
+        }catch(err){
+          ensureBudgetIdRef.current=null
+          throw err
+        }
+      })()
+    }
+    return ensureBudgetIdRef.current
+  }
+  async function upsertItemRow(item:BudgetItem,budgetId:string){
+    const {error}=await(supabase.from('budget_items')as any).upsert([itemToRow(item,budgetId)])
+    if(error)throw error
+  }
+  // Depois de adicionar/editar um item no estado local, persiste-o de imediato
+  // (criando o orçamento-rascunho se preciso) para que "Adicionar arte" já
+  // funcione sem exigir o Salvar final do orçamento inteiro.
+  async function persistItemForArtwork(item:BudgetItem){
+    try{
+      const budgetId=await ensureBudgetId()
+      await upsertItemRow(item,budgetId)
+      setPersistedItemIds(prev=>{const n=new Set(prev);n.add(item.id);return n})
+    }catch(err){
+      console.error('[orcamentos] falha ao preparar item para receber arte:',err)
+      toast('error','Não foi possível preparar o item para receber arte agora. Você ainda pode salvar o orçamento normalmente e anexar a arte depois.')
+    }
+  }
   function addItemFromProduct(p:any){
-    setItems(prev=>[...prev,{
+    const newItem:BudgetItem={
       id:uid(),type:'product',name:p.name,description:'',
       quantity:1,unit_price:Number(p.final_price),discount:0,subtotal:Number(p.final_price),
       product_id:p.id,
@@ -281,8 +382,10 @@ export default function OrcamentosPage() {
       finishings:      Array.isArray(p.finishings) ? p.finishings : [],
       finishing_type:  p.finishing_type ?? undefined,
       technical_notes: p.technical_notes?? undefined,
-    }])
+    }
+    setItems(prev=>[...prev,newItem])
     setAddMode(null);setProdSearch('')
+    persistItemForArtwork(newItem)
   }
   function openNewItem(type:'service'|'manual'){
     setEditItem({id:uid(),type,name:'',description:'',quantity:1,unit_price:0,discount:0,subtotal:0,finishings:[],pricing_mode:'fixed',measurement_unit:'m'})
@@ -307,19 +410,30 @@ export default function OrcamentosPage() {
       return [...prev,updated]
     })
     setEditItem(null)
+    persistItemForArtwork(updated)
   }
-  function removeItem(id:string){setItems(prev=>prev.filter(i=>i.id!==id))}
+  async function removeItem(id:string){
+    const wasPersisted=persistedItemIds.has(id)
+    setItems(prev=>prev.filter(i=>i.id!==id))
+    if(!wasPersisted)return
+    setPersistedItemIds(prev=>{if(!prev.has(id))return prev;const n=new Set(prev);n.delete(id);return n})
+    try{
+      // Apaga o arquivo do Storage antes da linha — best-effort, igual ao
+      // padrão já usado em BudgetItemArtwork.doRemove(). budget_item_files é
+      // removido automaticamente via ON DELETE CASCADE ao apagar o item.
+      const f=filesByItem[id]
+      if(f)await supabase.storage.from('order-files').remove([f.file_path])
+      await(supabase.from('budget_items')as any).delete().eq('id',id)
+      refetchItemFiles()
+    }catch(err){
+      console.error('[orcamentos] falha ao remover item já persistido:',err)
+    }
+  }
 
   const saveMutation=useMutation({
     mutationFn:async()=>{
       setSaving(true)
-      let finalCustomerId=clientId
-      if(clientMode==='new'&&newClient.name.trim()){
-        const {data:nc,error}=await(supabase.from('customers')as any).insert([{company_id:companyId!,name:newClient.name.trim(),phone:newClient.phone||null,email:newClient.email||null}]).select('id').single()
-        if(error)throw error
-        finalCustomerId=nc.id
-        qc.invalidateQueries({queryKey:['customers-select',companyId]})
-      }
+      const finalCustomerId=await resolveCustomerId()
 
       // Payload base (colunas que sempre existem)
       const basePayload={
@@ -402,34 +516,38 @@ export default function OrcamentosPage() {
       if(budgetId&&items.length>0){
         // upsert (não insert puro): preserva o id de cada item entre saves,
         // para que a arte anexada (budget_item_files) não perca o vínculo.
-        await(supabase.from('budget_items')as any).upsert(items.map(i=>({
-          id:              i.id,
-          budget_id:       budgetId,
-          product_id:      i.product_id     || null,
-          name:            i.name           || null,
-          description:     i.description    || null,
-          quantity:        i.quantity,
-          unit_price:      i.unit_price,
-          subtotal:        i.subtotal,
-          width:           i.width          ?? null,
-          height:          i.height         ?? null,
-          area:            i.area           ?? null,
-          measurement_unit:i.measurement_unit?? null,
-          finishings:      i.finishings?.length ? i.finishings : null,
-          finishing_type:  i.finishing_type ?? null,
-          technical_notes: i.technical_notes?? null,
-          pricing_mode:    i.pricing_mode   ?? 'fixed',
-          price_per_m2:    i.price_per_m2   ?? null,
-        })))
+        // Mesmo item já pode ter sido gravado antes por persistItemForArtwork
+        // (ao anexar arte durante a criação) — upsert por id é idempotente.
+        await(supabase.from('budget_items')as any).upsert(items.map(i=>itemToRow(i,budgetId)))
       }
     },
     onSuccess:()=>{
       qc.invalidateQueries({queryKey:['budgets',companyId]})
-      toast('success',editingBudgetId?'Orçamento atualizado!':'Orçamento salvo!')
-      setShowWizard(false);setSaving(false);setEditingBudgetId(null)
+      toast('success',openedAsEdit?'Orçamento atualizado!':'Orçamento salvo!')
+      setShowWizard(false);setSaving(false);setEditingBudgetId(null);setAutoCreatedDraftId(null)
     },
     onError:(err:Error)=>{console.error('[orcamentos]',err);toast('error',`Erro: ${err.message}`);setSaving(false)},
   })
+
+  // Fecha o wizard; se um orçamento-rascunho foi criado silenciosamente nesta
+  // sessão (só para permitir anexar arte antes do Salvar final) e o usuário
+  // desistiu sem concluir, descarta esse rascunho — ON DELETE CASCADE já leva
+  // junto os budget_items/budget_item_files órfãos dele.
+  function closeWizard(){
+    if(autoCreatedDraftId){
+      const draftId=autoCreatedDraftId
+      setAutoCreatedDraftId(null)
+      ;(async()=>{
+        try{
+          await(supabase.from('budgets')as any).delete().eq('id',draftId)
+          qc.invalidateQueries({queryKey:['budgets',companyId]})
+        }catch(err){
+          console.error('[orcamentos] falha ao descartar rascunho abandonado:',err)
+        }
+      })()
+    }
+    setShowWizard(false)
+  }
 
   const deleteMutation=useMutation({
     mutationFn:async(id:string)=>{await(supabase.from('budgets')as any).delete().eq('id',id)},
@@ -919,14 +1037,14 @@ export default function OrcamentosPage() {
 
       {showWizard&&(
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={()=>setShowWizard(false)}/>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeWizard}/>
           <div className="relative bg-white dark:bg-[#1C1714] w-full sm:max-w-2xl max-h-[96dvh] sm:max-h-[90vh] flex flex-col rounded-t-2xl sm:rounded-2xl shadow-[0_32px_64px_rgba(0,0,0,0.4)] overflow-hidden">
 
             {/* Header + stepper */}
             <div className="flex-shrink-0 px-4 sm:px-6 pt-4 pb-3 border-b border-border dark:border-stone-800">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-base font-bold text-text-primary dark:text-stone-100">{editingBudgetId?"Editar Orçamento":"Novo Orçamento"}</h2>
-                <button onClick={()=>setShowWizard(false)} className="p-1.5 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted transition-colors"><X size={16}/></button>
+                <h2 className="text-base font-bold text-text-primary dark:text-stone-100">{openedAsEdit?"Editar Orçamento":"Novo Orçamento"}</h2>
+                <button onClick={closeWizard} className="p-1.5 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted transition-colors"><X size={16}/></button>
               </div>
               <div className="flex items-center gap-1">
                 {STEP_META.map(({step:s,label,icon:Ic})=>(
@@ -1416,7 +1534,7 @@ export default function OrcamentosPage() {
 
             {/* Footer */}
             <div className="flex-shrink-0 p-4 sm:p-5 border-t border-border dark:border-stone-800 flex gap-3">
-              <button type="button" onClick={step===1?()=>setShowWizard(false):goPrev} className="btn-secondary flex items-center gap-1.5 flex-shrink-0 px-4">
+              <button type="button" onClick={step===1?closeWizard:goPrev} className="btn-secondary flex items-center gap-1.5 flex-shrink-0 px-4">
                 <ChevronLeft size={15}/>{step===1?'Cancelar':'Voltar'}
               </button>
               {step<5?(
