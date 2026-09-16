@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toaster'
 import { clsx } from 'clsx'
-import { Users, Search, ShieldCheck, ArrowLeft } from 'lucide-react'
+import { Users, Search, ShieldCheck, ArrowLeft, AlertTriangle, RotateCw } from 'lucide-react'
 import type { Assinante } from '@/lib/admin/getAssinantes'
 
 const PLAN_LABEL: Record<string, string> = { basic: 'Basic', pro: 'Pro' }
@@ -38,22 +38,42 @@ function trialLabel(trialEnd: string | null): { text: string; warn: boolean } {
   return { text: `${days} dia${days === 1 ? '' : 's'}`, warn: days <= 2 }
 }
 
-export function AssinantesClient({ initialData }: { initialData: Assinante[] }) {
+export function AssinantesClient({
+  initialData,
+  initialError,
+}: {
+  initialData: Assinante[]
+  initialError?: string
+}) {
   const supabase = createClient()
   const qc = useQueryClient()
   const { toast } = useToast()
   const [search, setSearch] = useState('')
 
-  const { data: assinantes = initialData } = useQuery<Assinante[]>({
+  const {
+    data: assinantes = initialData,
+    error,
+    isFetching,
+    refetch,
+  } = useQuery<Assinante[]>({
     queryKey: ['admin-assinantes'],
     initialData,
+    // Se o carregamento inicial no servidor já falhou, força uma nova
+    // tentativa no client em vez de aceitar a lista vazia como resultado.
+    initialDataUpdatedAt: initialError ? 0 : Date.now(),
+    retry: 1,
     queryFn: async () => {
       const res = await fetch('/api/admin/assinantes')
-      if (!res.ok) throw new Error('Falha ao carregar assinantes')
+      if (!res.ok) {
+        const json = await res.json().catch(() => null)
+        throw new Error(json?.error || 'Falha ao carregar assinantes')
+      }
       const json = await res.json()
       return json.assinantes ?? []
     },
   })
+
+  const showErrorState = Boolean(error) || (Boolean(initialError) && assinantes.length === 0)
 
   // Realtime: avisa na hora quando uma nova empresa se cadastra, sem
   // precisar recarregar a página. Requer a policy de SELECT para o admin em
@@ -104,7 +124,9 @@ export function AssinantesClient({ initialData }: { initialData: Assinante[] }) 
         <div>
           <h1 className="text-lg font-bold text-text-primary dark:text-stone-100">Assinantes</h1>
           <p className="text-xs text-text-secondary dark:text-stone-400">
-            {assinantes.length} empresa{assinantes.length === 1 ? '' : 's'} cadastrada{assinantes.length === 1 ? '' : 's'} — consulta somente leitura
+            {showErrorState
+              ? 'Consulta somente leitura'
+              : `${assinantes.length} empresa${assinantes.length === 1 ? '' : 's'} cadastrada${assinantes.length === 1 ? '' : 's'} — consulta somente leitura`}
           </p>
         </div>
       </div>
@@ -119,6 +141,28 @@ export function AssinantesClient({ initialData }: { initialData: Assinante[] }) 
         />
       </div>
 
+      {showErrorState ? (
+        <div className="card flex flex-col items-center justify-center gap-3 p-10 text-center">
+          <AlertTriangle size={28} className="text-error" />
+          <div>
+            <p className="text-sm font-semibold text-text-primary dark:text-stone-100">
+              Não foi possível carregar os assinantes
+            </p>
+            <p className="mt-1 text-xs text-text-secondary dark:text-stone-400">
+              {error instanceof Error ? error.message : (initialError ?? 'Tente novamente em instantes.')}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="btn btn-secondary inline-flex items-center gap-1.5 text-xs"
+          >
+            <RotateCw size={13} className={isFetching ? 'animate-spin' : ''} />
+            Tentar novamente
+          </button>
+        </div>
+      ) : (
       <div className="card p-0 overflow-x-auto">
         <table className="w-full">
           <thead>
@@ -161,6 +205,7 @@ export function AssinantesClient({ initialData }: { initialData: Assinante[] }) 
           </tbody>
         </table>
       </div>
+      )}
     </div>
   )
 }
