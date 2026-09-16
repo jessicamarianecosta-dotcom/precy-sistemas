@@ -17,7 +17,10 @@ export async function getAssinantes(): Promise<Assinante[]> {
     .select('id, name, email, created_at, trial_end, subscription_status, current_plan, profiles:user_id(name, email)')
     .order('created_at', { ascending: false })
 
-  if (error) throw error
+  if (error) {
+    console.error('[getAssinantes] erro completo do Supabase:', JSON.stringify(error))
+    throw error
+  }
 
   return (data ?? []).map((row: any) => ({
     id: row.id,
