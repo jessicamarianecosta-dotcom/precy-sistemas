@@ -36,7 +36,29 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url)
-  const mode = url.searchParams.get('mode') === 'migrate' ? 'migrate' : 'inspect'
+  const modeParam = url.searchParams.get('mode')
+  const mode = modeParam === 'migrate' ? 'migrate' : modeParam === 'diag' ? 'diag' : 'inspect'
+
+  if (mode === 'diag') {
+    const raw = process.env.OLD_DATABASE_URL
+    const diag: Record<string, any> = {
+      length: raw.length,
+      hasWhitespace: /\s/.test(raw),
+      startsWithProtocol: raw.startsWith('postgres://') || raw.startsWith('postgresql://'),
+    }
+    try {
+      const parsed = new URL(raw)
+      diag.protocol = parsed.protocol
+      diag.username = parsed.username
+      diag.passwordLength = parsed.password.length
+      diag.host = parsed.hostname
+      diag.port = parsed.port
+      diag.pathname = parsed.pathname
+    } catch (e: any) {
+      diag.urlParseError = e.message
+    }
+    return NextResponse.json({ ok: true, diag })
+  }
 
   const sourcePool = new Pool({
     connectionString: process.env.OLD_DATABASE_URL,
