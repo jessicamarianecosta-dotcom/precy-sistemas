@@ -12,14 +12,30 @@ import { Pool } from 'pg'
  * qualquer variável de ambiente que termine em POSTGRES_URL.
  */
 function resolveConnectionString(): string {
-  if (process.env.POSTGRES_URL) return process.env.POSTGRES_URL
+  const raw =
+    process.env.POSTGRES_URL ??
+    (() => {
+      const prefixedKey = Object.keys(process.env).find(
+        (key) => key.endsWith('_POSTGRES_URL') && !key.endsWith('_POSTGRES_URL_NON_POOLING')
+      )
+      return prefixedKey ? process.env[prefixedKey] : undefined
+    })()
 
-  const prefixedKey = Object.keys(process.env).find(
-    (key) => key.endsWith('_POSTGRES_URL') && !key.endsWith('_POSTGRES_URL_NON_POOLING')
-  )
-  if (prefixedKey && process.env[prefixedKey]) return process.env[prefixedKey] as string
+  if (!raw) {
+    throw new Error('Missing POSTGRES_URL — configure a conexão do Postgres no Vercel (integração Supabase).')
+  }
 
-  throw new Error('Missing POSTGRES_URL — configure a conexão do Postgres no Vercel (integração Supabase).')
+  /*
+   * O pooler do Supabase inclui `?sslmode=require` na connection string.
+   * O pg mescla esse modo com a config `ssl` passada ao Pool e, nessa
+   * combinação, acaba validando a cadeia de certificado (que o Node não
+   * reconhece nesse pooler) mesmo com rejectUnauthorized:false — por
+   * isso removemos o parâmetro daqui e deixamos só a opção `ssl` abaixo
+   * decidir o comportamento.
+   */
+  const url = new URL(raw)
+  url.searchParams.delete('sslmode')
+  return url.toString()
 }
 
 let pool: Pool | null = null
