@@ -3,6 +3,8 @@ import { randomUUID } from 'crypto'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getPgPool } from '@/lib/supabase/pg'
+import { resolveCompanyIdForUser } from '@/lib/supabase/pgHelpers'
 
 /*
  * Mesma allowlist/limite de app/api/pedidos/upload-arquivo/route.ts —
@@ -28,14 +30,10 @@ export async function POST(request: Request) {
     const { data: { user } } = await serverClient.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
 
-    const { data: company, error: companyErr } = await (supabaseAdmin.from('companies') as any)
-      .select('id')
-      .eq('user_id', user.id)
-      .single()
-    if (companyErr || !company) {
+    const companyId = await resolveCompanyIdForUser(user.id)
+    if (!companyId) {
       return NextResponse.json({ error: 'Empresa não encontrada para este usuário' }, { status: 404 })
     }
-    const companyId = company.id as string
 
     const formData = await request.formData()
     const file = formData.get('file') as File | null
@@ -46,23 +44,23 @@ export async function POST(request: Request) {
     if (!budgetId) return NextResponse.json({ error: 'Orçamento não informado' }, { status: 400 })
     if (!budgetItemId) return NextResponse.json({ error: 'Item não informado' }, { status: 400 })
 
+    const pool = getPgPool()
+
     /* Confirma que o orçamento pertence à mesma empresa do usuário autenticado */
-    const { data: budget, error: budgetErr } = await (supabaseAdmin.from('budgets') as any)
-      .select('id')
-      .eq('id', budgetId)
-      .eq('company_id', companyId)
-      .maybeSingle()
-    if (budgetErr || !budget) {
+    const { rows: budgetRows } = await pool.query(
+      'select id from public.budgets where id = $1 and company_id = $2 limit 1',
+      [budgetId, companyId]
+    )
+    if (budgetRows.length === 0) {
       return NextResponse.json({ error: 'Orçamento não encontrado' }, { status: 404 })
     }
 
     /* Confirma que o item pertence ao mesmo orçamento (evita anexar em item de outro orçamento/empresa) */
-    const { data: budgetItem, error: itemErr } = await (supabaseAdmin.from('budget_items') as any)
-      .select('id')
-      .eq('id', budgetItemId)
-      .eq('budget_id', budgetId)
-      .maybeSingle()
-    if (itemErr || !budgetItem) {
+    const { rows: itemRows } = await pool.query(
+      'select id from public.budget_items where id = $1 and budget_id = $2 limit 1',
+      [budgetItemId, budgetId]
+    )
+    if (itemRows.length === 0) {
       return NextResponse.json({ error: 'Item do orçamento não encontrado' }, { status: 404 })
     }
 
@@ -82,29 +80,20 @@ export async function POST(request: Request) {
       .from('order-files')
       .upload(path, buffer, { upsert: true, contentType: file.type || undefined })
     if (uploadErr) {
+      console.error('[orcamentos/upload-arquivo] storage upload:', uploadErr)
       return NextResponse.json({ error: `Upload error: ${uploadErr.message}` }, { status: 500 })
     }
 
     const { data: urlData } = supabaseAdmin.storage.from('order-files').getPublicUrl(path)
 
-    const { data: fileRow, error: insertErr } = await (supabaseAdmin.from('budget_item_files') as any)
-      .insert([{
-        budget_item_id: budgetItemId,
-        budget_id: budgetId,
-        company_id: companyId,
-        file_name: file.name,
-        file_url: urlData.publicUrl,
-        file_path: path,
-        file_size: file.size,
-        mime_type: file.type || null,
-      }])
-      .select()
-      .single()
-    if (insertErr) {
-      return NextResponse.json({ error: `Erro ao registrar arquivo: ${insertErr.message}` }, { status: 500 })
-    }
+    const { rows: fileRows } = await pool.query(
+      `insert into public.budget_item_files (budget_item_id, budget_id, company_id, file_name, file_url, file_path, file_size, mime_type)
+       values ($1, $2, $3, $4, $5, $6, $7, $8)
+       returning *`,
+      [budgetItemId, budgetId, companyId, file.name, urlData.publicUrl, path, file.size, file.type || null]
+    )
 
-    return NextResponse.json({ ok: true, file: fileRow })
+    return NextResponse.json({ ok: true, file: fileRows[0] })
   } catch (err) {
     console.error('[orcamentos/upload-arquivo] unexpected:', err)
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 })

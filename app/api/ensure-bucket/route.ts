@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
+import { getPgPool } from '@/lib/supabase/pg'
+import { resolveCompanyIdForUser } from '@/lib/supabase/pgHelpers'
 
 /**
  * POST /api/ensure-bucket
@@ -25,15 +27,10 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
 
     /* ── Resolver companyId a partir da sessão — nunca do client ── */
-    const { data: company, error: companyErr } = await (supabaseAdmin.from('companies') as any)
-      .select('id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (companyErr || !company) {
+    const companyId = await resolveCompanyIdForUser(user.id)
+    if (!companyId) {
       return NextResponse.json({ error: 'Empresa não encontrada para este usuário' }, { status: 404 })
     }
-    const companyId = company.id as string
 
     const formData = await request.formData()
     const file      = formData.get('file') as File | null
@@ -94,11 +91,12 @@ export async function POST(request: Request) {
       .getPublicUrl(path)
 
     /* ── Salvar logo_url no banco (mesma empresa resolvida acima) ── */
-    const { error: dbErr } = await (supabaseAdmin.from('companies') as any)
-      .update({ logo_url: urlData.publicUrl, updated_at: new Date().toISOString() })
-      .eq('id', companyId)
-
-    if (dbErr) {
+    try {
+      await getPgPool().query(
+        'update public.companies set logo_url = $1, updated_at = now() where id = $2',
+        [urlData.publicUrl, companyId]
+      )
+    } catch (dbErr) {
       console.error('[ensure-bucket] db update:', dbErr)
       // Não falha — retorna a URL mesmo assim
     }

@@ -3,6 +3,8 @@ import { randomUUID } from 'crypto'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getPgPool } from '@/lib/supabase/pg'
+import { resolveCompanyIdForUser } from '@/lib/supabase/pgHelpers'
 
 const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'ai', 'eps', 'cdr', 'zip', 'rar']
 const MAX_SIZE = 50 * 1024 * 1024
@@ -22,14 +24,10 @@ export async function POST(request: Request) {
     const { data: { user } } = await serverClient.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
 
-    const { data: company, error: companyErr } = await (supabaseAdmin.from('companies') as any)
-      .select('id')
-      .eq('user_id', user.id)
-      .single()
-    if (companyErr || !company) {
+    const companyId = await resolveCompanyIdForUser(user.id)
+    if (!companyId) {
       return NextResponse.json({ error: 'Empresa não encontrada para este usuário' }, { status: 404 })
     }
-    const companyId = company.id as string
 
     const formData = await request.formData()
     const file = formData.get('file') as File | null
@@ -39,12 +37,12 @@ export async function POST(request: Request) {
     if (!orderId) return NextResponse.json({ error: 'Pedido não informado' }, { status: 400 })
 
     /* Confirma que o pedido pertence à mesma empresa do usuário autenticado */
-    const { data: order, error: orderErr } = await (supabaseAdmin.from('orders') as any)
-      .select('id')
-      .eq('id', orderId)
-      .eq('company_id', companyId)
-      .maybeSingle()
-    if (orderErr || !order) {
+    const pool = getPgPool()
+    const { rows: orderRows } = await pool.query(
+      'select id from public.orders where id = $1 and company_id = $2 limit 1',
+      [orderId, companyId]
+    )
+    if (orderRows.length === 0) {
       return NextResponse.json({ error: 'Pedido não encontrado' }, { status: 404 })
     }
 
@@ -64,35 +62,25 @@ export async function POST(request: Request) {
       .from('order-files')
       .upload(path, buffer, { upsert: true, contentType: file.type || undefined })
     if (uploadErr) {
+      console.error('[pedidos/upload-arquivo] storage upload:', uploadErr)
       return NextResponse.json({ error: `Upload error: ${uploadErr.message}` }, { status: 500 })
     }
 
     const { data: urlData } = supabaseAdmin.storage.from('order-files').getPublicUrl(path)
 
-    const { data: fileRow, error: insertErr } = await (supabaseAdmin.from('order_files') as any)
-      .insert([{
-        order_id: orderId,
-        company_id: companyId,
-        file_name: file.name,
-        file_url: urlData.publicUrl,
-        file_path: path,
-        file_size: file.size,
-        mime_type: file.type || null,
-        uploaded_by: 'equipe',
-      }])
-      .select()
-      .single()
-    if (insertErr) {
-      return NextResponse.json({ error: `Erro ao registrar arquivo: ${insertErr.message}` }, { status: 500 })
-    }
+    const { rows: fileRows } = await pool.query(
+      `insert into public.order_files (order_id, company_id, file_name, file_url, file_path, file_size, mime_type, uploaded_by)
+       values ($1, $2, $3, $4, $5, $6, $7, 'equipe')
+       returning *`,
+      [orderId, companyId, file.name, urlData.publicUrl, path, file.size, file.type || null]
+    )
+    const fileRow = fileRows[0]
 
-    await (supabaseAdmin.from('order_art_events') as any).insert([{
-      order_id: orderId,
-      company_id: companyId,
-      event_type: 'arte_enviada',
-      description: `Arquivo enviado pela equipe: ${file.name}`,
-      created_by: user.id,
-    }])
+    await pool.query(
+      `insert into public.order_art_events (order_id, company_id, event_type, description, created_by)
+       values ($1, $2, 'arte_enviada', $3, $4)`,
+      [orderId, companyId, `Arquivo enviado pela equipe: ${file.name}`, user.id]
+    )
 
     return NextResponse.json({ ok: true, file: fileRow })
   } catch (err) {
