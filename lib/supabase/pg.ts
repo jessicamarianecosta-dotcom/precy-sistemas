@@ -12,8 +12,29 @@ import { Pool } from 'pg'
  * qualquer variável de ambiente que termine em POSTGRES_URL.
  */
 function resolveConnectionString(): string {
+  /*
+   * Prioridade: POSTGRES_URL explícita > OLD_DATABASE_URL (conexão do
+   * projeto Supabase em produção, ekynvecruqpuwwrcwtnp, enquanto o
+   * app continuar gravando tudo lá durante a migração) > heurística
+   * de fallback abaixo.
+   *
+   * A heurística (qualquer env var terminando em _POSTGRES_URL) é
+   * frágil de propósito: ela pega a integração nativa Supabase↔Vercel
+   * de QUALQUER projeto que esteja conectado no momento. Isso já
+   * causou um bug de produção — ao conectar a integração do projeto
+   * NOVO (migração), essa heurística passou a resolver pro banco
+   * novo (só com um snapshot antigo migrado), enquanto o resto do
+   * app (NEXT_PUBLIC_SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY) seguia
+   * no banco antigo — os endpoints que usam getPgPool() (upload de
+   * arquivo em pedidos/orçamentos) passaram a checar "o pedido
+   * existe?" num banco diferente do resto do app, e pedidos/
+   * orçamentos criados depois do snapshot voltavam como "não
+   * encontrado". Ver conversa com Jessica em 22/09/2026 se precisar
+   * do histórico completo.
+   */
   const raw =
     process.env.POSTGRES_URL ??
+    process.env.OLD_DATABASE_URL ??
     (() => {
       const prefixedKey = Object.keys(process.env).find(
         (key) => key.endsWith('_POSTGRES_URL') && !key.endsWith('_POSTGRES_URL_NON_POOLING')
