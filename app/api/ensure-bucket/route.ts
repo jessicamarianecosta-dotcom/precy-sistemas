@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
-import { getPgPool } from '@/lib/supabase/pg'
 import { resolveCompanyIdForUser } from '@/lib/supabase/pgHelpers'
 
 /**
@@ -92,10 +91,11 @@ export async function POST(request: Request) {
 
     /* ── Salvar logo_url no banco (mesma empresa resolvida acima) ── */
     try {
-      await getPgPool().query(
-        'update public.companies set logo_url = $1, updated_at = now() where id = $2',
-        [urlData.publicUrl, companyId]
-      )
+      const { error: updErr } = await (supabaseAdmin as any)
+        .from('companies')
+        .update({ logo_url: urlData.publicUrl, updated_at: new Date().toISOString() })
+        .eq('id', companyId)
+      if (updErr) throw updErr
     } catch (dbErr) {
       console.error('[ensure-bucket] db update:', dbErr)
       // Não falha — retorna a URL mesmo assim
