@@ -3,7 +3,6 @@ import { randomUUID } from 'crypto'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { getPgPool } from '@/lib/supabase/pg'
 import { resolveCompanyIdForUser } from '@/lib/supabase/pgHelpers'
 
 /*
@@ -44,23 +43,31 @@ export async function POST(request: Request) {
     if (!budgetId) return NextResponse.json({ error: 'Orçamento não informado' }, { status: 400 })
     if (!budgetItemId) return NextResponse.json({ error: 'Item não informado' }, { status: 400 })
 
-    const pool = getPgPool()
+    const db = supabaseAdmin as any
 
     /* Confirma que o orçamento pertence à mesma empresa do usuário autenticado */
-    const { rows: budgetRows } = await pool.query(
-      'select id from public.budgets where id = $1 and company_id = $2 limit 1',
-      [budgetId, companyId]
-    )
-    if (budgetRows.length === 0) {
+    const { data: budgetRow, error: budgetErr } = await db
+      .from('budgets')
+      .select('id')
+      .eq('id', budgetId)
+      .eq('company_id', companyId)
+      .limit(1)
+      .maybeSingle()
+    if (budgetErr) throw budgetErr
+    if (!budgetRow) {
       return NextResponse.json({ error: 'Orçamento não encontrado' }, { status: 404 })
     }
 
     /* Confirma que o item pertence ao mesmo orçamento (evita anexar em item de outro orçamento/empresa) */
-    const { rows: itemRows } = await pool.query(
-      'select id from public.budget_items where id = $1 and budget_id = $2 limit 1',
-      [budgetItemId, budgetId]
-    )
-    if (itemRows.length === 0) {
+    const { data: itemRow, error: itemErr } = await db
+      .from('budget_items')
+      .select('id')
+      .eq('id', budgetItemId)
+      .eq('budget_id', budgetId)
+      .limit(1)
+      .maybeSingle()
+    if (itemErr) throw itemErr
+    if (!itemRow) {
       return NextResponse.json({ error: 'Item do orçamento não encontrado' }, { status: 404 })
     }
 
@@ -86,14 +93,23 @@ export async function POST(request: Request) {
 
     const { data: urlData } = supabaseAdmin.storage.from('order-files').getPublicUrl(path)
 
-    const { rows: fileRows } = await pool.query(
-      `insert into public.budget_item_files (budget_item_id, budget_id, company_id, file_name, file_url, file_path, file_size, mime_type)
-       values ($1, $2, $3, $4, $5, $6, $7, $8)
-       returning *`,
-      [budgetItemId, budgetId, companyId, file.name, urlData.publicUrl, path, file.size, file.type || null]
-    )
+    const { data: fileRow, error: fileErr } = await db
+      .from('budget_item_files')
+      .insert({
+        budget_item_id: budgetItemId,
+        budget_id: budgetId,
+        company_id: companyId,
+        file_name: file.name,
+        file_url: urlData.publicUrl,
+        file_path: path,
+        file_size: file.size,
+        mime_type: file.type || null,
+      })
+      .select()
+      .single()
+    if (fileErr) throw fileErr
 
-    return NextResponse.json({ ok: true, file: fileRows[0] })
+    return NextResponse.json({ ok: true, file: fileRow })
   } catch (err) {
     console.error('[orcamentos/upload-arquivo] unexpected:', err)
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 })
