@@ -21,13 +21,14 @@ import { calculateAreaM2, formatAreaM2, formatDimDisplay, getDimBlock } from '@/
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { clsx } from 'clsx'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { CategorySelect } from '@/components/ui/CategorySelect'
 import { formatCurrency } from '@/lib/utils/format'
 import { useSubscription } from '@/hooks/useSubscription'
+import { deleteProduct, duplicateProduct } from '@/lib/produtos/actions'
 
 /* ─── Types ─── */
 type FinishingCalcType = 'fixed' | 'percent' | 'per_m2' | 'per_unit' | 'per_meter'
@@ -243,7 +244,7 @@ export default function ProdutosPage() {
     enabled:  !!companyId,
     queryFn:  async () => {
       const { data, error } = await (supabase.from('products') as any)
-        .select('*').eq('company_id', companyId!).order('created_at', { ascending: false })
+        .select('*').eq('company_id', companyId!).eq('is_active', true).order('created_at', { ascending: false })
       if (error) throw error
       return data ?? []
     },
@@ -353,6 +354,8 @@ export default function ProdutosPage() {
       console.log('[produtos] produto salvo com sucesso, invalidando cache...')
       qc.invalidateQueries({ queryKey: ['products', companyId] })
       qc.invalidateQueries({ queryKey: ['dashboard', companyId] })
+      qc.invalidateQueries({ queryKey: ['catalogo_produtos', companyId] })
+      qc.invalidateQueries({ queryKey: ['catalogo-dashboard', companyId] })
       toast('success', editingId ? 'Produto atualizado com sucesso.' : 'Produto cadastrado!')
       closeForm()
     },
@@ -363,147 +366,38 @@ export default function ProdutosPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      // Verificar dependências antes de deletar
-      const [{ count: orderCount }, { count: budgetCount }] = await Promise.all([
-        (supabase.from('order_items') as any)
-          .select('id', { count: 'exact', head: true })
-          .eq('product_id', id),
-        (supabase.from('budget_items') as any)
-          .select('id', { count: 'exact', head: true })
-          .eq('product_id', id),
-      ])
-
-      if ((orderCount ?? 0) > 0 || (budgetCount ?? 0) > 0) {
-        const parts: string[] = []
-        if ((orderCount ?? 0) > 0) parts.push(`${orderCount} pedido${orderCount === 1 ? '' : 's'}`)
-        if ((budgetCount ?? 0) > 0) parts.push(`${budgetCount} orçamento${budgetCount === 1 ? '' : 's'}`)
-        throw new Error(`LINKED:${parts.join(' e ')}`)
-      }
-
-      // Deletar materiais do produto antes (caso FK não tenha CASCADE)
-      await (supabase.from('product_materials') as any)
-        .delete()
-        .eq('product_id', id)
-
-      const { error } = await (supabase.from('products') as any).delete().eq('id', id)
-      if (error) throw error
-    },
-    onSuccess: () => {
+    // Lógica compartilhada com Catálogo Online → Produtos (lib/produtos/actions.ts):
+    // sem histórico exclui de vez; com pedidos/orçamentos inativa e preserva o histórico.
+    mutationFn: (id: string) => deleteProduct(supabase, companyId!, id),
+    onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['products', companyId] })
       qc.invalidateQueries({ queryKey: ['dashboard', companyId] })
-      toast('success', 'Produto removido com sucesso.')
+      qc.invalidateQueries({ queryKey: ['catalogo_produtos', companyId] })
+      qc.invalidateQueries({ queryKey: ['catalogo-dashboard', companyId] })
+      toast('success', result.mode === 'archived'
+        ? `Produto excluído. O histórico de ${result.linkedTo} foi preservado.`
+        : 'Produto removido com sucesso.')
       setDeleteId(null)
       if (viewProduct?.id === deleteId) setViewProduct(null)
     },
     onError: (err: Error) => {
       console.error('[produtos] delete error:', err)
-      if (err.message.startsWith('LINKED:')) {
-        const detail = err.message.replace('LINKED:', '')
-        toast('error', `Não é possível excluir: este produto está vinculado a ${detail}. Remova os vínculos primeiro.`)
-      } else if (err.message.includes('foreign key') || err.message.includes('violates')) {
-        toast('error', 'Não é possível excluir: produto vinculado a pedidos ou orçamentos existentes.')
-      } else {
-        toast('error', `Erro ao excluir: ${err.message}`)
-      }
+      toast('error', `Erro ao excluir: ${err.message}`)
       setDeleteId(null)
     },
   })
 
   /* ── Duplicar produto ── */
+  // Lógica compartilhada com Catálogo Online → Produtos (lib/produtos/actions.ts):
+  // novo id, nome "(cópia)" e SEMPRE não publicado.
   async function handleDuplicate(p: Product) {
     if (!companyId) return
     setDuplicating(true)
     try {
-      const { id: _id, created_at: _c, ...rest } = p as any
-      const { data: newProd, error } = await (supabase.from('products') as any)
-        .insert({ ...rest, company_id: companyId, name: `Cópia de ${p.name}` })
-        .select('id').single()
-      if (error) throw error
-
-      // Duplicar materiais se existirem
-      if (productMaterials && productMaterials.length > 0 && newProd?.id) {
-        const rows = productMaterials.map(({ id: _mid, ...m }) => ({
-          ...m,
-          company_id: companyId,
-          product_id: newProd.id,
-        }))
-        await (supabase.from('product_materials') as any).insert(rows)
-      }
-
-      // Duplicar fotos do catálogo (product_images)
-      if (newProd?.id) {
-        const { data: images } = await (supabase.from('product_images') as any)
-          .select('url, sort_order').eq('product_id', p.id).order('sort_order')
-        if (images && images.length > 0) {
-          await (supabase.from('product_images') as any).insert(
-            images.map((img: { url: string; sort_order: number }) => ({ ...img, company_id: companyId, product_id: newProd.id }))
-          )
-        }
-
-        // Duplicar grupos/opções/variantes de variação
-        const { data: groups } = await (supabase.from('product_variation_groups') as any)
-          .select('id, name, sort_order').eq('product_id', p.id).order('sort_order')
-        if (groups && groups.length > 0) {
-          const groupIdMap = new Map<string, string>()
-          for (const g of groups as { id: string; name: string; sort_order: number }[]) {
-            const { data: newGroup } = await (supabase.from('product_variation_groups') as any)
-              .insert({ product_id: newProd.id, company_id: companyId, name: g.name, sort_order: g.sort_order })
-              .select('id').single()
-            if (newGroup) groupIdMap.set(g.id, newGroup.id)
-          }
-
-          const { data: options } = await (supabase.from('product_variation_options') as any)
-            .select('id, group_id, value, sort_order').in('group_id', groups.map((g: { id: string }) => g.id))
-          const optionIdMap = new Map<string, string>()
-          for (const o of (options ?? []) as { id: string; group_id: string; value: string; sort_order: number }[]) {
-            const { data: newOption } = await (supabase.from('product_variation_options') as any)
-              .insert({ group_id: groupIdMap.get(o.group_id), company_id: companyId, value: o.value, sort_order: o.sort_order })
-              .select('id').single()
-            if (newOption) optionIdMap.set(o.id, newOption.id)
-          }
-
-          // Duplicar regras de dependência entre opções (ex: "Triplex/Offset" só em 300g)
-          const { data: deps } = await (supabase.from('product_variation_dependencies') as any)
-            .select('option_id, depends_on_option_id').eq('product_id', p.id)
-          if (deps && deps.length > 0) {
-            const depRows = (deps as { option_id: string; depends_on_option_id: string }[])
-              .map(d => ({
-                product_id: newProd.id,
-                company_id: companyId,
-                option_id: optionIdMap.get(d.option_id),
-                depends_on_option_id: optionIdMap.get(d.depends_on_option_id),
-              }))
-              .filter((r): r is { product_id: string; company_id: string; option_id: string; depends_on_option_id: string } => !!r.option_id && !!r.depends_on_option_id)
-            if (depRows.length > 0) await (supabase.from('product_variation_dependencies') as any).insert(depRows)
-          }
-
-          const { data: variants } = await (supabase.from('product_variants') as any)
-            .select('id, sku, price, stock_quantity, lead_time_days, weight_kg, sort_order, product_variant_option_values(option_id, group_id)')
-            .eq('product_id', p.id)
-          for (const v of (variants ?? []) as any[]) {
-            const { data: newVariant } = await (supabase.from('product_variants') as any)
-              .insert({
-                product_id: newProd.id, company_id: companyId, sku: v.sku, price: v.price,
-                stock_quantity: v.stock_quantity, lead_time_days: v.lead_time_days, weight_kg: v.weight_kg,
-                sort_order: v.sort_order,
-              })
-              .select('id').single()
-            if (!newVariant) continue
-            const valueRows = (v.product_variant_option_values ?? [])
-              .map((ov: { option_id: string; group_id: string }) => ({
-                variant_id: newVariant.id,
-                option_id: optionIdMap.get(ov.option_id),
-                group_id: groupIdMap.get(ov.group_id),
-              }))
-              .filter((r: { option_id?: string; group_id?: string }) => r.option_id && r.group_id)
-            if (valueRows.length > 0) await (supabase.from('product_variant_option_values') as any).insert(valueRows)
-          }
-        }
-      }
-
+      const created = await duplicateProduct(supabase, companyId, p.id)
       qc.invalidateQueries({ queryKey: ['products', companyId] })
-      toast('success', `"${p.name} (cópia)" criado!`)
+      qc.invalidateQueries({ queryKey: ['catalogo_produtos', companyId] })
+      toast('success', `"${created.name}" criado! Ele começa não publicado no catálogo.`)
     } catch (err: unknown) {
       const e = err as Error
       console.error('[produtos] duplicate error:', e)
@@ -523,7 +417,36 @@ export default function ProdutosPage() {
     setShowForm(true)
   }
 
-  function closeForm() { setShowForm(false); reset(); setEditingId(null) }
+  function closeForm() {
+    setShowForm(false); reset(); setEditingId(null)
+    // Edição aberta a partir de Catálogo Online → Produtos: volta para a lista de lá
+    // (já atualizada, pois salvar invalida a query do catálogo).
+    if (returnToCatalog.current) {
+      returnToCatalog.current = false
+      router.push('/catalogo?aba=produtos')
+    }
+  }
+
+  // Entrada vinda de Catálogo Online → Produtos → Editar: /produtos?editar=<id>&voltar=catalogo
+  // abre este MESMO modal de edição para o produto indicado (nenhuma cópia é criada).
+  const returnToCatalog = useRef(false)
+  const editParamHandled = useRef(false)
+  useEffect(() => {
+    if (editParamHandled.current || !products) return
+    const params = new URLSearchParams(window.location.search)
+    const id = params.get('editar')
+    if (!id) { editParamHandled.current = true; return }
+    editParamHandled.current = true
+    returnToCatalog.current = params.get('voltar') === 'catalogo'
+    router.replace('/produtos')
+    const target = products.find(p => p.id === id)
+    if (target) openEdit(target)
+    else {
+      toast('error', 'Produto não encontrado.')
+      if (returnToCatalog.current) { returnToCatalog.current = false; router.push('/catalogo?aba=produtos') }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products])
 
   const filtered = (products ?? []).filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase()) ||
