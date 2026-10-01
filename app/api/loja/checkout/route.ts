@@ -4,8 +4,9 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getPaymentAdapter } from '@/lib/catalog/payments'
 import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
+import { cleanObservation } from '@/lib/catalog/observation'
 
-interface CheckoutItem { productId: string; variantId?: string | null; quantity: number }
+interface CheckoutItem { productId: string; variantId?: string | null; quantity: number; notes?: string | null }
 
 /**
  * POST /api/loja/checkout
@@ -135,6 +136,7 @@ export async function POST(request: Request) {
       variant_label: variant ? buildVariantLabel(variant) : null,
       variant_sku: variant?.sku ?? null,
       variant_photo: variant?.image_id ? imageUrlById.get(variant.image_id) ?? null : null,
+      technical_notes: cleanObservation(i.notes),
     }
   })
 

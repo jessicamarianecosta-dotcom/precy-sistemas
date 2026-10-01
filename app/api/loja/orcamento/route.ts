@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
+import { cleanObservation } from '@/lib/catalog/observation'
 
 /**
  * POST /api/loja/orcamento
@@ -99,6 +100,7 @@ export async function POST(request: Request) {
       budget_id: budget.id, product_id: product.id, name: product.name,
       quantity: 1, unit_price: price, subtotal: price,
       variant_id: variant?.id ?? null, variant_label: variantLabel,
+      technical_notes: cleanObservation(body?.observation),
     }])
   if (itemError) return NextResponse.json({ error: `Erro ao registrar item: ${itemError.message}` }, { status: 500 })
 
