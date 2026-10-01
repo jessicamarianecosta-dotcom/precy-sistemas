@@ -126,8 +126,12 @@ const schema = z.object({
   material_cost:         z.coerce.number().min(0),
   markup_percentage:     z.coerce.number().min(0),
   final_price:           z.coerce.number().min(0),
-  is_published_catalog:  z.boolean().optional(),
-  catalog_category_id:   z.string().optional(),
+  // Campos do Catálogo Online são OPCIONAIS e vêm como null do banco ao editar
+  // (openEdit faz setValue com o valor salvo). z.string().optional() rejeitava
+  // null e a validação falhava em silêncio quando o produto não estava
+  // publicado — o seletor de categoria do catálogo nem está na tela nesse caso.
+  is_published_catalog:  z.boolean().nullish(),
+  catalog_category_id:   z.string().nullish(),
   catalog_lead_time_days: optionalNumber,
   catalog_starting_price: optionalNumber,
   weight_kg: optionalNumber,
@@ -296,7 +300,12 @@ export default function ProdutosPage() {
   /* ── Mutations ── */
   const saveMutation = useMutation({
     mutationFn: async (d: FormData) => {
-      const payload = { ...d, catalog_category_id: d.catalog_category_id || null }
+      const payload = {
+        ...d,
+        catalog_category_id: d.catalog_category_id || null,
+        // Coluna é NOT NULL: nunca mandar null; undefined não toca no valor salvo.
+        is_published_catalog: d.is_published_catalog ?? undefined,
+      }
       console.log('[produtos] dados do formulário:', d)
       console.log('[produtos] payload a enviar:', payload, '| editingId:', editingId)
 
@@ -1243,7 +1252,17 @@ export default function ProdutosPage() {
               </div>
               <button onClick={closeForm} className="p-2 rounded-xl hover:bg-primary-50 dark:hover:bg-white/5 text-text-muted ml-2"><X size={16} /></button>
             </div>
-            <form onSubmit={handleSubmit(d => saveMutation.mutate(d))} className="p-4 sm:p-5 space-y-4">
+            <form
+              onSubmit={handleSubmit(
+                d => saveMutation.mutate(d),
+                // Nunca falhar em silêncio: se algum campo for inválido, avisa qual.
+                errs => {
+                  const first = Object.values(errs)[0] as { message?: string } | undefined
+                  toast('error', first?.message || 'Confira os campos do formulário e tente novamente.')
+                },
+              )}
+              className="p-4 sm:p-5 space-y-4"
+            >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Nome *</label>
