@@ -92,6 +92,10 @@ export async function GET(request: Request) {
     const tables = await listTables(sourcePool)
     const selected = tables.filter((t) => only.length === 0 || only.includes(t.name) || only.includes(`${t.schema}.${t.name}`))
 
+    // Pais (pedidos/orçamentos) em que o antigo é igual ou mais novo que o novo:
+    // calculado ANTES de copiar, para não confundir com o que a própria cópia atualiza.
+    const eligible = await eligibleParents(sourcePool, target)
+
     const results: Record<string, any> = {}
     for (const t of selected) {
       const key = `${t.schema}.${t.name}`
@@ -104,6 +108,14 @@ export async function GET(request: Request) {
       }
     }
 
+    if (only.length === 0 || CASCADE_CHILDREN.some((c) => only.includes(c.child))) {
+      try {
+        results['_filhos_obsoletos_no_novo'] = await staleChildren(sourcePool, target, eligible, mode === 'migrate')
+      } catch (err: any) {
+        results['_filhos_obsoletos_no_novo'] = { error: err.message }
+      }
+    }
+
     return NextResponse.json({ ok: true, mode, tables: selected.length, results })
   } catch (err: any) {
     console.error('[migrate-old-db]', err)
@@ -112,6 +124,67 @@ export async function GET(request: Request) {
     target?.release()
     await Promise.allSettled([sourcePool.end(), targetPool.end()])
   }
+}
+
+/** Filhos com ON DELETE CASCADE de pedidos/orçamentos: o antigo é a verdade para eles. */
+const CASCADE_CHILDREN = [
+  { parent: 'budgets', child: 'budget_items', fk: 'budget_id' },
+  { parent: 'budgets', child: 'budget_item_files', fk: 'budget_id' },
+  { parent: 'orders', child: 'order_items', fk: 'order_id' },
+  { parent: 'orders', child: 'order_files', fk: 'order_id' },
+  { parent: 'orders', child: 'order_art_events', fk: 'order_id' },
+  { parent: 'orders', child: 'payment_history', fk: 'order_id' },
+  { parent: 'orders', child: 'payment_schedule', fk: 'order_id' },
+  { parent: 'orders', child: 'shipping_webhook_events', fk: 'order_id' },
+] as const
+
+/**
+ * Ids de pedidos/orçamentos que existem nos dois bancos e cuja versão do antigo
+ * é igual ou mais nova (o novo NÃO foi editado depois). Só nesses o antigo manda
+ * no conjunto de filhos; pais editados no novo depois do corte ficam intocados.
+ */
+async function eligibleParents(source: Pool, target: PoolClient): Promise<Record<string, string[]>> {
+  const out: Record<string, string[]> = {}
+  for (const parent of ['orders', 'budgets']) {
+    const sql = `select id::text as id, updated_at from public.${q(parent)}`
+    const [s, t] = await Promise.all([source.query(sql), target.query(sql)])
+    const tgt = new Map<string, number>(t.rows.map((r) => [r.id, new Date(r.updated_at).getTime()]))
+    out[parent] = s.rows
+      .filter((r) => tgt.has(r.id) && new Date(r.updated_at).getTime() >= (tgt.get(r.id) as number))
+      .map((r) => r.id)
+  }
+  return out
+}
+
+/**
+ * Linhas-filhas que estão no novo mas não existem mais no antigo, para os pais
+ * elegíveis (ex.: item removido ao editar o pedido depois do corte). Em
+ * mode=migrate apaga só essas, numa transação; em inspect só conta.
+ */
+async function staleChildren(source: Pool, target: PoolClient, eligible: Record<string, string[]>, apply: boolean) {
+  const report: Record<string, any> = {}
+  if (apply) await target.query('begin')
+  try {
+    for (const { parent, child, fk } of CASCADE_CHILDREN) {
+      const parents = eligible[parent] ?? []
+      if (parents.length === 0) { report[child] = { obsoletas: 0 }; continue }
+      const { rows: oldRows } = await source.query(`select id::text as id from public.${q(child)}`)
+      const oldIds = oldRows.map((r) => r.id)
+      const where = `${q(fk)}::text = any($1::text[]) and not (id::text = any($2::text[]))`
+      if (apply) {
+        const r = await target.query(`delete from public.${q(child)} where ${where}`, [parents, oldIds])
+        report[child] = { obsoletas: r.rowCount ?? 0, apagadas: true }
+      } else {
+        const r = await target.query(`select count(*)::int as c from public.${q(child)} where ${where}`, [parents, oldIds])
+        report[child] = { obsoletas: r.rows[0].c }
+      }
+    }
+    if (apply) await target.query('commit')
+  } catch (e) {
+    if (apply) await target.query('rollback')
+    throw e
+  }
+  return report
 }
 
 /** Conexão direta (sem pooler de transação) do projeto novo, da integração Supabase↔Vercel. */
