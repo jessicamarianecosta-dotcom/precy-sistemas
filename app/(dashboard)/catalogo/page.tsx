@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { Header } from '@/components/layout/Header'
@@ -11,10 +12,11 @@ import { clsx } from 'clsx'
 import {
   LayoutGrid, Package, BookOpen, Settings, Plus, Trash2, Edit2,
   Search, CheckSquare, Square, Loader2, ShoppingBag,
-  TrendingUp, DollarSign, Tags, Copy,
+  TrendingUp, DollarSign, Tags, Copy, MoreVertical,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils/format'
 import { toSlug } from '@/lib/utils/slug'
+import { deleteProduct, duplicateProduct } from '@/lib/produtos/actions'
 import { ConfiguracoesTab } from './ConfiguracoesTab'
 
 type Tab = 'dashboard' | 'categorias' | 'produtos' | 'biblioteca' | 'configuracoes'
@@ -29,6 +31,12 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
 
 export default function CatalogoPage() {
   const [tab, setTab] = useState<Tab>('dashboard')
+
+  // /catalogo?aba=produtos abre direto na aba (ex.: ao voltar de Produtos → Editar)
+  useEffect(() => {
+    const aba = new URLSearchParams(window.location.search).get('aba')
+    if (aba && TABS.some(t => t.id === aba)) setTab(aba as Tab)
+  }, [])
 
   return (
     <div className="p-4 lg:p-6 max-w-6xl mx-auto space-y-5">
@@ -286,7 +294,10 @@ function ProdutosTab() {
   const { companyId } = useCompanyId()
   const { toast } = useToast()
   const queryClient = useQueryClient()
+  const router = useRouter()
   const [search, setSearch] = useState('')
+  const [menuFor, setMenuFor] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<CatalogProduct | null>(null)
 
   const { data: products, isLoading } = useQuery<CatalogProduct[]>({
     queryKey: ['catalogo_produtos', companyId],
@@ -354,6 +365,43 @@ function ProdutosTab() {
     onError: (err: Error) => toast('error', err.message),
   })
 
+  // Editar: abre o MESMO modal de edição do módulo Produtos (mesmo produto, sem cópia)
+  // e volta para esta lista ao fechar/salvar.
+  function editProduct(p: CatalogProduct) {
+    router.push(`/produtos?editar=${p.id}&voltar=catalogo`)
+  }
+
+  function refreshLists() {
+    queryClient.invalidateQueries({ queryKey: ['catalogo_produtos', companyId] })
+    queryClient.invalidateQueries({ queryKey: ['catalogo-dashboard', companyId] })
+    queryClient.invalidateQueries({ queryKey: ['products', companyId] })
+  }
+
+  // Duplicar/Excluir usam a mesma lógica do módulo Produtos (lib/produtos/actions.ts).
+  const duplicateMutation = useMutation({
+    mutationFn: (id: string) => duplicateProduct(supabase, companyId!, id),
+    onSuccess: (created) => {
+      refreshLists()
+      toast('success', `"${created.name}" criado! Ele começa não publicado.`)
+    },
+    onError: (err: Error) => toast('error', `Erro ao duplicar: ${err.message}`),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteProduct(supabase, companyId!, id),
+    onSuccess: (result) => {
+      refreshLists()
+      setDeleteTarget(null)
+      toast('success', result.mode === 'archived'
+        ? `Produto excluído. O histórico de ${result.linkedTo} foi preservado.`
+        : 'Produto excluído.')
+    },
+    onError: (err: Error) => {
+      setDeleteTarget(null)
+      toast('error', `Erro ao excluir: ${err.message}`)
+    },
+  })
+
   const filtered = (products ?? []).filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
   const publishedCount = (products ?? []).filter(p => p.is_published_catalog).length
 
@@ -412,8 +460,74 @@ function ProdutosTab() {
               >
                 {p.is_published_catalog ? 'Publicado' : 'Publicar'}
               </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  aria-label={`Ações de ${p.name}`}
+                  onClick={() => setMenuFor(menuFor === p.id ? null : p.id)}
+                  className="p-1.5 rounded-lg text-text-muted hover:bg-stone-100 dark:hover:bg-stone-800"
+                >
+                  <MoreVertical size={16} />
+                </button>
+                {menuFor === p.id && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
+                    <div className="absolute right-0 top-9 z-20 w-44 rounded-xl border border-border dark:border-border-dark bg-white dark:bg-surface-dark shadow-modal py-1 text-left">
+                      <button
+                        onClick={() => { setMenuFor(null); editProduct(p) }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-secondary dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800"
+                      >
+                        <Edit2 size={13} /> Editar
+                      </button>
+                      <button
+                        onClick={() => { setMenuFor(null); duplicateMutation.mutate(p.id) }}
+                        disabled={duplicateMutation.isPending}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-secondary dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800 disabled:opacity-50"
+                      >
+                        <Copy size={13} /> Duplicar
+                      </button>
+                      <button
+                        onClick={() => { setMenuFor(null); setDeleteTarget(p) }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-error hover:bg-error-light dark:hover:bg-error/10"
+                      >
+                        <Trash2 size={13} /> Excluir
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center p-3 sm:p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !deleteMutation.isPending && setDeleteTarget(null)} />
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm p-5">
+            <h2 className="text-base font-bold text-text-primary dark:text-stone-100 mb-2">Excluir produto?</h2>
+            <p className="text-sm text-text-secondary dark:text-stone-400 mb-1">
+              Tem certeza que deseja excluir este produto? Esta ação não poderá ser desfeita.
+            </p>
+            <p className="text-xs text-text-muted dark:text-stone-500 mb-6">{deleteTarget.name}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleteMutation.isPending}
+                className="btn-secondary flex-1"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => deleteMutation.mutate(deleteTarget.id)}
+                disabled={deleteMutation.isPending}
+                className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-error hover:opacity-90 disabled:opacity-50"
+              >
+                {deleteMutation.isPending && <Loader2 size={14} className="animate-spin" />}
+                Excluir produto
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
