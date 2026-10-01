@@ -11,6 +11,8 @@ export interface CartItem {
   price: number
   quantity: number
   photo?: string | null
+  /** Observação do cliente sobre este produto (ex.: "Estampa somente na frente"). */
+  notes?: string | null
 }
 
 function storageKey(slug: string) {
@@ -40,7 +42,9 @@ export function useCart(slug: string) {
     setItems(prev => {
       const existing = prev.find(i => sameLine(i, item.productId, item.variantId))
       const next = existing
-        ? prev.map(i => sameLine(i, item.productId, item.variantId) ? { ...i, quantity: i.quantity + item.quantity } : i)
+        ? prev.map(i => sameLine(i, item.productId, item.variantId)
+            ? { ...i, quantity: i.quantity + item.quantity, notes: item.notes ?? i.notes ?? null }
+            : i)
         : [...prev, item]
       try { localStorage.setItem(storageKey(slug), JSON.stringify(next)) } catch { /* ignore */ }
       return next
