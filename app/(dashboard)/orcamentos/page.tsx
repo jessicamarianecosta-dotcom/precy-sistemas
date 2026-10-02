@@ -130,6 +130,8 @@ export default function OrcamentosPage() {
   const [prodSearch,setProdSearch]=useState('')
   const productsWithVariants=useProductsWithVariants(companyId)
   const [variantProduct,setVariantProduct]=useState<any|null>(null)
+  // item cuja variação está sendo trocada (reabre o seletor para o mesmo produto)
+  const [changeVariantItem,setChangeVariantItem]=useState<BudgetItem|null>(null)
   const [payMethod,setPayMethod]=useState('')
   const [payCondition,setPayCond]=useState<'avista'|'parcelado'|'entrada'|'prazo'>('avista')
   const [installments,setInstall]=useState(2)
@@ -424,6 +426,11 @@ export default function OrcamentosPage() {
     })
     setEditItem(null)
     persistItemForArtwork(updated)
+  }
+  function applyVariantToItem(item:BudgetItem,sel:VariantSelection){
+    const rest=(item.description||'').split('\n').filter(l=>!l.startsWith('Variação:')).join('\n')
+    saveEditItem({...item,unit_price:sel.pricing.price,unit_cost:sel.pricing.cost,variant_id:sel.variantId,variant_label:sel.label,
+      description:[`Variação: ${sel.label}`,rest].filter(Boolean).join('\n')})
   }
   async function removeItem(id:string){
     const wasPersisted=persistedItemIds.has(id)
@@ -1180,6 +1187,14 @@ export default function OrcamentosPage() {
                       </div>
                     </div>
                   )}
+                  {changeVariantItem&&(()=>{
+                    const prod=(products??[]).find((x:any)=>x.id===changeVariantItem.product_id)
+                    return prod?(
+                      <VariantPickerModal product={prod}
+                        onClose={()=>setChangeVariantItem(null)}
+                        onConfirm={sel=>{applyVariantToItem(changeVariantItem,sel);setChangeVariantItem(null)}}/>
+                    ):null
+                  })()}
                   {variantProduct&&(
                     <VariantPickerModal product={variantProduct}
                       onClose={()=>setVariantProduct(null)}
@@ -1201,6 +1216,9 @@ export default function OrcamentosPage() {
                               </div>
                             </div>
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 sm:opacity-100 transition-opacity flex-shrink-0">
+                              {item.product_id&&productsWithVariants.has(item.product_id)&&(
+                                <button type="button" onClick={()=>setChangeVariantItem(item)} className="px-2 py-1.5 rounded-lg text-[11px] font-medium text-primary hover:bg-primary-50 transition-colors">Trocar variação</button>
+                              )}
                               <button type="button" onClick={()=>setEditItem(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>
                               <button type="button" onClick={()=>removeItem(item.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>
                             </div>

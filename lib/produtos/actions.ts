@@ -92,7 +92,7 @@ export async function duplicateProduct(
 
     const { data: variants } = await supabase
       .from('product_variants')
-      .select('id, sku, price, stock_quantity, lead_time_days, weight_kg, sort_order, product_variant_option_values(option_id, group_id)')
+      .select('id, sku, price, stock_quantity, lead_time_days, weight_kg, sort_order, material_cost, labor_cost, extra_cost, total_cost, markup_percentage, pricing_data, product_variant_option_values(option_id, group_id)')
       .eq('product_id', sourceId)
     for (const v of (variants ?? []) as any[]) {
       const { data: newVariant } = await supabase
@@ -101,6 +101,9 @@ export async function duplicateProduct(
           product_id: newProd.id, company_id: companyId, sku: v.sku, price: v.price,
           stock_quantity: v.stock_quantity, lead_time_days: v.lead_time_days, weight_kg: v.weight_kg,
           sort_order: v.sort_order,
+          // precificação própria da combinação acompanha a duplicação
+          material_cost: v.material_cost, labor_cost: v.labor_cost, extra_cost: v.extra_cost,
+          total_cost: v.total_cost, markup_percentage: v.markup_percentage, pricing_data: v.pricing_data,
         })
         .select('id').single()
       if (!newVariant) continue

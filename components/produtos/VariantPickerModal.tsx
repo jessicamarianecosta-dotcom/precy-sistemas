@@ -116,7 +116,7 @@ export function VariantPickerModal({ product, onConfirm, onClose }: Props) {
                   return (
                     <button key={o.id} type="button" disabled={!enabled && !active}
                       onClick={() => setSelection(s => active ? Object.fromEntries(Object.entries(s).filter(([k]) => k !== g.id)) : { ...s, [g.id]: o.id })}
-                      className={clsx('px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
+                      className={clsx('px-3.5 py-2.5 min-h-[44px] sm:min-h-0 sm:py-1.5 rounded-lg border text-sm sm:text-xs font-medium transition-colors',
                         active ? 'border-primary bg-primary-50 text-primary dark:bg-primary/10'
                           : enabled ? 'border-border dark:border-stone-700 hover:border-primary/50'
                             : 'border-border dark:border-stone-800 text-text-muted opacity-40 cursor-not-allowed')}>

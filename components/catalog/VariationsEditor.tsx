@@ -10,7 +10,7 @@ import { comboKey, type GroupRow } from '@/lib/catalog/variationCombos'
 import { compressImage } from '@/lib/catalog/useImageCompression'
 import { uploadImageXhr } from '@/lib/catalog/useImageUploadXhr'
 import { VariationRulesWizard } from './VariationRulesWizard'
-import { VariantPricingModal, type VariantPricingValues } from './VariantPricingModal'
+import { formatCurrency } from '@/lib/utils/format'
 
 const IMAGE_MAX_PHOTOS = 4
 const IMAGE_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
@@ -29,6 +29,7 @@ interface VariantRow {
   extra_cost: number | null
   total_cost: number | null
   markup_percentage: number | null
+  pricing_data: unknown
 }
 interface ProductImage { id: string; url: string; sort_order: number }
 
@@ -46,12 +47,11 @@ interface Props {
   companyId: string
   /** Notifica o modal pai sempre que existirem (ou deixarem de existir) alterações não salvas na tabela. */
   onDirtyChange?: (dirty: boolean) => void
-  /** Referência do produto, exibida no modal de precificação por combinação (fallback). */
+  /** Preço do produto — mostrado como fallback nas combinações ainda sem precificação própria. */
   productPrice?: number
-  productMarkup?: number
 }
 
-const SETTINGS_FIELDS = ['price', 'stock_quantity', 'sku', 'lead_time_days', 'weight_kg', 'image_id', 'material_cost', 'labor_cost', 'extra_cost', 'total_cost', 'markup_percentage'] as const
+const SETTINGS_FIELDS = ['price', 'stock_quantity', 'sku', 'lead_time_days', 'weight_kg', 'image_id', 'material_cost', 'labor_cost', 'extra_cost', 'total_cost', 'markup_percentage', 'pricing_data'] as const
 
 /**
  * Editor de variações (Papel, Gramatura, Impressão, Acabamento...). Grupos e
@@ -61,7 +61,7 @@ const SETTINGS_FIELDS = ['price', 'stock_quantity', 'sku', 'lead_time_days', 'we
  * opções), "+ Nova combinação" manual, "Duplicar" ou "Copiar configuração".
  */
 export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(function VariationsEditor(
-  { productId, companyId, onDirtyChange, productPrice = 0, productMarkup = 0 },
+  { productId, companyId, onDirtyChange, productPrice = 0 },
   ref
 ) {
   const supabase = createClient()
@@ -77,7 +77,6 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   const [imageUploadProgress, setImageUploadProgress] = useState<number | null>(null)
   const [imageUploadError, setImageUploadError] = useState<string | null>(null)
   const [confirmDuplicate, setConfirmDuplicate] = useState(false)
-  const [pricingVariantId, setPricingVariantId] = useState<string | null>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
 
   /** Alterações de campos da tabela de combinações ainda não salvas, por combinação. */
@@ -105,7 +104,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     enabled: !!productId,
     queryFn: async () => {
       const { data } = await (supabase.from('product_variants') as any)
-        .select('id, sku, price, stock_quantity, lead_time_days, weight_kg, image_id, sort_order, material_cost, labor_cost, extra_cost, total_cost, markup_percentage, product_variant_option_values(option_id, group_id)')
+        .select('id, sku, price, stock_quantity, lead_time_days, weight_kg, image_id, sort_order, material_cost, labor_cost, extra_cost, total_cost, markup_percentage, pricing_data, product_variant_option_values(option_id, group_id)')
         .eq('product_id', productId)
         .order('sort_order')
       return data ?? []
@@ -134,7 +133,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
         lead_time_days: v.lead_time_days, weight_kg: v.weight_kg, image_id: v.image_id,
         optionIds,
         material_cost: v.material_cost ?? null, labor_cost: v.labor_cost ?? null, extra_cost: v.extra_cost ?? null,
-        total_cost: v.total_cost ?? null, markup_percentage: v.markup_percentage ?? null,
+        total_cost: v.total_cost ?? null, markup_percentage: v.markup_percentage ?? null, pricing_data: v.pricing_data ?? null,
       }
     })
   }, [variantsQuery.data, groupsSorted])
@@ -292,28 +291,6 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
       }
     },
     onSuccess: () => { invalidateVariants(); setShowWizard(false) },
-  })
-
-  /** Salva a precificação própria de uma combinação (custo, margem e preço de venda). */
-  const savePricingMutation = useMutation({
-    mutationFn: async ({ id, values }: { id: string; values: VariantPricingValues & { total_cost: number } }) => {
-      const { error: err } = await (supabase.from('product_variants') as any).update(values).eq('id', id)
-      if (err) throw err
-    },
-    onSuccess: (_d, { id }) => {
-      invalidateVariants()
-      // descarta edição pendente de preço da mesma linha: a precificação acabou de definir o preço
-      setPendingChanges(prev => {
-        if (!prev[id]) return prev
-        const { price: _p, ...rest } = prev[id]
-        const next = { ...prev }
-        if (Object.keys(rest).length === 0) delete next[id]; else next[id] = rest
-        return next
-      })
-      setPricingVariantId(null)
-      toast('success', 'Precificação da combinação salva.')
-    },
-    onError: (err: Error) => toast('error', `Erro ao salvar precificação: ${err.message}`),
   })
 
   const copyConfigMutation = useMutation({
@@ -543,13 +520,13 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
         </p>
       ) : (
         <div className="overflow-x-auto -mx-1">
-          <table className="w-full text-xs min-w-[720px]">
+          <table className="w-full text-xs min-w-[860px]">
             <thead>
               <tr className="border-b border-border dark:border-border-dark">
                 {groupsSorted.map(g => (
                   <th key={g.id} className="text-left font-semibold text-text-muted uppercase tracking-wider p-2">{g.name}</th>
                 ))}
-                {['Preço', 'Estoque', 'SKU', 'Prazo (dias)', 'Peso (kg)', 'Imagem', 'Ações'].map(h => (
+                {['Preço', 'Custo / Margem', 'Estoque', 'SKU', 'Prazo (dias)', 'Peso (kg)', 'Imagem', 'Ações'].map(h => (
                   <th key={h} className="text-left font-semibold text-text-muted uppercase tracking-wider p-2">{h}</th>
                 ))}
               </tr>
@@ -564,6 +541,18 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                     <input type="number" step="0.01" value={(fieldValue(v, 'price') as number | null) ?? ''} placeholder="Padrão"
                       onChange={e => setPendingField(v, 'price', numOrNull(e.target.value))}
                       className={clsx('input text-xs h-7 w-20', pendingChanges[v.id]?.price !== undefined && 'ring-2 ring-primary/40')} />
+                  </td>
+                  <td className="p-2 whitespace-nowrap">
+                    {v.total_cost != null ? (
+                      <div className="text-[11px] leading-tight text-text-secondary dark:text-stone-300">
+                        <div>Custo: {formatCurrency(v.total_cost)}</div>
+                        <div>Margem: {v.markup_percentage ?? 0}%</div>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-text-muted" title="Sem precificação própria: usa o preço do produto">
+                        {productPrice > 0 ? `Usa produto (${formatCurrency(productPrice)})` : 'Sem precificação'}
+                      </span>
+                    )}
                   </td>
                   <td className="p-2">
                     <input type="number" step="1" value={(fieldValue(v, 'stock_quantity') as number | null) ?? ''} placeholder="Ilimitado"
@@ -599,10 +588,12 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                   </td>
                   <td className="p-2">
                     <div className="flex items-center gap-1">
-                      <button type="button" title="Editar precificação" onClick={() => setPricingVariantId(v.id)}
-                        className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5">
-                        <Calculator size={13} />
-                      </button>
+                      <a title="Editar precificação" aria-label="Editar precificação"
+                        href={`/precificacao?productId=${productId}&variantId=${v.id}`}
+                        onClick={e => { if (hasPendingChanges && !confirm('Há alterações não salvas na tabela. Sair mesmo assim?')) e.preventDefault() }}
+                        className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-medium text-primary hover:bg-primary-50 dark:hover:bg-white/5 whitespace-nowrap">
+                        <Calculator size={13} /> Precificar
+                      </a>
                       <button type="button" title="Duplicar combinação" onClick={() => openDuplicateForm(v)}
                         className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5">
                         <Copy size={13} />
@@ -626,22 +617,6 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
       )}
 
       {/* Assistente de dependência */}
-      {pricingVariantId && (() => {
-        const pv = variantsNormalized.find(x => x.id === pricingVariantId)
-        if (!pv) return null
-        const title = groupsSorted.map((g, idx) => optionValue(g.id, pv.optionIds[idx])).filter(Boolean).join(' · ')
-        return (
-          <VariantPricingModal
-            title={title}
-            initial={{ material_cost: pv.material_cost, labor_cost: pv.labor_cost, extra_cost: pv.extra_cost,
-              markup_percentage: pv.markup_percentage, price: (fieldValue(pv, 'price') as number | null) }}
-            productPrice={productPrice} productMarkup={productMarkup}
-            saving={savePricingMutation.isPending}
-            onSave={values => savePricingMutation.mutate({ id: pv.id, values })}
-            onClose={() => setPricingVariantId(null)}
-          />
-        )
-      })()}
       {showWizard && (
         <VariationRulesWizard
           productId={productId}

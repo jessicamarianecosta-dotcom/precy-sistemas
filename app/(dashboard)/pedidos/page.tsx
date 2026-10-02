@@ -348,6 +348,7 @@ function PedidosPage() {
   /* Product picker (para adicionar itens ao carrinho) */
   const [productSearch, setProductSearch] = useState('')
   const [variantProduct, setVariantProduct] = useState<any | null>(null)
+  const [changeVariantItem, setChangeVariantItem] = useState<OrderItem | null>(null)
   const [showProductPicker, setShowProductPicker] = useState(false)
 
   /* Payment registration modal */
@@ -833,6 +834,16 @@ function PedidosPage() {
 
   function removeItem(id: string) {
     setItems(prev => prev.filter(i => i.id !== id))
+  }
+
+  function applyVariantToItem(item: OrderItem, sel: VariantSelection) {
+    const rest = (item.description || '').split('\n').filter(l => !l.startsWith('Variação:')).join('\n')
+    const next: OrderItem = {
+      ...item, unit_price: sel.pricing.price, unit_cost: sel.pricing.cost,
+      variant_id: sel.variantId, variant_label: sel.label,
+      description: [`Variação: ${sel.label}`, rest].filter(Boolean).join('\n'),
+    }
+    setItems(prev => prev.map(i => i.id === item.id ? { ...next, subtotal: computeItemSubtotal(next) } : i))
   }
 
   /* ─────────────────────────────────────────────
@@ -2675,6 +2686,14 @@ function PedidosPage() {
                     <Package size={12} /> Produtos / Serviços
                   </h3>
 
+                  {changeVariantItem && (() => {
+                    const prod = (productsList ?? []).find((x: any) => x.id === changeVariantItem.product_id)
+                    return prod ? (
+                      <VariantPickerModal product={prod}
+                        onClose={() => setChangeVariantItem(null)}
+                        onConfirm={sel => { applyVariantToItem(changeVariantItem, sel); setChangeVariantItem(null) }} />
+                    ) : null
+                  })()}
                   {variantProduct && (
                     <VariantPickerModal product={variantProduct}
                       onClose={() => setVariantProduct(null)}
@@ -2744,7 +2763,7 @@ function PedidosPage() {
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0 flex-1">
                               <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">{item.name || 'Item sem nome'}</p>
-                              {item.variant_label && <p className="text-[11px] text-primary mt-0.5">Variação: {item.variant_label}</p>}
+                              {item.variant_label && !(item.description || '').includes(item.variant_label) && <p className="text-[11px] text-primary mt-0.5">Variação: {item.variant_label}</p>}
                               {item.description && <p className="text-[11px] text-text-muted mt-0.5 break-words">{item.description}</p>}
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-[11px] text-text-muted">
                                 <span>Qtd: <b className="text-text-primary dark:text-stone-200">{item.quantity}</b></span>
@@ -2756,6 +2775,9 @@ function PedidosPage() {
                             </div>
                             <div className="flex items-center gap-1 flex-shrink-0">
                               <span className="text-sm font-bold text-primary mr-1">{fmtGlobal(item.subtotal)}</span>
+                              {item.product_id && productsWithVariants.has(item.product_id) && (
+                                <button type="button" onClick={() => setChangeVariantItem(item)} className="px-2 py-1.5 rounded-lg text-[11px] font-medium text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors">Trocar variação</button>
+                              )}
                               <button type="button" onClick={() => openEditItem(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors" title="Editar">
                                 <Edit2 size={13} />
                               </button>
