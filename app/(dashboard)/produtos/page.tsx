@@ -705,7 +705,6 @@ export default function ProdutosPage() {
                     companyId={companyId}
                     onDirtyChange={setCombosDirty}
                     productPrice={vpFinalPrice}
-                    productMarkup={vpMarkup}
                   />
                   </FichaSection>
                 </>
