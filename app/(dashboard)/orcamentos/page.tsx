@@ -23,6 +23,8 @@ import { companyPickupAddressLines, companyPickupAddressText } from '@/lib/compa
 import { BudgetItemArtwork } from '@/components/orcamentos/BudgetItemArtwork'
 import { extractPixSnapshot } from '@/lib/company/pix'
 import { Paperclip } from 'lucide-react'
+import { VariantPickerModal, type VariantSelection } from '@/components/produtos/VariantPickerModal'
+import { useProductsWithVariants } from '@/hooks/useProductsWithVariants'
 
 interface BudgetItem {
   id: string; type: 'product'|'service'|'manual'; name: string
@@ -34,6 +36,8 @@ interface BudgetItem {
   // Modo de precificação
   pricing_mode?: 'fixed'|'square_meter'
   price_per_m2?: number
+  // Variação escolhida (produto com variações)
+  variant_id?: string; variant_label?: string; unit_cost?: number
 }
 interface NewClientData { name: string; phone: string; email: string }
 type Step = 1|2|3|4|5
@@ -124,6 +128,8 @@ export default function OrcamentosPage() {
   const [editItem,setEditItem]=useState<BudgetItem|null>(null)
   const [addMode,setAddMode]=useState<'product'|null>(null)
   const [prodSearch,setProdSearch]=useState('')
+  const productsWithVariants=useProductsWithVariants(companyId)
+  const [variantProduct,setVariantProduct]=useState<any|null>(null)
   const [payMethod,setPayMethod]=useState('')
   const [payCondition,setPayCond]=useState<'avista'|'parcelado'|'entrada'|'prazo'>('avista')
   const [installments,setInstall]=useState(2)
@@ -173,7 +179,7 @@ export default function OrcamentosPage() {
   const {data:products}=useQuery<any[]>({
     queryKey:['products-select',companyId],enabled:!!companyId,
     queryFn:async()=>{
-      const r:any=await supabase.from('products').select('id,name,final_price,category,width,height,area,measurement_unit,finishings,finishing_type,technical_notes').eq('company_id',companyId!).eq('is_active',true).order('name')
+      const r:any=await supabase.from('products').select('id,name,final_price,total_cost,material_cost,category,width,height,area,measurement_unit,finishings,finishing_type,technical_notes').eq('company_id',companyId!).eq('is_active',true).order('name')
       return r?.data??[]
     },
   })
@@ -247,6 +253,9 @@ export default function OrcamentosPage() {
       technical_notes: i.technical_notes ?? undefined,
       pricing_mode:    (i.pricing_mode as 'fixed'|'square_meter') ?? 'fixed',
       price_per_m2:    i.price_per_m2    ?? undefined,
+      variant_id:      i.variant_id      ?? undefined,
+      variant_label:   i.variant_label   ?? undefined,
+      unit_cost:       i.unit_cost!=null ? Number(i.unit_cost) : undefined,
     }))
     setItems(loadedItems)
     setPersistedItemIds(new Set((bi??[]).map((i:any)=>i.id)))
@@ -317,6 +326,8 @@ export default function OrcamentosPage() {
       technical_notes: i.technical_notes?? null,
       pricing_mode:    i.pricing_mode   ?? 'fixed',
       price_per_m2:    i.price_per_m2   ?? null,
+      // só envia quando há variação (mantém compatível com itens/produtos sem variação)
+      ...(i.variant_id?{variant_id:i.variant_id,variant_label:i.variant_label??null,unit_cost:i.unit_cost??null}:{}),
     }
   }
   // Garante um budgetId real no banco, criando um orçamento-rascunho (status
@@ -370,11 +381,13 @@ export default function OrcamentosPage() {
       toast('error','Não foi possível preparar o item para receber arte agora. Você ainda pode salvar o orçamento normalmente e anexar a arte depois.')
     }
   }
-  function addItemFromProduct(p:any){
+  function addItemFromProduct(p:any,variant?:VariantSelection){
+    const unitPrice=variant?variant.pricing.price:Number(p.final_price)
     const newItem:BudgetItem={
-      id:uid(),type:'product',name:p.name,description:'',
-      quantity:1,unit_price:Number(p.final_price),discount:0,subtotal:Number(p.final_price),
+      id:uid(),type:'product',name:p.name,description:variant?`Variação: ${variant.label}`:'',
+      quantity:1,unit_price:unitPrice,discount:0,subtotal:unitPrice,
       product_id:p.id,
+      ...(variant?{variant_id:variant.variantId,variant_label:variant.label,unit_cost:variant.pricing.cost}:{}),
       width:           p.width          ?? undefined,
       height:          p.height         ?? undefined,
       area:            p.area           ?? undefined,
@@ -711,6 +724,7 @@ export default function OrcamentosPage() {
                         : [],
         finishing_type:   i.finishing_type   ?? i.products?.finishing_type   ?? null,
         technical_notes:  i.technical_notes  ?? i.products?.technical_notes  ?? null,
+        ...(i.variant_id ? { variant_id: i.variant_id, variant_label: i.variant_label ?? null, unit_cost: i.unit_cost ?? null } : {}),
       }))
 
       if (itemRows.length === 0 && Number(b.total) > 0) {
@@ -1151,7 +1165,7 @@ export default function OrcamentosPage() {
                       <div className="max-h-44 overflow-y-auto divide-y divide-border dark:divide-stone-800">
                         {filteredProducts.length===0?(<p className="text-xs text-text-muted text-center py-4">Nenhum produto encontrado</p>
                         ):filteredProducts.map((p:any)=>(
-                          <button key={p.id} type="button" onClick={()=>addItemFromProduct(p)}
+                          <button key={p.id} type="button" onClick={()=>productsWithVariants.has(p.id)?setVariantProduct(p):addItemFromProduct(p)}
                             className="w-full text-left px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-primary-50/50 dark:hover:bg-primary/10 transition-colors">
                             <div className="min-w-0">
                               <p className="text-sm font-medium text-text-primary dark:text-stone-100 leading-snug break-words">{p.name}</p>
@@ -1166,6 +1180,11 @@ export default function OrcamentosPage() {
                       </div>
                     </div>
                   )}
+                  {variantProduct&&(
+                    <VariantPickerModal product={variantProduct}
+                      onClose={()=>setVariantProduct(null)}
+                      onConfirm={sel=>{addItemFromProduct(variantProduct,sel);setVariantProduct(null)}}/>
+                  )}
                   {items.length>0?(
                     <div className="space-y-2">
                       {items.map(item=>(
@@ -1175,6 +1194,7 @@ export default function OrcamentosPage() {
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0">
                                   <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">{item.name||'Item sem nome'}</p>
+                                  {item.variant_label&&<p className="text-[11px] text-primary mt-0.5">Variação: {item.variant_label}</p>}
                                   <p className="text-xs text-text-muted mt-0.5">{item.quantity}× {fmt(item.unit_price)}{item.discount>0&&<span className="ml-1 text-green-600 dark:text-green-400">−{item.discount}%</span>}</p>
                                 </div>
                                 <p className="text-sm font-bold text-primary flex-shrink-0">{fmt(item.subtotal)}</p>
