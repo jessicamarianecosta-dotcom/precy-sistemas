@@ -33,6 +33,22 @@ export interface OrderReceivable {
   paidAt:         string | null
   /** id da parcela em aberto mais antiga (FIFO) — passado como p_schedule_id ao registrar o recebimento. */
   nextScheduleId: string | null
+  /** Parcelas reais (payment_schedule) do pedido, em ordem de número. Vazio em pedidos legados. */
+  installments:   ReceivableInstallment[]
+  installmentsPaid: number
+}
+
+/** Uma parcela de payment_schedule — a mesma linha exibida na edição do pedido. */
+export interface ReceivableInstallment {
+  id:            string
+  number:        number
+  count:         number
+  dueDate:       string
+  amount:        number
+  received:      number
+  balance:       number
+  paymentMethod: string
+  status:        ReceivableStatus
 }
 
 function round2(n: number): number {
@@ -83,7 +99,7 @@ export async function fetchOrderReceivables(
       .select('order_id, amount')
       .eq('company_id', companyId),
     supabase.from('payment_schedule')
-      .select('id, order_id, due_date, payment_method, status, installment_number')
+      .select('id, order_id, due_date, payment_method, status, installment_number, installment_count, amount, received_amount')
       .eq('company_id', companyId)
       .order('due_date', { ascending: true }),
   ])
@@ -93,19 +109,31 @@ export async function fetchOrderReceivables(
     receivedByOrder[p.order_id] = (receivedByOrder[p.order_id] ?? 0) + Number(p.amount)
   })
 
-  /* Primeira parcela ainda em aberto de cada pedido (já ordenado por due_date). */
-  const nextOpenByOrder: Record<string, { id: string; due_date: string; payment_method: string; installment_number: number }> = {}
-  ;(scheduleRaw ?? []).forEach((r: any) => {
-    if (r.status === 'recebido' || r.status === 'cancelado') return
-    const current = nextOpenByOrder[r.order_id]
-    if (!current || r.installment_number < current.installment_number) {
-      nextOpenByOrder[r.order_id] = {
-        id: r.id, due_date: r.due_date, payment_method: r.payment_method, installment_number: r.installment_number,
-      }
-    }
-  })
-
   const todayStr = format(new Date(), 'yyyy-MM-dd')
+
+  /* Parcelas de cada pedido; a "próxima" é a de menor número ainda com saldo. */
+  const installmentsByOrder: Record<string, ReceivableInstallment[]> = {}
+  ;(scheduleRaw ?? []).forEach((r: any) => {
+    const amount   = round2(Number(r.amount))
+    const received = round2(Math.min(amount, Number(r.received_amount) || 0))
+    const balance  = round2(amount - received)
+    const status: ReceivableStatus =
+      r.status === 'cancelado' ? 'cancelado'
+      : balance <= 0           ? 'recebido'
+      : r.due_date < todayStr  ? 'vencido'
+      : received > 0           ? 'parcial'
+      :                          'a_receber'
+    ;(installmentsByOrder[r.order_id] ??= []).push({
+      id: r.id, number: r.installment_number, count: r.installment_count, dueDate: r.due_date,
+      amount, received, balance, paymentMethod: r.payment_method, status,
+    })
+  })
+  Object.values(installmentsByOrder).forEach(list => list.sort((a, b) => a.number - b.number))
+  const nextOpenByOrder: Record<string, ReceivableInstallment> = {}
+  Object.entries(installmentsByOrder).forEach(([orderId, list]) => {
+    const next = list.find(i => i.status !== 'recebido' && i.status !== 'cancelado')
+    if (next) nextOpenByOrder[orderId] = next
+  })
 
   return (orders ?? []).map((o: any) => {
     const total    = round2(Number(o.total))
@@ -122,13 +150,15 @@ export async function fetchOrderReceivables(
       total,
       received,
       balance,
-      dueDate:        next?.due_date ?? null,
-      paymentMethod:  next?.payment_method ?? o.payment_method ?? null,
+      dueDate:        next?.dueDate ?? null,
+      paymentMethod:  next?.paymentMethod ?? o.payment_method ?? null,
       orderStatus:    o.status,
       paidAt:         o.paid_at ?? null,
       nextScheduleId: next?.id ?? null,
+      installments:     installmentsByOrder[o.id] ?? [],
+      installmentsPaid: (installmentsByOrder[o.id] ?? []).filter(i => i.status === 'recebido').length,
       status: computeReceivableStatus({
-        total, received, dueDate: next?.due_date ?? null, orderStatus: o.status, today: todayStr,
+        total, received, dueDate: next?.dueDate ?? null, orderStatus: o.status, today: todayStr,
       }),
     } satisfies OrderReceivable
   })

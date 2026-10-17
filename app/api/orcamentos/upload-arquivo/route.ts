@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { resolveCompanyIdForUser } from '@/lib/supabase/pgHelpers'
 
 /*
  * Mesma allowlist/limite de app/api/pedidos/upload-arquivo/route.ts —
@@ -28,14 +29,10 @@ export async function POST(request: Request) {
     const { data: { user } } = await serverClient.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
 
-    const { data: company, error: companyErr } = await (supabaseAdmin.from('companies') as any)
-      .select('id')
-      .eq('user_id', user.id)
-      .single()
-    if (companyErr || !company) {
+    const companyId = await resolveCompanyIdForUser(user.id)
+    if (!companyId) {
       return NextResponse.json({ error: 'Empresa não encontrada para este usuário' }, { status: 404 })
     }
-    const companyId = company.id as string
 
     const formData = await request.formData()
     const file = formData.get('file') as File | null
@@ -46,23 +43,31 @@ export async function POST(request: Request) {
     if (!budgetId) return NextResponse.json({ error: 'Orçamento não informado' }, { status: 400 })
     if (!budgetItemId) return NextResponse.json({ error: 'Item não informado' }, { status: 400 })
 
+    const db = supabaseAdmin as any
+
     /* Confirma que o orçamento pertence à mesma empresa do usuário autenticado */
-    const { data: budget, error: budgetErr } = await (supabaseAdmin.from('budgets') as any)
+    const { data: budgetRow, error: budgetErr } = await db
+      .from('budgets')
       .select('id')
       .eq('id', budgetId)
       .eq('company_id', companyId)
+      .limit(1)
       .maybeSingle()
-    if (budgetErr || !budget) {
+    if (budgetErr) throw budgetErr
+    if (!budgetRow) {
       return NextResponse.json({ error: 'Orçamento não encontrado' }, { status: 404 })
     }
 
     /* Confirma que o item pertence ao mesmo orçamento (evita anexar em item de outro orçamento/empresa) */
-    const { data: budgetItem, error: itemErr } = await (supabaseAdmin.from('budget_items') as any)
+    const { data: itemRow, error: itemErr } = await db
+      .from('budget_items')
       .select('id')
       .eq('id', budgetItemId)
       .eq('budget_id', budgetId)
+      .limit(1)
       .maybeSingle()
-    if (itemErr || !budgetItem) {
+    if (itemErr) throw itemErr
+    if (!itemRow) {
       return NextResponse.json({ error: 'Item do orçamento não encontrado' }, { status: 404 })
     }
 
@@ -82,13 +87,15 @@ export async function POST(request: Request) {
       .from('order-files')
       .upload(path, buffer, { upsert: true, contentType: file.type || undefined })
     if (uploadErr) {
+      console.error('[orcamentos/upload-arquivo] storage upload:', uploadErr)
       return NextResponse.json({ error: `Upload error: ${uploadErr.message}` }, { status: 500 })
     }
 
     const { data: urlData } = supabaseAdmin.storage.from('order-files').getPublicUrl(path)
 
-    const { data: fileRow, error: insertErr } = await (supabaseAdmin.from('budget_item_files') as any)
-      .insert([{
+    const { data: fileRow, error: fileErr } = await db
+      .from('budget_item_files')
+      .insert({
         budget_item_id: budgetItemId,
         budget_id: budgetId,
         company_id: companyId,
@@ -97,12 +104,10 @@ export async function POST(request: Request) {
         file_path: path,
         file_size: file.size,
         mime_type: file.type || null,
-      }])
+      })
       .select()
       .single()
-    if (insertErr) {
-      return NextResponse.json({ error: `Erro ao registrar arquivo: ${insertErr.message}` }, { status: 500 })
-    }
+    if (fileErr) throw fileErr
 
     return NextResponse.json({ ok: true, file: fileRow })
   } catch (err) {

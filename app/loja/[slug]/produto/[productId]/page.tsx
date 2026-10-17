@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils/format'
 import { ArrowLeft, Clock, Store, Loader2, CheckCircle, X, ZoomIn } from 'lucide-react'
 import { useCart } from '@/lib/catalog/useCart'
+import { OBSERVATION_MAX, cleanObservation } from '@/lib/catalog/observation'
 import { useToast } from '@/components/ui/Toaster'
 import { StoreFooter } from '@/components/catalog/storefront/StoreFooter'
 import type { StorefrontSettings } from '@/components/catalog/storefront/types'
@@ -55,6 +56,22 @@ export default function ProdutoLojaPage() {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const touchStartX = useRef<number | null>(null)
+
+  // Observação do cliente sobre ESTE produto — guardada por loja+produto, então
+  // não se mistura com a de outro produto e continua preenchida ao voltar.
+  const noteKey = `precy-catalogo-obs-${slug}-${productId}`
+  const [note, setNote] = useState('')
+  useEffect(() => {
+    try { setNote(localStorage.getItem(noteKey) ?? '') } catch { setNote('') }
+  }, [noteKey])
+  function changeNote(value: string) {
+    const next = value.slice(0, OBSERVATION_MAX)
+    setNote(next)
+    try {
+      if (next) localStorage.setItem(noteKey, next)
+      else localStorage.removeItem(noteKey)
+    } catch { /* ignore */ }
+  }
 
   const { data: settings } = useQuery<(StorefrontSettings & { checkout_mode: 'buy' | 'quote'; companies: { name: string } | null }) | null>({
     queryKey: ['loja-settings', slug],
@@ -249,10 +266,11 @@ export default function ProdutoLojaPage() {
     try {
       const res = await fetch('/api/loja/orcamento', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug, productId, variantId: selectedVariant?.id ?? null, variantLabel, customer: quoteData }),
+        body: JSON.stringify({ slug, productId, variantId: selectedVariant?.id ?? null, variantLabel, customer: quoteData, observation: cleanObservation(note) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Erro ao enviar solicitação')
+      changeNote('')
       setSent(true)
     } catch (err: any) {
       toast('error', err.message)
@@ -397,6 +415,22 @@ export default function ProdutoLojaPage() {
               </div>
             )}
 
+            <div className="mb-5">
+              <label htmlFor="loja-observacoes" className="block text-xs font-semibold text-text-primary dark:text-stone-100 mb-1.5">
+                Observações
+              </label>
+              <textarea
+                id="loja-observacoes"
+                className="input"
+                rows={3}
+                maxLength={OBSERVATION_MAX}
+                placeholder="Digite aqui alguma observação sobre este produto..."
+                value={note}
+                onChange={e => changeNote(e.target.value)}
+              />
+              <p className="text-[11px] text-text-muted mt-1 text-right">{note.length}/{OBSERVATION_MAX}</p>
+            </div>
+
             {mode === 'buy' ? (
               <button
                 disabled={needsSelection || isSoldOut}
@@ -410,6 +444,7 @@ export default function ProdutoLojaPage() {
                     price: effectivePrice,
                     quantity: 1,
                     photo: displayPhotos[0] ?? null,
+                    notes: cleanObservation(note),
                   })
                   toast('success', 'Adicionado ao carrinho!')
                   router.push(`/loja/${slug}/checkout`)

@@ -83,6 +83,8 @@ import {
 } from '@/lib/orders/paymentSchedule'
 import { fetchOrderReceivables } from '@/lib/orders/receivables'
 import { extractPixSnapshot } from '@/lib/company/pix'
+import { VariantPickerModal, type VariantSelection } from '@/components/produtos/VariantPickerModal'
+import { useProductsWithVariants } from '@/hooks/useProductsWithVariants'
 
 const OrderFilesSection = dynamic(
   () => import('@/components/orders/OrderFilesSection').then(m => m.OrderFilesSection),
@@ -178,6 +180,10 @@ interface OrderItem {
   finishings?: string[]
   finishing_type?: string
   technical_notes?: string
+  // Variação escolhida (produto com variações)
+  variant_id?: string
+  variant_label?: string
+  unit_cost?: number
 }
 
 function uid() {
@@ -272,6 +278,7 @@ function PedidosPage() {
   const searchParams = useSearchParams()
 
   const { companyId } = useCompanyId()
+  const productsWithVariants = useProductsWithVariants(companyId)
   const { data: sub } = useSubscription()
 
   const [showModal, setShowModal] = useState(false)
@@ -340,6 +347,8 @@ function PedidosPage() {
 
   /* Product picker (para adicionar itens ao carrinho) */
   const [productSearch, setProductSearch] = useState('')
+  const [variantProduct, setVariantProduct] = useState<any | null>(null)
+  const [changeVariantItem, setChangeVariantItem] = useState<OrderItem | null>(null)
   const [showProductPicker, setShowProductPicker] = useState(false)
 
   /* Payment registration modal */
@@ -463,7 +472,7 @@ function PedidosPage() {
     enabled: !!companyId,
     queryFn: async () => {
       const { data } = await (supabase.from('products') as any)
-        .select('id, name, final_price, category, description, unit, width, height, area, measurement_unit, finishings, finishing_type, technical_notes')
+        .select('id, name, final_price, total_cost, material_cost, category, description, unit, width, height, area, measurement_unit, finishings, finishing_type, technical_notes')
         .eq('company_id', companyId!)
         .eq('is_active', true)
         .order('name')
@@ -766,13 +775,14 @@ function PedidosPage() {
      ITENS DO PEDIDO — carrinho
   ───────────────────────────────────────────── */
 
-  function addItemFromProduct(p: any) {
-    const unitPrice = Number(p.final_price) || 0
+  function addItemFromProduct(p: any, variant?: VariantSelection) {
+    const unitPrice = variant ? variant.pricing.price : (Number(p.final_price) || 0)
     const item: OrderItem = {
       id: uid(),
       product_id: p.id,
       name: p.name,
-      description: p.description || '',
+      description: variant ? `Variação: ${variant.label}` : (p.description || ''),
+      ...(variant ? { variant_id: variant.variantId, variant_label: variant.label, unit_cost: variant.pricing.cost } : {}),
       quantity: 1,
       unit_price: unitPrice,
       discount: 0,
@@ -826,6 +836,16 @@ function PedidosPage() {
     setItems(prev => prev.filter(i => i.id !== id))
   }
 
+  function applyVariantToItem(item: OrderItem, sel: VariantSelection) {
+    const rest = (item.description || '').split('\n').filter(l => !l.startsWith('Variação:')).join('\n')
+    const next: OrderItem = {
+      ...item, unit_price: sel.pricing.price, unit_cost: sel.pricing.cost,
+      variant_id: sel.variantId, variant_label: sel.label,
+      description: [`Variação: ${sel.label}`, rest].filter(Boolean).join('\n'),
+    }
+    setItems(prev => prev.map(i => i.id === item.id ? { ...next, subtotal: computeItemSubtotal(next) } : i))
+  }
+
   /* ─────────────────────────────────────────────
      SAVE ORDER
   ───────────────────────────────────────────── */
@@ -875,6 +895,7 @@ function PedidosPage() {
       finishings: i.finishings ?? [],
       finishing_type: i.finishing_type ?? null,
       technical_notes: i.technical_notes ?? null,
+      ...(i.variant_id ? { variant_id: i.variant_id, variant_label: i.variant_label ?? null, unit_cost: i.unit_cost ?? null } : {}),
     }))
     const { error } = await (supabase.from('order_items') as any).insert(rows)
     if (error) throw new Error(`Erro ao salvar itens do pedido: ${error.message}`)
@@ -1469,6 +1490,9 @@ function PedidosPage() {
         finishings: Array.isArray(i.finishings) ? i.finishings : [],
         finishing_type: i.finishing_type ?? undefined,
         technical_notes: i.technical_notes ?? undefined,
+        variant_id: i.variant_id ?? undefined,
+        variant_label: i.variant_label ?? undefined,
+        unit_cost: i.unit_cost != null ? Number(i.unit_cost) : undefined,
       })))
     } else {
       /* Pedido legado (anterior ao carrinho) — sintetiza 1 item a partir dos campos antigos */
@@ -2662,6 +2686,19 @@ function PedidosPage() {
                     <Package size={12} /> Produtos / Serviços
                   </h3>
 
+                  {changeVariantItem && (() => {
+                    const prod = (productsList ?? []).find((x: any) => x.id === changeVariantItem.product_id)
+                    return prod ? (
+                      <VariantPickerModal product={prod}
+                        onClose={() => setChangeVariantItem(null)}
+                        onConfirm={sel => { applyVariantToItem(changeVariantItem, sel); setChangeVariantItem(null) }} />
+                    ) : null
+                  })()}
+                  {variantProduct && (
+                    <VariantPickerModal product={variantProduct}
+                      onClose={() => setVariantProduct(null)}
+                      onConfirm={sel => { addItemFromProduct(variantProduct, sel); setVariantProduct(null); setProductSearch('') }} />
+                  )}
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
@@ -2687,7 +2724,7 @@ function PedidosPage() {
                                 key={p.id as string}
                                 type="button"
                                 className="w-full text-left px-3 py-2.5 hover:bg-primary-50 dark:hover:bg-primary/10 flex items-center justify-between gap-3 border-b border-border dark:border-border-dark last:border-0 transition-colors"
-                                onClick={() => addItemFromProduct(p)}
+                                onClick={() => productsWithVariants.has(p.id) ? (setVariantProduct(p), setShowProductPicker(false)) : addItemFromProduct(p)}
                               >
                                 <div className="min-w-0">
                                   <p className="text-sm font-medium text-text-primary dark:text-stone-100 leading-snug break-words">{p.name as string}</p>
@@ -2726,6 +2763,7 @@ function PedidosPage() {
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0 flex-1">
                               <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">{item.name || 'Item sem nome'}</p>
+                              {item.variant_label && !(item.description || '').includes(item.variant_label) && <p className="text-[11px] text-primary mt-0.5">Variação: {item.variant_label}</p>}
                               {item.description && <p className="text-[11px] text-text-muted mt-0.5 break-words">{item.description}</p>}
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-[11px] text-text-muted">
                                 <span>Qtd: <b className="text-text-primary dark:text-stone-200">{item.quantity}</b></span>
@@ -2737,6 +2775,9 @@ function PedidosPage() {
                             </div>
                             <div className="flex items-center gap-1 flex-shrink-0">
                               <span className="text-sm font-bold text-primary mr-1">{fmtGlobal(item.subtotal)}</span>
+                              {item.product_id && productsWithVariants.has(item.product_id) && (
+                                <button type="button" onClick={() => setChangeVariantItem(item)} className="px-2 py-1.5 rounded-lg text-[11px] font-medium text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors">Trocar variação</button>
+                              )}
                               <button type="button" onClick={() => openEditItem(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors" title="Editar">
                                 <Edit2 size={13} />
                               </button>

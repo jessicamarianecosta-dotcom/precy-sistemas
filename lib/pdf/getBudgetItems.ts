@@ -9,6 +9,12 @@
  * Utilizado em: PDF, impressão, download e visualização.
  */
 
+function withVariantLabel(desc: string, label?: string | null): string {
+  if (!label) return desc
+  const line = `Variação: ${label}`
+  return desc.includes(line) ? desc : (desc ? `${line} — ${desc}` : line)
+}
+
 export interface EffectiveItem {
   name: string
   description: string
@@ -34,7 +40,8 @@ export function getBudgetItems(
   // Caminho principal: itens reais salvos em budget_items
   const enriched: EffectiveItem[] = dbItems.map((item: any) => ({
     name:             item.name             || item.products?.name        || 'Item',
-    description:      item.description      || item.products?.description || '',
+    // Variação escolhida sempre aparece, mesmo se a descrição foi editada depois
+    description:      withVariantLabel(item.description || item.products?.description || '', item.variant_label),
     quantity:         Number(item.quantity)   || 1,
     unit_price:       Number(item.unit_price) || 0,
     subtotal:         Number(item.subtotal)   || 0,

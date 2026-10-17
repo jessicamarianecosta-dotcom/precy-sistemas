@@ -293,6 +293,8 @@ function PrecificacaoPage() {
   const { data: sub } = useSubscription()
   const searchParams = useSearchParams()
   const editingProductId = searchParams.get('productId') ?? null
+  // Modo variação: a mesma calculadora, mas os valores pertencem a UMA combinação do produto
+  const editingVariantId = searchParams.get('variantId') ?? null
 
   /* ── form state ── */
   const [productType,      setProductType]      = useState<ProductType>('produced')
@@ -445,6 +447,61 @@ function PrecificacaoPage() {
     if (p.finishing_type)  setFinishingType(p.finishing_type)
     if (p.technical_notes) setTechnicalNotes(p.technical_notes)
   }, [existingProduct, editingProductId, loadedProductId])
+
+  /* ── Modo variação: combinação + rótulo legível (1 consulta de grupos/opções, 1 da variante) ── */
+  const { data: variantForEdit } = useQuery({
+    queryKey: ['variant-for-pricing', editingVariantId],
+    enabled:  !!editingVariantId && !!editingProductId,
+    queryFn:  async () => {
+      const [v, g] = await Promise.all([
+        (supabase.from('product_variants') as any)
+          .select('id, product_id, price, pricing_data, product_variant_option_values(option_id, group_id)')
+          .eq('id', editingVariantId!).eq('product_id', editingProductId!).maybeSingle(),
+        (supabase.from('product_variation_groups') as any)
+          .select('id, sort_order, product_variation_options(id, value)')
+          .eq('product_id', editingProductId!).order('sort_order'),
+      ])
+      if (!v.data) return null
+      const optionById = new Map<string, string>()
+      for (const grp of g.data ?? []) for (const o of grp.product_variation_options ?? []) optionById.set(o.id, o.value)
+      const byGroup = new Map<string, string>((v.data.product_variant_option_values ?? []).map((ov: any) => [ov.group_id, ov.option_id]))
+      const label = (g.data ?? []).map((grp: any) => optionById.get(byGroup.get(grp.id) ?? '') ?? '').filter(Boolean).join(' · ')
+      return { variant: v.data, label }
+    },
+  })
+
+  const [loadedVariantId, setLoadedVariantId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!editingVariantId || !variantForEdit?.variant || loadedVariantId === editingVariantId) return
+    // espera o produto carregar primeiro (ele fornece nome, categoria e padrões)
+    if (loadedProductId !== editingProductId) return
+    setLoadedVariantId(editingVariantId)
+    const d = (variantForEdit.variant as any).pricing_data
+    // Custos pertencem à combinação: nunca herdar materiais/custos do produto principal
+    setMaterials([])
+    setPurchaseCost(0)
+    setFinishingItems([])
+    setExtraCosts([{ id: crypto.randomUUID(), name: '', value: 0, calc_type: 'fixed', calc_base: 'materials' }])
+    if (!d) return
+    if (d.productType) setProductType(d.productType)
+    if (d.pricingType) setPricingType(d.pricingType)
+    if (d.markup != null) setMarkup(Number(d.markup))
+    if (d.productionHours != null) {
+      const total = Number(d.productionHours) || 0
+      let h = Math.floor(total)
+      let m = Math.round((total - h) * 60)
+      if (m >= 60) { m -= 60; h += 1 }
+      setProductionHoursPart(h); setProductionMinutesPart(m)
+    }
+    setPurchaseCost(Number(d.purchaseCost) || 0)
+    if (Array.isArray(d.extraCosts) && d.extraCosts.length > 0) setExtraCosts(d.extraCosts)
+    if (Array.isArray(d.materials)) setMaterials(d.materials.map((m: any) => ({ ...m, tmpId: crypto.randomUUID() })))
+    if (d.mWidth != null) setMWidth(Number(d.mWidth))
+    if (d.mHeight != null) setMHeight(Number(d.mHeight))
+    if (d.mUnit) setMUnit(d.mUnit)
+    if (d.pricePerM2 != null) setPricePerM2(Number(d.pricePerM2))
+    if (Array.isArray(d.finishingItems)) setFinishingItems(d.finishingItems)
+  }, [editingVariantId, variantForEdit, loadedProductId, editingProductId, loadedVariantId])
 
   // Buscar tabela fixed_costs (mesma fonte que Configurações)
   const { data: fixedCostsData } = useQuery({
@@ -796,6 +853,28 @@ function PrecificacaoPage() {
         updated_at: new Date().toISOString(),
       }
 
+      /* ── MODO VARIAÇÃO: grava só na combinação — produto e materiais do produto ficam intactos ── */
+      if (editingVariantId && editingProductId) {
+        if (!(idealPrice > 0)) throw new Error('Informe custos e margem para calcular um preço maior que zero.')
+        const { error: vErr } = await (supabase.from('product_variants') as any)
+          .update({
+            price:             idealPrice,
+            total_cost:        baseCost,
+            material_cost:     productType === 'produced' ? materialCost : productType === 'meter_product' ? mMaterialCost : purchaseCost,
+            labor_cost:        laborCost,
+            extra_cost:        extraCost,
+            markup_percentage: markup,
+            pricing_data: {
+              productType, pricingType, markup, productionHours, purchaseCost, extraCosts,
+              materials, mWidth, mHeight, mUnit, pricePerM2, finishingItems,
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', editingVariantId).eq('product_id', editingProductId)
+        if (vErr) throw vErr
+        return { id: editingVariantId }
+      }
+
       /* ── MODO EDIÇÃO: UPDATE do produto existente ── */
       if (editingProductId) {
         const { error: updateError } = await (supabase.from('products') as any)
@@ -865,6 +944,9 @@ function PrecificacaoPage() {
       queryClient.invalidateQueries({ queryKey: ['inventory-picker', companyId] })
       queryClient.invalidateQueries({ queryKey: ['product-for-edit', editingProductId] })
       queryClient.invalidateQueries({ queryKey: ['product-materials', editingProductId] })
+      queryClient.invalidateQueries({ queryKey: ['product-variants', editingProductId] })
+      queryClient.invalidateQueries({ queryKey: ['variant-picker', editingProductId] })
+      queryClient.invalidateQueries({ queryKey: ['variant-for-pricing', editingVariantId] })
 
       setSavedOk(true)
       setTimeout(() => { setSavedOk(false) }, 3000)
@@ -897,15 +979,32 @@ function PrecificacaoPage() {
   return (
     <div className="page-enter">
       <Header
-        title={editingProductId ? 'Editar Precificação' : 'Precificação'}
-        subtitle={editingProductId
+        title={editingVariantId ? 'Precificação da variação' : editingProductId ? 'Editar Precificação' : 'Precificação'}
+        subtitle={editingVariantId
+          ? 'Custos, margem e preço específicos desta variação'
+          : editingProductId
           ? 'Edite os dados, materiais e margem do produto existente'
           : 'Calcule o preço ideal e cadastre seu produto'
         }
       />
 
+      {/* Banner modo variação: deixa claro o que está sendo precificado */}
+      {editingVariantId && (
+        <div className="mx-3 sm:mx-5 lg:mx-6 mb-2 p-3 rounded-xl border border-primary/25 bg-primary/5 space-y-1">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-primary">Precificação da variação</p>
+            <a href="/produtos" className="text-xs font-medium text-text-muted hover:text-primary transition-colors flex-shrink-0">← Voltar</a>
+          </div>
+          <p className="text-xs text-text-secondary dark:text-stone-300"><span className="text-text-muted">Produto:</span> <strong className="break-words">{productName || '…'}</strong></p>
+          <p className="text-xs text-text-secondary dark:text-stone-300"><span className="text-text-muted">Variação:</span> <strong className="break-words">{variantForEdit?.label || '…'}</strong></p>
+          {variantForEdit && !(variantForEdit.variant as any).pricing_data && (
+            <p className="text-[11px] text-text-muted">Esta variação ainda não tem precificação própria — hoje usa o preço do produto. Informe os custos abaixo e salve.</p>
+          )}
+        </div>
+      )}
+
       {/* Banner modo edição */}
-      {editingProductId && (
+      {editingProductId && !editingVariantId && (
         <div className="mx-3 sm:mx-5 lg:mx-6 mb-2 flex items-center justify-between gap-3 p-3 rounded-xl border border-primary/25 bg-primary/5">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-sm">✏️</span>
@@ -1064,6 +1163,8 @@ function PrecificacaoPage() {
                   placeholder="Ex: Copo personalizado"
                   value={productName}
                   onChange={e => setProductName(e.target.value)}
+                  readOnly={!!editingVariantId}
+                  disabled={!!editingVariantId}
                 />
               </div>
 
@@ -1938,8 +2039,8 @@ function PrecificacaoPage() {
                 {saveMutation.isPending
                   ? 'Salvando...'
                   : savedOk
-                    ? (editingProductId ? 'Produto atualizado! ✅' : 'Produto salvo!')
-                    : (editingProductId ? 'Atualizar produto' : 'Salvar produto')
+                    ? (editingVariantId ? 'Variação precificada! ✅' : editingProductId ? 'Produto atualizado! ✅' : 'Produto salvo!')
+                    : (editingVariantId ? 'Salvar precificação da variação' : editingProductId ? 'Atualizar produto' : 'Salvar produto')
                 }
               </button>
             </div>

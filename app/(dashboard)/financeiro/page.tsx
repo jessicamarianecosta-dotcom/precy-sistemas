@@ -24,6 +24,7 @@ import { nextDueFrom } from '@/lib/utils/recurring'
 import { useFinanceFilters, type FinanceFilters } from './useFinanceFilters'
 import { FinanceToolbar } from '@/components/finance/FinanceToolbar'
 import type { FinanceFilterOption, FinanceFilterGroup } from '@/components/finance/FinanceFilterSelect'
+import { buildScheduleForecast } from '@/lib/orders/scheduleForecast'
 import { ContasAReceberPanel } from '@/components/finance/ContasAReceberPanel'
 
 /* ─── Types ─── */
@@ -55,6 +56,8 @@ interface Transaction {
   supplier_name?:       string | null
   supplier_document?:  string | null
   supplier_phone?:      string | null
+  /** Linha derivada de payment_schedule (receita prevista) — somente leitura aqui. */
+  forecast?:           boolean
 }
 
 interface CostCenter {
@@ -155,7 +158,7 @@ function transactionMatchesFilters(t: Transaction, f: FinanceFilters, opts?: { s
     const now = new Date()
     const d = parseISO(t.date)
     if (f.period === 'today'      && !isToday(d)) return false
-    if (f.period === 'week'       && d < startOfWeek(now, { locale: ptBR })) return false
+    if (f.period === 'week' && (d < startOfWeek(now, { locale: ptBR }) || d > endOfWeek(now, { locale: ptBR }))) return false
     if (f.period === 'month'      && (d < startOfMonth(now) || d > endOfMonth(now))) return false
     if (f.period === 'last_month') {
       const lm = subMonths(now, 1)
@@ -328,7 +331,21 @@ export default function FinanceiroPage() {
         .eq('company_id', companyId!)
         .order('date', { ascending: false })
       if (error) throw error
-      return (data ?? []) as Transaction[]
+      const real = (data ?? []) as Transaction[]
+
+      /* Receitas previstas: saldo pendente de cada parcela de pedido (payment_schedule).
+         A mesma consulta alimenta o filtro de período, então "Próx. mês" enxerga
+         as parcelas/boletos que vencem no mês. */
+      const { data: sched } = await (supabase.from('payment_schedule') as any)
+        .select('id, order_id, installment_number, installment_count, due_date, amount, received_amount, status, payment_method, orders(order_number, service_name, status, customers(name))')
+        .eq('company_id', companyId!)
+        .in('status', ['a_receber', 'parcial'])
+      const withPendingIncome = new Set<string>(
+        real.filter(t => t.type === 'income' && t.order_id && t.status !== 'received' && t.status !== 'paid')
+            .map(t => t.order_id as string),
+      )
+      const forecast = buildScheduleForecast(sched ?? [], withPendingIncome, format(new Date(), 'yyyy-MM-dd'))
+      return [...real, ...(forecast as unknown as Transaction[])]
     },
   })
 
@@ -440,6 +457,7 @@ export default function FinanceiroPage() {
     const monthBal    = monthInc - monthExp
     const monthForeInc = foreInc.reduce((s,t) => s + Number(t.amount), 0)
     const monthForeExp = foreExp.reduce((s,t) => s + Number(t.amount), 0)
+    const monthProjected = monthBal + monthForeInc - monthForeExp
 
     const incCount  = realInc.length
     const ticketAvg = incCount > 0 ? monthInc / incCount : 0
@@ -463,7 +481,7 @@ export default function FinanceiroPage() {
     return {
       totalRealInc, balance,
       monthInc, monthExp, monthBal,
-      monthForeInc, monthForeExp,
+      monthForeInc, monthForeExp, monthProjected,
       incCount, ticketAvg,
       overdueCount, topExpCat: expByCat[0]?.label ?? '—',
     }
@@ -860,9 +878,12 @@ export default function FinanceiroPage() {
                 <p className="text-xs font-semibold text-text-muted dark:text-stone-500 uppercase tracking-wider">
                   Saldo {filters.period === 'all' ? 'geral' : filters.period === 'month' ? 'do mês' : filters.period === 'next_month' ? 'próx. mês' : filters.period === 'last_month' ? 'mês ant.' : filters.period === 'week' ? 'da semana' : filters.period === 'today' ? 'de hoje' : 'do período'}
                 </p>
-                <p className={clsx('text-2xl font-bold mt-1', stats.monthBal >= 0 ? 'text-primary' : 'text-error dark:text-red-400')}>
-                  {fmt(stats.monthBal)}
+                <p className={clsx('text-2xl font-bold mt-1', (filters.period === 'next_month' ? stats.monthProjected : stats.monthBal) >= 0 ? 'text-primary' : 'text-error dark:text-red-400')}>
+                  {fmt(filters.period === 'next_month' ? stats.monthProjected : stats.monthBal)}
                 </p>
+                {filters.period === 'next_month' && (
+                  <p className="text-[10px] text-text-muted dark:text-stone-500 mt-0.5">projetado (previsto a receber − a pagar)</p>
+                )}
               </div>
               <div className={clsx('w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0',
                 stats.balance >= 0 ? 'bg-primary/10' : 'bg-red-100 dark:bg-red-900/30')}>
@@ -959,7 +980,9 @@ export default function FinanceiroPage() {
                           </div>
                           <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">
                             {t.description || (t.type === 'income' ? 'Receita' : 'Despesa')}
-                            {t.installment_number && (
+                            {t.forecast
+                              ? <span className="ml-1.5 text-[10px] font-semibold text-primary">· Previsão</span>
+                              : t.installment_number && (
                               <span className="ml-1.5 text-[10px] font-normal text-text-muted">· {t.installment_number}/{t.installments}</span>
                             )}
                           </p>
@@ -989,7 +1012,7 @@ export default function FinanceiroPage() {
                         </div>
                       </div>
                       <div className="flex gap-2 justify-end">
-                        {t.type === 'income' && ['pending','partial','overdue'].includes(t.status ?? '') && (
+                        {t.type === 'income' && !t.forecast && ['pending','partial','overdue'].includes(t.status ?? '') && (
                           <button onClick={() => openConfirm(t)} title="Receber"
                             className="p-1.5 rounded-lg text-success-dark dark:text-green-400 hover:bg-success-light dark:hover:bg-success/10 transition-colors"><HandCoins size={13}/></button>
                         )}
@@ -1002,8 +1025,8 @@ export default function FinanceiroPage() {
                             className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Layers size={13}/></button>
                         )}
                         <button onClick={() => setViewTx(t)} title="Visualizar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Eye size={13}/></button>
-                        <button onClick={() => openEdit(t)} title="Editar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>
-                        <button onClick={() => setDeleteId(t.id)} title="Excluir" className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>
+                        {!t.forecast && <button onClick={() => openEdit(t)} title="Editar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>}
+                        {!t.forecast && <button onClick={() => setDeleteId(t.id)} title="Excluir" className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>}
                       </div>
                     </div>
                   )
@@ -1034,7 +1057,9 @@ export default function FinanceiroPage() {
                           <td className="p-4 max-w-[220px]">
                             <p className="text-sm font-medium text-text-primary dark:text-stone-100 leading-snug break-words">
                               {t.description || (t.type === 'income' ? 'Receita' : 'Despesa')}
-                              {t.installment_number && (
+                              {t.forecast
+                                ? <span className="ml-1.5 text-[10px] font-semibold text-primary">· Previsão</span>
+                                : t.installment_number && (
                                 <span className="ml-1.5 text-[10px] font-normal text-text-muted">· {t.installment_number}/{t.installments}</span>
                               )}
                             </p>
@@ -1082,7 +1107,7 @@ export default function FinanceiroPage() {
                           </td>
                           <td className="p-4">
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              {t.type === 'income' && ['pending','partial','overdue'].includes(t.status ?? '') && (
+                              {t.type === 'income' && !t.forecast && ['pending','partial','overdue'].includes(t.status ?? '') && (
                                 <button onClick={() => openConfirm(t)}
                                   title="Receber"
                                   className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold text-success-dark dark:text-green-400 hover:bg-success-light dark:hover:bg-success/10 transition-colors">
@@ -1100,8 +1125,8 @@ export default function FinanceiroPage() {
                                 <button onClick={() => setGroupViewId(t.expense_group_id!)} title="Ver parcelas" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Layers size={13}/></button>
                               )}
                               <button onClick={() => setViewTx(t)} title="Visualizar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Eye size={13}/></button>
-                              <button onClick={() => openEdit(t)} title="Editar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>
-                              <button onClick={() => setDeleteId(t.id)} title="Excluir" className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>
+                              {!t.forecast && <button onClick={() => openEdit(t)} title="Editar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>}
+                              {!t.forecast && <button onClick={() => setDeleteId(t.id)} title="Excluir" className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>}
                             </div>
                           </td>
                         </tr>

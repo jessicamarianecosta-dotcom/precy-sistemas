@@ -67,7 +67,7 @@ export default function CheckoutLojaPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           slug,
-          items: items.map(i => ({ productId: i.productId, variantId: i.variantId ?? null, quantity: i.quantity })),
+          items: items.map(i => ({ productId: i.productId, variantId: i.variantId ?? null, quantity: i.quantity, notes: i.notes ?? null })),
           customer,
           shippingPrice: shipping?.price ?? 0,
           artwork,
@@ -112,6 +112,7 @@ export default function CheckoutLojaPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{item.name}</p>
                     {item.variantLabel && <p className="text-[11px] text-text-muted truncate">{item.variantLabel}</p>}
+                    {item.notes && <p className="text-[11px] text-text-muted line-clamp-2">Obs.: {item.notes}</p>}
                     <p className="text-xs text-text-muted">{formatCurrency(item.price)}</p>
                   </div>
                   <div className="flex items-center gap-1.5">
