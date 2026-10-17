@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
@@ -8,7 +8,7 @@ import { ptBR } from 'date-fns/locale'
 import { clsx } from 'clsx'
 import {
   ChevronDown, ChevronUp, Wallet, AlertTriangle, Clock3,
-  MoreVertical, CheckCircle2, History, ExternalLink,
+  MoreVertical, CheckCircle2, History, ExternalLink, ListTree,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils/format'
 import { fetchOrderReceivables, type OrderReceivable, type ReceivableStatus } from '@/lib/orders/receivables'
@@ -59,6 +59,8 @@ export function ContasAReceberPanel({ companyId, supabase }: { companyId: string
   const [statusFilter, setStatusFilter] = useState<ReceivableStatus | 'todos'>('todos')
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [receberFor, setReceberFor] = useState<OrderReceivable | null>(null)
+  const [receberInstallmentId, setReceberInstallmentId] = useState<string | null>(null)
+  const [installmentsFor, setInstallmentsFor] = useState<string | null>(null)
   const [historyFor, setHistoryFor] = useState<OrderReceivable | null>(null)
 
   const { data: receivables, isLoading } = useQuery<OrderReceivable[]>({
@@ -78,6 +80,11 @@ export function ContasAReceberPanel({ companyId, supabase }: { companyId: string
     if (statusFilter === 'todos') return r.status !== 'recebido' && r.status !== 'cancelado'
     return r.status === statusFilter
   })
+
+  function openReceber(row: OrderReceivable, installmentId: string | null = null) {
+    setReceberInstallmentId(installmentId)
+    setReceberFor(row)
+  }
 
   function goToOrder(orderId: string) {
     router.push(`/pedidos?open=${orderId}`)
@@ -172,11 +179,15 @@ export function ContasAReceberPanel({ companyId, supabase }: { companyId: string
                     {visibleRows.map((row, idx) => {
                       const canReceive = row.balance > 0 && row.status !== 'cancelado'
                       return (
-                        <tr key={row.orderId} className={clsx(idx !== 0 && 'border-t border-border dark:border-border-dark')}>
+                        <Fragment key={row.orderId}>
+                        <tr className={clsx(idx !== 0 && 'border-t border-border dark:border-border-dark')}>
                           <td className="px-3 py-2.5 max-w-[160px] truncate font-medium text-text-primary dark:text-stone-100">
                             {row.customerName || 'Sem cliente'}
                           </td>
-                          <td className="px-3 py-2.5 whitespace-nowrap font-mono text-text-muted">{row.orderNumber || '—'}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap font-mono text-text-muted">
+                            {row.orderNumber || '—'}
+                            <ProgressTag row={row} />
+                          </td>
                           <td className="px-3 py-2.5 text-right whitespace-nowrap text-text-muted">{formatCurrency(row.total)}</td>
                           <td className="px-3 py-2.5 text-right whitespace-nowrap text-green-700 dark:text-green-400">{formatCurrency(row.received)}</td>
                           <td className="px-3 py-2.5 text-right whitespace-nowrap font-bold text-text-primary dark:text-stone-100">{formatCurrency(row.balance)}</td>
@@ -193,7 +204,7 @@ export function ContasAReceberPanel({ companyId, supabase }: { companyId: string
                             <div className="relative inline-flex items-center gap-1 justify-end">
                               {canReceive && (
                                 <button
-                                  onClick={() => setReceberFor(row)}
+                                  onClick={() => openReceber(row)}
                                   className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-primary text-white hover:bg-primary/90"
                                 >
                                   <CheckCircle2 size={12} /> Receber
@@ -209,8 +220,13 @@ export function ContasAReceberPanel({ companyId, supabase }: { companyId: string
                                 <>
                                   <div className="fixed inset-0 z-10" onClick={() => setMenuFor(null)} />
                                   <div className="absolute right-0 top-8 z-20 w-52 rounded-xl border border-border dark:border-border-dark bg-white dark:bg-surface-dark shadow-modal py-1 text-left">
+                                    {row.installments.length > 1 && (
+                                      <MenuItem icon={<ListTree size={13} />} onClick={() => { setMenuFor(null); setInstallmentsFor(installmentsFor === row.orderId ? null : row.orderId) }}>
+                                        Ver parcelas
+                                      </MenuItem>
+                                    )}
                                     {canReceive && (
-                                      <MenuItem icon={<CheckCircle2 size={13} />} onClick={() => { setMenuFor(null); setReceberFor(row) }}>
+                                      <MenuItem icon={<CheckCircle2 size={13} />} onClick={() => { setMenuFor(null); openReceber(row) }}>
                                         Registrar recebimento
                                       </MenuItem>
                                     )}
@@ -226,6 +242,14 @@ export function ContasAReceberPanel({ companyId, supabase }: { companyId: string
                             </div>
                           </td>
                         </tr>
+                        {installmentsFor === row.orderId && (
+                          <tr className="bg-stone-50/60 dark:bg-stone-800/30">
+                            <td colSpan={9} className="px-3 py-2">
+                              <InstallmentList row={row} onReceive={id => openReceber(row, id)} />
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                       )
                     })}
                   </tbody>
@@ -243,7 +267,7 @@ export function ContasAReceberPanel({ companyId, supabase }: { companyId: string
                           <p className="text-sm font-semibold text-text-primary dark:text-stone-100 truncate">
                             {row.customerName || 'Sem cliente'}
                           </p>
-                          <p className="text-[11px] font-mono text-text-muted">{row.orderNumber || '—'}</p>
+                          <p className="text-[11px] font-mono text-text-muted">{row.orderNumber || '—'}<ProgressTag row={row} /></p>
                         </div>
                         <span className={clsx('inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0', BADGE_CLASS[row.status])}>
                           {STATUS_LABELS[row.status]}
@@ -264,10 +288,22 @@ export function ContasAReceberPanel({ companyId, supabase }: { companyId: string
                         </div>
                       </div>
                       <p className="text-[11px] text-text-muted">Vencimento: {fmtDue(row.dueDate, row.status)}</p>
+                      {row.installments.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setInstallmentsFor(installmentsFor === row.orderId ? null : row.orderId)}
+                          className="text-[11px] text-primary hover:underline"
+                        >
+                          {installmentsFor === row.orderId ? 'Ocultar parcelas' : 'Ver parcelas'}
+                        </button>
+                      )}
+                      {installmentsFor === row.orderId && (
+                        <InstallmentList row={row} onReceive={id => openReceber(row, id)} />
+                      )}
                       <div className="flex gap-2 pt-1">
                         {canReceive && (
                           <button
-                            onClick={() => setReceberFor(row)}
+                            onClick={() => openReceber(row)}
                             className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold bg-primary text-white hover:bg-primary/90"
                           >
                             <CheckCircle2 size={14} /> Receber
@@ -298,6 +334,7 @@ export function ContasAReceberPanel({ companyId, supabase }: { companyId: string
       {receberFor && companyId && (
         <ReceberModal
           receivable={receberFor}
+          initialInstallmentId={receberInstallmentId}
           companyId={companyId}
           supabase={supabase}
           onClose={() => setReceberFor(null)}
@@ -311,6 +348,52 @@ export function ContasAReceberPanel({ companyId, supabase }: { companyId: string
           onClose={() => setHistoryFor(null)}
         />
       )}
+    </div>
+  )
+}
+
+function ProgressTag({ row }: { row: OrderReceivable }) {
+  if (row.installments.length < 2) return null
+  return (
+    <span className="ml-1.5 font-sans text-[10px] text-text-muted">
+      {row.installmentsPaid}/{row.installments.length} parcelas
+    </span>
+  )
+}
+
+function InstallmentList({ row, onReceive }: { row: OrderReceivable; onReceive: (installmentId: string) => void }) {
+  return (
+    <div className="space-y-1.5">
+      {row.installments.map(i => {
+        const done = i.status === 'recebido' || i.status === 'cancelado'
+        return (
+          <div key={i.id} className="flex items-center justify-between gap-2 rounded-lg border border-border dark:border-border-dark bg-white dark:bg-surface-dark px-3 py-1.5 text-xs">
+            <span className="min-w-0">
+              <span className="font-semibold text-text-primary dark:text-stone-100">{i.number}/{i.count}</span>
+              <span className="text-text-muted"> · {format(new Date(i.dueDate + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}</span>
+            </span>
+            <span className="flex items-center gap-2 flex-shrink-0">
+              <span className="text-right">
+                <span className="font-bold text-text-primary dark:text-stone-100">{formatCurrency(i.amount)}</span>
+                {i.received > 0 && !done && (
+                  <span className="block text-[10px] text-text-muted">saldo {formatCurrency(i.balance)}</span>
+                )}
+              </span>
+              <span className={clsx('inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold', BADGE_CLASS[i.status])}>
+                {i.status === 'vencido' ? 'Vencida' : i.status === 'recebido' ? 'Recebida' : STATUS_LABELS[i.status]}
+              </span>
+              {!done && row.status !== 'cancelado' && (
+                <button
+                  onClick={() => onReceive(i.id)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-primary text-white hover:bg-primary/90"
+                >
+                  <CheckCircle2 size={12} /> Receber
+                </button>
+              )}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }

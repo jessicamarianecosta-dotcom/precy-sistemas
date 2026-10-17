@@ -30,14 +30,30 @@ export function RecebimentosHistoryModal({
     enabled: !!companyId,
     queryFn: async () => {
       const { data } = await supabase.from('payment_history')
-        .select('id, amount, payment_date, payment_method, observation')
+        .select('id, amount, payment_date, payment_method, observation, schedule_id, created_at')
         .eq('order_id', receivable.orderId)
         .eq('company_id', companyId)
         .order('payment_date', { ascending: true })
+        .order('created_at', { ascending: true })
       return (data ?? []) as Array<{
         id: string; amount: number; payment_date: string; payment_method: string | null; observation: string | null
+        schedule_id: string | null; created_at: string
       }>
     },
+  })
+
+  /* Parcela de cada lançamento e saldo dela depois dele (acumulado em ordem cronológica). */
+  const installmentById = new Map(receivable.installments.map(i => [i.id, i]))
+  const paidSoFar: Record<string, number> = {}
+  const parcelaInfo = new Map<string, { label: string; balanceAfter: number }>()
+  ;(rows ?? []).forEach(r => {
+    const inst = r.schedule_id ? installmentById.get(r.schedule_id) : undefined
+    if (!inst) return
+    paidSoFar[inst.id] = Math.round(((paidSoFar[inst.id] ?? 0) + Number(r.amount)) * 100) / 100
+    parcelaInfo.set(r.id, {
+      label: `Parcela ${inst.number}/${inst.count}`,
+      balanceAfter: Math.max(0, Math.round((inst.amount - paidSoFar[inst.id]) * 100) / 100),
+    })
   })
 
   const totalReceived = (rows ?? []).reduce((s, r) => s + Number(r.amount), 0)
@@ -74,7 +90,13 @@ export function RecebimentosHistoryModal({
                     <p className="text-[11px] text-text-muted">
                       {format(new Date(r.payment_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
                       {r.payment_method ? ` · ${METHOD_LABELS[r.payment_method] ?? r.payment_method}` : ''}
+                      {r.created_at ? ` · registrado ${format(new Date(r.created_at), 'dd/MM HH:mm', { locale: ptBR })}` : ''}
                     </p>
+                    {parcelaInfo.get(r.id) && (
+                      <p className="text-[11px] text-text-secondary dark:text-stone-300">
+                        {parcelaInfo.get(r.id)!.label} · saldo da parcela {formatCurrency(parcelaInfo.get(r.id)!.balanceAfter)}
+                      </p>
+                    )}
                     {r.observation && <p className="text-[11px] text-text-muted/80 mt-0.5 truncate">{r.observation}</p>}
                   </div>
                 </div>
