@@ -21,8 +21,9 @@ export default function CheckoutLojaPage() {
   const { data: storeWhatsapp } = useQuery<string | null>({
     queryKey: ['loja-checkout-whatsapp', slug],
     queryFn: async () => {
-      const { data } = await (supabase.from('catalog_settings') as any)
+      const { data, error } = await (supabase.from('catalog_settings') as any)
         .select('whatsapp').eq('slug', slug).maybeSingle()
+      if (error) throw error
       return data?.whatsapp ?? null
     },
   })

@@ -74,10 +74,17 @@ export default function ProdutoLojaPage() {
     } catch { /* ignore */ }
   }
 
-  const { data: settings } = useQuery<(StorefrontSettings & { checkout_mode: 'buy' | 'quote'; companies: { name: string } | null }) | null>({
+  const { data: settings, isLoading: loadingSettings } = useQuery<(StorefrontSettings & { checkout_mode: 'buy' | 'quote'; companies: { name: string } | null }) | null>({
     queryKey: ['loja-settings', slug],
     queryFn: async () => {
-      const { data } = await (supabase.from('catalog_settings') as any).select(SETTINGS_COLUMNS).eq('slug', slug).maybeSingle()
+      // Antes isto engolia qualquer erro (sempre devolvia `data ?? null`, nunca
+      // olhava `error`) — uma falha de rede silenciosa fazia `settings` ficar
+      // null pra sempre, sem nenhum log, e o checkout caía permanentemente no
+      // modo 'quote' (fallback de `mode` abaixo) mesmo com a loja configurada
+      // como 'buy'. Agora propaga o erro pro React Query (fica visível no
+      // console do navegador e habilita retry automático).
+      const { data, error } = await (supabase.from('catalog_settings') as any).select(SETTINGS_COLUMNS).eq('slug', slug).maybeSingle()
+      if (error) throw error
       return data ?? null
     },
   })
@@ -85,9 +92,10 @@ export default function ProdutoLojaPage() {
   const { data: product, isLoading } = useQuery<ProductDetail | null>({
     queryKey: ['loja-product', productId],
     queryFn: async () => {
-      const { data } = await (supabase.from('products') as any)
+      const { data, error } = await (supabase.from('products') as any)
         .select('id, name, description, final_price, catalog_starting_price, catalog_promo_price, catalog_photos, catalog_lead_time_days, catalog_checkout_mode, catalog_category_id, finishings, finishing_type, technical_notes')
         .eq('id', productId).eq('is_published_catalog', true).maybeSingle()
+      if (error) throw error
       return data ?? null
     },
   })
@@ -220,7 +228,10 @@ export default function ProdutoLojaPage() {
     return () => document.removeEventListener('keydown', onKey)
   }, [lightboxOpen])
 
-  if (isLoading) return <div className="min-h-screen flex items-center justify-center text-text-muted">Carregando…</div>
+  // Espera settings também, não só product — senão `mode` abaixo é calculado
+  // com settings ainda undefined e o botão pisca "Solicitar orçamento" antes
+  // de corrigir para "Comprar" assim que a config da loja chega.
+  if (isLoading || loadingSettings) return <div className="min-h-screen flex items-center justify-center text-text-muted">Carregando…</div>
   if (!product) return <div className="min-h-screen flex items-center justify-center text-text-muted">Produto não encontrado.</div>
 
   const price = product.catalog_starting_price ?? product.final_price

@@ -34,9 +34,10 @@ export default function LojaPage() {
   const { data: settings, isLoading: loadingSettings } = useQuery<(StorefrontSettings & { companies: { name: string } | null }) | null>({
     queryKey: ['loja-settings', slug],
     queryFn: async () => {
-      const { data } = await (supabase.from('catalog_settings') as any)
+      const { data, error } = await (supabase.from('catalog_settings') as any)
         .select(SETTINGS_COLUMNS)
         .eq('slug', slug).maybeSingle()
+      if (error) throw error
       return data ?? null
     },
   })
