@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils/format'
-import { ArrowLeft, Clock, Store, Loader2, CheckCircle, X, ZoomIn } from 'lucide-react'
+import { ArrowLeft, Clock, Store, Loader2, CheckCircle, X, ZoomIn, MessageCircle, Truck, ListChecks } from 'lucide-react'
 import { useCart } from '@/lib/catalog/useCart'
 import { OBSERVATION_MAX, cleanObservation } from '@/lib/catalog/observation'
 import { useToast } from '@/components/ui/Toaster'
@@ -20,6 +20,7 @@ interface ProductDetail {
   catalog_starting_price: number | null; catalog_promo_price: number | null; catalog_photos: string[]
   catalog_lead_time_days: number | null; catalog_checkout_mode: 'buy' | 'quote' | null
   catalog_category_id: string | null
+  finishings: string[] | null; finishing_type: string | null; technical_notes: string | null
 }
 interface ProductImageRow { id: string; url: string; sort_order: number }
 interface OptionRow { id: string; group_id: string; value: string; sort_order: number }
@@ -85,7 +86,7 @@ export default function ProdutoLojaPage() {
     queryKey: ['loja-product', productId],
     queryFn: async () => {
       const { data } = await (supabase.from('products') as any)
-        .select('id, name, description, final_price, catalog_starting_price, catalog_promo_price, catalog_photos, catalog_lead_time_days, catalog_checkout_mode, catalog_category_id')
+        .select('id, name, description, final_price, catalog_starting_price, catalog_promo_price, catalog_photos, catalog_lead_time_days, catalog_checkout_mode, catalog_category_id, finishings, finishing_type, technical_notes')
         .eq('id', productId).eq('is_published_catalog', true).maybeSingle()
       return data ?? null
     },
@@ -432,27 +433,50 @@ export default function ProdutoLojaPage() {
             </div>
 
             {mode === 'buy' ? (
-              <button
-                disabled={needsSelection || isSoldOut}
-                onClick={() => {
-                  addItem({
-                    productId: product.id,
-                    variantId: selectedVariant?.id ?? null,
-                    variantLabel,
-                    variantSku: selectedVariant?.sku ?? null,
-                    name: product.name,
-                    price: effectivePrice,
-                    quantity: 1,
-                    photo: displayPhotos[0] ?? null,
-                    notes: cleanObservation(note),
-                  })
-                  toast('success', 'Adicionado ao carrinho!')
-                  router.push(`/loja/${slug}/checkout`)
-                }}
-                className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSoldOut ? 'Esgotado' : needsSelection ? 'Selecione as opções' : 'Comprar'}
-              </button>
+              <div className="space-y-2">
+                <button
+                  disabled={needsSelection || isSoldOut}
+                  onClick={() => {
+                    addItem({
+                      productId: product.id,
+                      variantId: selectedVariant?.id ?? null,
+                      variantLabel,
+                      variantSku: selectedVariant?.sku ?? null,
+                      name: product.name,
+                      price: effectivePrice,
+                      quantity: 1,
+                      photo: displayPhotos[0] ?? null,
+                      notes: cleanObservation(note),
+                    })
+                    toast('success', 'Adicionado ao carrinho!')
+                    router.push(`/loja/${slug}/checkout`)
+                  }}
+                  className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSoldOut ? 'Esgotado' : needsSelection ? 'Selecione as opções' : 'Comprar'}
+                </button>
+                {settings?.whatsapp && !isSoldOut && (
+                  <button
+                    type="button"
+                    disabled={needsSelection}
+                    onClick={() => {
+                      const lines = [
+                        `Olá! Tenho interesse neste produto da loja ${storeName}:`,
+                        '',
+                        `${product.name}${variantLabel ? ` (${variantLabel})` : ''}`,
+                        `Valor: ${formatCurrency(effectivePrice)}`,
+                        cleanObservation(note) ? `Observação: ${cleanObservation(note)}` : null,
+                        '',
+                        'Podem me ajudar a finalizar a compra?',
+                      ].filter(Boolean)
+                      window.open(`https://wa.me/${settings.whatsapp!.replace(/\D/g, '')}?text=${encodeURIComponent(lines.join('\n'))}`, '_blank', 'noreferrer')
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold border-2 border-[#25D366] text-[#25D366] hover:bg-[#25D366]/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <MessageCircle size={16} /> Comprar pelo WhatsApp
+                  </button>
+                )}
+              </div>
             ) : sent ? (
               <div className="flex items-center gap-2 p-3 rounded-xl bg-success-light text-success-dark text-sm">
                 <CheckCircle size={16} /> Solicitação enviada! Em breve entraremos em contato.
@@ -474,6 +498,8 @@ export default function ProdutoLojaPage() {
             )}
           </div>
         </div>
+
+        <ProductDetailsSection product={product} effectiveLeadTime={effectiveLeadTime} />
       </div>
 
       <AnimatePresence>
@@ -503,6 +529,79 @@ export default function ProdutoLojaPage() {
       </AnimatePresence>
 
       {settings && <StoreFooter settings={settings as any} storeName={storeName} />}
+    </div>
+  )
+}
+
+type DetailTabId = 'description' | 'specs' | 'delivery'
+
+/**
+ * Descrição completa abaixo da área de compra — em blocos/abas, só com o que
+ * o produto de fato tem cadastrado (description, finishings/finishing_type/
+ * technical_notes já existentes no cadastro, prazo). Nenhum campo novo foi
+ * criado; nenhuma característica é inventada aqui.
+ */
+function ProductDetailsSection({ product, effectiveLeadTime }: { product: ProductDetail; effectiveLeadTime: number | null }) {
+  const [tab, setTab] = useState<DetailTabId | null>(null)
+
+  const hasSpecs = (product.finishings && product.finishings.length > 0) || !!product.finishing_type || !!product.technical_notes
+  const tabs: { id: DetailTabId; label: string; icon: React.ElementType }[] = [
+    ...(product.description ? [{ id: 'description' as const, label: 'Descrição', icon: Store }] : []),
+    ...(hasSpecs ? [{ id: 'specs' as const, label: 'Características', icon: ListChecks }] : []),
+    ...(effectiveLeadTime ? [{ id: 'delivery' as const, label: 'Entrega e prazo', icon: Truck }] : []),
+  ]
+
+  const activeTab = tab && tabs.some(t => t.id === tab) ? tab : tabs[0]?.id
+
+  if (tabs.length === 0) return null
+
+  return (
+    <div className="mt-8 border-t border-border dark:border-border-dark pt-6">
+      <div className="flex gap-1 mb-4 overflow-x-auto no-scrollbar">
+        {tabs.map(t => {
+          const Icon = t.icon
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium transition-colors ${
+                activeTab === t.id
+                  ? 'bg-primary text-white'
+                  : 'bg-surface dark:bg-white/5 text-text-secondary dark:text-stone-400 hover:text-primary'
+              }`}
+            >
+              <Icon size={14} /> {t.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {activeTab === 'description' && (
+        <p className="text-sm text-text-secondary dark:text-stone-300 leading-relaxed whitespace-pre-line">{product.description}</p>
+      )}
+
+      {activeTab === 'specs' && (
+        <div className="space-y-3 text-sm text-text-secondary dark:text-stone-300">
+          {product.finishing_type && (
+            <p><span className="font-semibold text-text-primary dark:text-stone-100">Acabamento: </span>{product.finishing_type}</p>
+          )}
+          {product.finishings && product.finishings.length > 0 && (
+            <ul className="list-disc list-inside space-y-0.5">
+              {product.finishings.map((f, i) => <li key={i}>{f}</li>)}
+            </ul>
+          )}
+          {product.technical_notes && (
+            <p className="whitespace-pre-line">{product.technical_notes}</p>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'delivery' && effectiveLeadTime && (
+        <p className="text-sm text-text-secondary dark:text-stone-300 flex items-center gap-2">
+          <Clock size={14} /> Prazo estimado de produção: {effectiveLeadTime} dia(s) útil(eis)
+        </p>
+      )}
     </div>
   )
 }

@@ -2,10 +2,12 @@
 
 import { useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
+import { createClient } from '@/lib/supabase/client'
 import { useCart } from '@/lib/catalog/useCart'
 import { useToast } from '@/components/ui/Toaster'
 import { formatCurrency } from '@/lib/utils/format'
-import { ArrowLeft, Minus, Plus, Trash2, Loader2, Upload } from 'lucide-react'
+import { ArrowLeft, Minus, Plus, Trash2, Loader2, Upload, MessageCircle } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
 
@@ -13,7 +15,17 @@ export default function CheckoutLojaPage() {
   const { slug } = useParams<{ slug: string }>()
   const router = useRouter()
   const { toast } = useToast()
+  const supabase = createClient()
   const { items, updateQty, removeItem, total, clear } = useCart(slug)
+
+  const { data: storeWhatsapp } = useQuery<string | null>({
+    queryKey: ['loja-checkout-whatsapp', slug],
+    queryFn: async () => {
+      const { data } = await (supabase.from('catalog_settings') as any)
+        .select('whatsapp').eq('slug', slug).maybeSingle()
+      return data?.whatsapp ?? null
+    },
+  })
 
   const [customer, setCustomer] = useState({ name: '', phone: '', cpfCnpj: '', address: '', cep: '', notes: '' })
   const [artworkFile, setArtworkFile] = useState<File | null>(null)
@@ -21,6 +33,7 @@ export default function CheckoutLojaPage() {
   const [shippingOptions, setShippingOptions] = useState<{ service: string; price: number; days: number }[]>([])
   const [calculatingShipping, setCalculatingShipping] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [submittingVia, setSubmittingVia] = useState<'online' | 'whatsapp' | null>(null)
 
   async function calcShipping() {
     const cep = customer.cep.replace(/\D/g, '')
@@ -45,12 +58,31 @@ export default function CheckoutLojaPage() {
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  function buildWhatsappMessage(orderNumber: string) {
+    const shippingPrice = shipping?.price ?? 0
+    const lines = [
+      `Olá! Quero finalizar meu pedido na loja ${slug}.`,
+      `Pedido: ${orderNumber}`,
+      '',
+      'Produtos:',
+      ...items.map(i => `- ${i.name}${i.variantLabel ? ` (${i.variantLabel})` : ''} — ${i.quantity}x — ${formatCurrency(i.price)}`),
+      '',
+      `Subtotal: ${formatCurrency(total)}`,
+    ]
+    if (shipping) lines.push(`Frete: ${formatCurrency(shippingPrice)} (${shipping.service})`)
+    lines.push(`Total: ${formatCurrency(total + shippingPrice)}`)
+    if (customer.cep) lines.push(`Meu CEP: ${customer.cep}`)
+    lines.push('', 'Podem me orientar sobre a finalização do pagamento?')
+    return lines.join('\n')
+  }
+
+  async function submitOrder(fulfillment: 'online' | 'whatsapp') {
     if (items.length === 0) { toast('error', 'Seu carrinho está vazio'); return }
     if (!customer.name || !customer.phone) { toast('error', 'Nome e telefone são obrigatórios'); return }
+    if (fulfillment === 'whatsapp' && !storeWhatsapp) { toast('error', 'Esta loja não configurou um WhatsApp para atendimento.'); return }
 
     setSubmitting(true)
+    setSubmittingVia(fulfillment)
     try {
       let artwork: { url: string; path: string; fileName: string; fileSize: number; mimeType: string | null } | null = null
       if (artworkFile) {
@@ -71,10 +103,23 @@ export default function CheckoutLojaPage() {
           customer,
           shippingPrice: shipping?.price ?? 0,
           artwork,
+          fulfillment,
         }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Erro ao finalizar pedido')
+
+      if (fulfillment === 'whatsapp') {
+        // Abrir o WhatsApp não significa que a mensagem foi enviada nem que o
+        // pedido foi pago — ele continua "pending" até o lojista confirmar
+        // manualmente no painel. Só o carrinho é limpo aqui.
+        const message = buildWhatsappMessage(data.orderNumber)
+        window.open(`https://wa.me/${storeWhatsapp!.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank', 'noreferrer')
+        clear()
+        toast('success', `Pedido ${data.orderNumber} criado! Continue pelo WhatsApp.`)
+        router.push(`/loja/${slug}`)
+        return
+      }
 
       clear()
       if (data.redirectUrl) {
@@ -87,6 +132,7 @@ export default function CheckoutLojaPage() {
       toast('error', err.message)
     } finally {
       setSubmitting(false)
+      setSubmittingVia(null)
     }
   }
 
@@ -125,7 +171,7 @@ export default function CheckoutLojaPage() {
               ))}
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={e => { e.preventDefault(); submitOrder('online') }} className="space-y-4">
               <div className="card p-4 space-y-3">
                 <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Seus dados</h3>
                 <input required className="input" placeholder="Nome completo" value={customer.name} onChange={e => setCustomer({ ...customer, name: e.target.value })} />
@@ -173,10 +219,26 @@ export default function CheckoutLojaPage() {
                 </div>
               </div>
 
-              <button type="submit" disabled={submitting} className="btn-primary w-full flex items-center justify-center gap-2">
-                {submitting && <Loader2 size={15} className="animate-spin" />}
-                Ir para pagamento
-              </button>
+              <div className="space-y-2">
+                <button type="submit" disabled={submitting} className="btn-primary w-full flex items-center justify-center gap-2">
+                  {submittingVia === 'online' && <Loader2 size={15} className="animate-spin" />}
+                  Finalizar pelo site
+                </button>
+                {storeWhatsapp && (
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => submitOrder('whatsapp')}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold border-2 border-[#25D366] text-[#25D366] hover:bg-[#25D366]/10 transition-colors disabled:opacity-50"
+                  >
+                    {submittingVia === 'whatsapp' ? <Loader2 size={15} className="animate-spin" /> : <MessageCircle size={16} />}
+                    Finalizar pelo WhatsApp
+                  </button>
+                )}
+                <p className="text-[11px] text-text-muted text-center">
+                  Pelo site, o pagamento é confirmado automaticamente. Pelo WhatsApp, você combina o pagamento direto com a loja.
+                </p>
+              </div>
             </form>
           </div>
         )}

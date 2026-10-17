@@ -30,6 +30,12 @@ export async function POST(request: Request) {
   const slug = String(body?.slug ?? '')
   const items: CheckoutItem[] = Array.isArray(body?.items) ? body.items : []
   const customer = body?.customer ?? {}
+  // 'online' (padrão) cria o pedido e já inicia a cobrança no gateway.
+  // 'whatsapp' cria o MESMO pedido pendente (mesma validação de preço/estoque
+  // abaixo) mas pula a cobrança — o cliente finaliza combinando o pagamento
+  // direto com o lojista pelo WhatsApp. Nunca é tratado como pago só por
+  // escolher essa opção.
+  const fulfillment: 'online' | 'whatsapp' = body?.fulfillment === 'whatsapp' ? 'whatsapp' : 'online'
   // Nunca confiar cegamente no valor de frete vindo do client — só ele decide
   // o total cobrado no pagamento. Sem re-cotação server-side (ver nota no
   // relatório de auditoria), pelo menos garante que não é negativo/absurdo.
@@ -200,7 +206,6 @@ export async function POST(request: Request) {
       status: 'pending',
       payment_status: 'pending',
       service_name: orderItems[0].name,
-      description: 'Pedido via Catálogo Online',
       subtotal,
       delivery_fee: shippingPrice,
       total,
@@ -208,6 +213,7 @@ export async function POST(request: Request) {
       source: 'catalog',
       catalog_checkout_ref: checkoutRef,
       art_status: artwork ? 'recebida' : 'nao_enviada',
+      description: fulfillment === 'whatsapp' ? 'Pedido via Catálogo Online (WhatsApp)' : 'Pedido via Catálogo Online',
     }])
     .select('id, order_number')
     .single()
@@ -240,6 +246,14 @@ export async function POST(request: Request) {
       event_type: 'arte_enviada',
       description: `Arte enviada pelo cliente: ${artwork.fileName}`,
     }])
+  }
+
+  /* ── Finalização pelo WhatsApp: pedido fica pendente, sem cobrança no
+     gateway — o cliente combina o pagamento direto com o lojista. Devolve
+     só os dados do pedido; quem monta a mensagem e abre o WhatsApp é o
+     frontend, que já tem o número configurado da loja. ── */
+  if (fulfillment === 'whatsapp') {
+    return NextResponse.json({ orderId: order.id, orderNumber: order.order_number, fulfillment: 'whatsapp' })
   }
 
   /* ── Criar cobrança no adapter de pagamento (Mercado Pago ou mock) ── */
