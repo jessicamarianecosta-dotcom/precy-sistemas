@@ -6,8 +6,8 @@ import { CheckCircle, Loader2 } from 'lucide-react'
 
 /**
  * Página de desenvolvimento — só é alcançada quando o adapter de pagamento
- * está em modo mock (INFINITYPAY_MODE=mock ou sem credenciais). Simula a
- * confirmação de pagamento chamando o mesmo webhook que a InfinityPay
+ * está em modo mock (MERCADOPAGO_MODE=mock ou sem credenciais). Simula a
+ * confirmação de pagamento chamando o mesmo webhook que o Mercado Pago
  * chamaria em produção, permitindo testar a cascata automática
  * (Pedidos/Financeiro/Clientes/Estoque/Agenda) sem credenciais reais.
  */
@@ -19,7 +19,7 @@ function MockPaymentContent() {
   async function confirm() {
     setStatus('loading')
     try {
-      const res = await fetch('/api/webhooks/infinitypay', {
+      const res = await fetch('/api/webhooks/mercadopago', {
         method: 'POST',
         body: JSON.stringify({ ref, status: 'paid', amount: 0, paymentMethod: 'pix' }),
       })

@@ -11,9 +11,9 @@ interface CheckoutItem { productId: string; variantId?: string | null; quantity:
  * POST /api/loja/checkout
  * Rota pública (visitante anônimo da loja) — cria o pedido pendente
  * (orders + order_items, source='catalog') e devolve os dados de pagamento
- * da InfinityPay (ou do adapter mock). O pagamento em si só cai nos demais
+ * do Mercado Pago (ou do adapter mock). O pagamento em si só cai nos demais
  * módulos (Financeiro/Clientes/Estoque/Agenda) quando o webhook confirma —
- * ver app/api/webhooks/infinitypay/route.ts.
+ * ver app/api/webhooks/mercadopago/route.ts.
  *
  * IMPORTANTE: preço/estoque/publicação são sempre revalidados aqui a
  * partir do banco — nunca confiar em valores vindos do carrinho do client.
@@ -240,7 +240,7 @@ export async function POST(request: Request) {
     }])
   }
 
-  /* ── Criar cobrança no adapter de pagamento (InfinityPay ou mock) ── */
+  /* ── Criar cobrança no adapter de pagamento (Mercado Pago ou mock) ── */
   try {
     const adapter = getPaymentAdapter()
     const charge = await adapter.createCharge({
@@ -250,6 +250,7 @@ export async function POST(request: Request) {
       customerDocument: customer.cpfCnpj ?? null,
       customerPhone: phone,
       description: `Pedido ${order.order_number} — Catálogo Online`,
+      returnPath: `/loja/${slug}`,
     })
     return NextResponse.json({ orderId: order.id, orderNumber: order.order_number, ...charge })
   } catch (err: any) {

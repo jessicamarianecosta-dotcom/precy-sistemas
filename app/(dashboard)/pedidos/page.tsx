@@ -1331,7 +1331,7 @@ function PedidosPage() {
      venda nova: status 'pending', payment_status 'pending', saldo = total.
 
      Estoque: a baixa de estoque só acontece na confirmação de pagamento do
-     Catálogo Online (app/api/webhooks/infinitypay). Pedido manual — criado
+     Catálogo Online (app/api/webhooks/mercadopago). Pedido manual — criado
      aqui ou pelo formulário — nunca dá baixa automática, então a duplicação
      segue exatamente a mesma regra sem nenhum tratamento especial.
   ───────────────────────────────────────────── */

@@ -1,10 +1,10 @@
-import type { PaymentAdapter, CatalogOrderForCharge, ChargeResult, PaymentWebhookEvent } from './types'
+import type { PaymentAdapter, CatalogOrderForCharge, ChargeResult, PaymentWebhookEvent, WebhookRequest } from './types'
 
 /**
  * Adapter de desenvolvimento — simula aprovação imediata sem chamar nenhuma
- * API externa. Usado enquanto as credenciais reais da InfinityPay não
- * existem (INFINITYPAY_MODE=mock ou INFINITYPAY_API_KEY ausente), permitindo
- * testar o checkout e a cascata pós-pagamento ponta-a-ponta.
+ * API externa. Usado enquanto as credenciais reais do Mercado Pago não
+ * existem (MERCADOPAGO_MODE=mock ou MERCADOPAGO_ACCESS_TOKEN ausente),
+ * permitindo testar o checkout e a cascata pós-pagamento ponta-a-ponta.
  */
 export class MockPaymentAdapter implements PaymentAdapter {
   async createCharge(order: CatalogOrderForCharge): Promise<ChargeResult> {
@@ -15,8 +15,8 @@ export class MockPaymentAdapter implements PaymentAdapter {
     return true
   }
 
-  parseWebhookEvent(rawBody: string): PaymentWebhookEvent {
-    const body = JSON.parse(rawBody)
+  async parseWebhookEvent(req: WebhookRequest): Promise<PaymentWebhookEvent> {
+    const body = req.rawBody ? JSON.parse(req.rawBody) : {}
     return {
       ref: body.ref,
       status: body.status ?? 'paid',

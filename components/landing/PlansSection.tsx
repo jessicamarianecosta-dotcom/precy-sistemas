@@ -97,7 +97,7 @@ const COMPARE: Feature[] = COMPARE_GROUPS.flatMap(g => g.items)
 
 const ROADMAP = [
   { emoji: '🛍️', label: 'Catálogo Online', desc: 'Sua loja virtual publicada, com pedidos direto pelo link do catálogo' },
-  { emoji: '💳', label: 'Integração InfinityPay', desc: 'Pagamento online integrado ao Catálogo Online' },
+  { emoji: '💳', label: 'Integração Mercado Pago', desc: 'Pagamento online integrado ao Catálogo Online' },
   { emoji: '🚚', label: 'Integração SuperFrete', desc: 'Cálculo automático de frete no Catálogo Online' },
   { emoji: '📲', label: 'WhatsApp', desc: 'Envio de orçamentos e atualizações pelo WhatsApp' },
   { emoji: '🧠', label: 'IA de Precificação', desc: 'Sugestão automática de preço por categoria' },
