@@ -454,6 +454,16 @@ function PedidosPage() {
     },
   })
 
+  /* Slug da loja — só para montar o link de acompanhamento do pedido no bloco "Entrega". */
+  const { data: catalogSlug } = useQuery({
+    queryKey: ['catalog-slug', companyId],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const { data } = await (supabase.from('catalog_settings') as any).select('slug').eq('company_id', companyId!).maybeSingle()
+      return data?.slug ?? null
+    },
+  })
+
   const { data: customers } = useQuery({
     queryKey: ['customers-select', companyId],
     enabled: !!companyId,
@@ -2657,6 +2667,57 @@ function PedidosPage() {
                     <textarea rows={2} className="input resize-none" placeholder="Preferências, instruções especiais..." {...register('notes')} />
                   </div>
                 </section>
+
+                {/* ── Entrega e frete (só pedidos vindos do Catálogo Online) ── */}
+                {editingId && (() => {
+                  const o: any = (orders ?? []).find((x: any) => x.id === editingId)
+                  if (!o || o.source !== 'catalog') return null
+                  const addressParts = [
+                    [o.delivery_street, o.delivery_number].filter(Boolean).join(', '),
+                    o.delivery_complement,
+                    o.delivery_neighborhood,
+                    [o.delivery_city, o.delivery_state].filter(Boolean).join('/'),
+                    o.delivery_cep,
+                  ].filter(Boolean)
+                  return (
+                    <>
+                      <div className="h-px bg-border dark:bg-border-dark" />
+                      <section className="space-y-2">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2">
+                          <Package size={12} /> Entrega — Catálogo Online
+                        </h3>
+                        <div className="rounded-xl border border-border dark:border-border-dark p-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                          <div><span className="text-text-muted">E-mail: </span><b className="text-text-primary dark:text-stone-100">{o.delivery_email || '—'}</b></div>
+                          <div><span className="text-text-muted">Frete: </span><b className="text-text-primary dark:text-stone-100">{o.shipping_service || '—'}{o.shipping_days ? ` (${o.shipping_days}d)` : ''}</b></div>
+                          <div className="sm:col-span-2"><span className="text-text-muted">Endereço de entrega: </span><b className="text-text-primary dark:text-stone-100">{addressParts.join(' — ') || 'Não informado'}</b></div>
+                          <div><span className="text-text-muted">Rastreamento: </span><b className="text-text-primary dark:text-stone-100">{o.tracking_code || 'Não gerado'}</b></div>
+                          <div><span className="text-text-muted">Link do cliente: </span>
+                            {o.catalog_checkout_ref && catalogSlug ? (
+                              <a className="text-primary underline" href={`/loja/${catalogSlug}/pedido/${o.catalog_checkout_ref}`} target="_blank" rel="noreferrer">
+                                acompanhar pedido
+                              </a>
+                            ) : <b>—</b>}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-text-secondary dark:text-stone-400 mb-1">Código de rastreamento</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text" className="input flex-1" placeholder="Ex.: BR1234567890X" defaultValue={o.tracking_code || ''}
+                              onBlur={async e => {
+                                const value = e.target.value.trim() || null
+                                if (value === (o.tracking_code || null)) return
+                                await (supabase.from('orders') as any).update({ tracking_code: value }).eq('id', editingId)
+                                queryClient.invalidateQueries({ queryKey: ['orders', companyId] })
+                                toast('success', 'Código de rastreamento atualizado.')
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </section>
+                    </>
+                  )
+                })()}
 
                 <div className="h-px bg-border dark:bg-border-dark" />
 

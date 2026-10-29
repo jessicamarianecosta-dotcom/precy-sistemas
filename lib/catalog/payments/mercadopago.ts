@@ -38,7 +38,9 @@ export class MercadoPagoAdapter implements PaymentAdapter {
           unit_price: Math.round(order.amount * 100) / 100,
           currency_id: 'BRL',
         }],
-        payer: order.customerName ? { name: order.customerName } : undefined,
+        payer: (order.customerName || order.customerEmail)
+          ? { name: order.customerName, email: order.customerEmail ?? undefined }
+          : undefined,
         external_reference: order.ref,
         notification_url: notificationUrl,
         ...(returnUrl ? { back_urls: { success: returnUrl, pending: returnUrl, failure: returnUrl }, auto_return: 'approved' } : {}),

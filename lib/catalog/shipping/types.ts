@@ -13,5 +13,9 @@ export interface ShippingQuote {
 }
 
 export interface ShippingAdapter {
-  quote(cep: string, items: ShippingItem[]): Promise<ShippingQuote[]>
+  /**
+   * @param originCep CEP de origem da loja (catalog_settings.zip_code da
+   * empresa). Quando ausente, o adapter cai para SUPERFRETE_ORIGIN_CEP (env).
+   */
+  quote(cep: string, items: ShippingItem[], originCep?: string | null): Promise<ShippingQuote[]>
 }

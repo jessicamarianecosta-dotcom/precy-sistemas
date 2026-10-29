@@ -10,15 +10,24 @@ export class SuperFreteAdapter implements ShippingAdapter {
   private originCep = process.env.SUPERFRETE_ORIGIN_CEP ?? ''
   private baseUrl = process.env.SUPERFRETE_BASE_URL ?? 'https://api.superfrete.com'
 
-  async quote(cep: string, items: ShippingItem[]): Promise<ShippingQuote[]> {
+  async quote(cep: string, items: ShippingItem[], originCep?: string | null): Promise<ShippingQuote[]> {
+    const from = (originCep || this.originCep || '').replace(/\D/g, '')
+    if (!from) {
+      throw new Error('CEP de origem da loja não configurado (Configurações › Endereço ou SUPERFRETE_ORIGIN_CEP).')
+    }
+
     const res = await fetch(`${this.baseUrl}/api/v0/calculator`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.apiKey}`,
+        // Exigido pela API da SuperFrete para identificar a aplicação (recusa
+        // a requisição sem isso) — mesma variável já documentada no
+        // .env.example, só não estava sendo enviada ainda.
+        'User-Agent': process.env.SUPERFRETE_USER_AGENT || 'Precy+ (contato não configurado)',
       },
       body: JSON.stringify({
-        from: { postal_code: this.originCep },
+        from: { postal_code: from },
         to: { postal_code: cep },
         products: items.map(i => ({
           weight: i.weightKg, length: i.lengthCm, height: i.heightCm, width: i.widthCm, quantity: i.quantity,
