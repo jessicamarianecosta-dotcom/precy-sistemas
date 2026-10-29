@@ -11,6 +11,7 @@ import { useCart } from '@/lib/catalog/useCart'
 import { OBSERVATION_MAX, cleanObservation } from '@/lib/catalog/observation'
 import { useToast } from '@/components/ui/Toaster'
 import { StoreFooter } from '@/components/catalog/storefront/StoreFooter'
+import { ProductDescription } from '@/components/catalog/storefront/ProductDescription'
 import type { StorefrontSettings } from '@/components/catalog/storefront/types'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -424,7 +425,7 @@ export default function ProdutoLojaPage() {
                 <Clock size={14} /> Prazo estimado: {effectiveLeadTime} dia(s)
               </p>
             )}
-            {product.description && <p className="text-sm text-text-secondary dark:text-stone-400 mb-5">{product.description}</p>}
+            {product.description && <ProductDescription text={product.description} className="mb-5" />}
 
             {groups.length > 0 && (
               <div className="space-y-3 mb-5">
@@ -627,9 +628,7 @@ function ProductDetailsSection({ product, effectiveLeadTime }: { product: Produc
         })}
       </div>
 
-      {activeTab === 'description' && (
-        <p className="text-sm text-text-secondary dark:text-stone-300 leading-relaxed whitespace-pre-line">{product.description}</p>
-      )}
+      {activeTab === 'description' && product.description && <ProductDescription text={product.description} />}
 
       {activeTab === 'specs' && (
         <div className="space-y-3 text-sm text-text-secondary dark:text-stone-300">
