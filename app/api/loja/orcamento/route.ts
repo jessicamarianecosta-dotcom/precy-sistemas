@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
 import { cleanObservation } from '@/lib/catalog/observation'
+import { calcOptionsAdjustment } from '@/lib/produtos/variantPricing'
 
 /**
  * POST /api/loja/orcamento
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
         id, sku, price, is_active,
         product_variant_option_values(
           option_id,
-          product_variation_options(value, product_variation_groups(name))
+          product_variation_options(value, price_adjustment_type, price_adjustment_value, product_variation_groups(name))
         )
       `)
       .eq('id', variantId).eq('product_id', productId).eq('company_id', companyId).eq('is_active', true)
@@ -79,7 +80,10 @@ export async function POST(request: Request) {
   const basePrice = Number(product.catalog_starting_price ?? product.final_price ?? 0)
   const promoPrice = product.catalog_promo_price != null ? Number(product.catalog_promo_price) : null
   const productEffectivePrice = promoPrice != null && promoPrice < basePrice ? promoPrice : basePrice
-  const price = variant?.price != null ? Number(variant.price) : productEffectivePrice
+  const variantBasePrice = variant?.price != null ? Number(variant.price) : productEffectivePrice
+  // Acréscimo das opções da combinação, revalidado no servidor (mesma regra do checkout).
+  const optionAdjustments = (variant?.product_variant_option_values ?? []).map((ov: any) => ov.product_variation_options)
+  const price = calcOptionsAdjustment(variantBasePrice, optionAdjustments).finalPrice
 
   const { data: budget, error: budgetError } = await (supabaseAdmin.from('budgets') as any)
     .insert([{

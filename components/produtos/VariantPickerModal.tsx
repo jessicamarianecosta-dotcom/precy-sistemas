@@ -7,8 +7,10 @@ import clsx from 'clsx'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils/format'
 import {
+  applyOptionsAdjustment,
   buildVariantLabel,
   resolveVariantPricing,
+  type OptionPriceAdjustment,
   type ProductPricingRecord,
   type ResolvedPricing,
   type VariantRecord,
@@ -26,7 +28,7 @@ interface Props {
   onClose: () => void
 }
 
-interface Group { id: string; name: string; options: { id: string; value: string }[] }
+interface Group { id: string; name: string; options: ({ id: string; value: string } & OptionPriceAdjustment)[] }
 interface VariantFull extends VariantRecord { optionByGroup: Record<string, string> }
 
 /**
@@ -44,7 +46,7 @@ export function VariantPickerModal({ product, onConfirm, onClose }: Props) {
     queryFn: async () => {
       const [g, v] = await Promise.all([
         (supabase.from('product_variation_groups') as any)
-          .select('id, name, sort_order, product_variation_options(id, value, sort_order)')
+          .select('id, name, sort_order, product_variation_options(id, value, sort_order, price_adjustment_type, price_adjustment_value)')
           .eq('product_id', product.id)
           .order('sort_order')
           .order('sort_order', { foreignTable: 'product_variation_options' }),
@@ -55,7 +57,11 @@ export function VariantPickerModal({ product, onConfirm, onClose }: Props) {
           .order('sort_order'),
       ])
       const groups: Group[] = (g.data ?? []).map((x: any) => ({
-        id: x.id, name: x.name, options: (x.product_variation_options ?? []).map((o: any) => ({ id: o.id, value: o.value })),
+        id: x.id, name: x.name,
+        options: (x.product_variation_options ?? []).map((o: any) => ({
+          id: o.id, value: o.value,
+          price_adjustment_type: o.price_adjustment_type, price_adjustment_value: o.price_adjustment_value,
+        })),
       })).filter((x: Group) => x.options.length > 0)
       const variants: VariantFull[] = (v.data ?? []).map((x: any) => ({
         id: x.id,
@@ -85,7 +91,12 @@ export function VariantPickerModal({ product, onConfirm, onClose }: Props) {
     return variants.find(v => groups.every(g => v.optionByGroup[g.id] === selection[g.id])) ?? null
   }, [groups, variants, selection])
 
-  const pricing = matched ? resolveVariantPricing(matched, product) : null
+  const pricing = matched
+    ? applyOptionsAdjustment(
+        resolveVariantPricing(matched, product),
+        groups.map(g => g.options.find(o => o.id === selection[g.id]))
+      )
+    : null
   const label = buildVariantLabel(groups.map(g => g.options.find(o => o.id === selection[g.id])?.value ?? ''))
   const allChosen = groups.length > 0 && groups.every(g => selection[g.id])
   const outOfStock = matched?.stock_quantity != null && matched.stock_quantity <= 0

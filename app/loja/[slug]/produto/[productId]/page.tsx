@@ -12,6 +12,7 @@ import { OBSERVATION_MAX, cleanObservation } from '@/lib/catalog/observation'
 import { useToast } from '@/components/ui/Toaster'
 import { StoreFooter } from '@/components/catalog/storefront/StoreFooter'
 import { ProductDescription } from '@/components/catalog/storefront/ProductDescription'
+import { calcOptionsAdjustment } from '@/lib/produtos/variantPricing'
 import type { StorefrontSettings } from '@/components/catalog/storefront/types'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -24,7 +25,11 @@ interface ProductDetail {
   finishings: string[] | null; finishing_type: string | null; technical_notes: string | null
 }
 interface ProductImageRow { id: string; url: string; sort_order: number; media_type: 'image' | 'video'; is_primary: boolean }
-interface OptionRow { id: string; group_id: string; value: string; sort_order: number }
+interface OptionRow {
+  id: string; group_id: string; value: string; sort_order: number
+  price_adjustment_type?: 'fixed' | 'percent' | null
+  price_adjustment_value?: number | null
+}
 interface GroupRow { id: string; name: string; sort_order: number; options: OptionRow[] }
 interface VariantRow {
   id: string
@@ -114,7 +119,7 @@ export default function ProdutoLojaPage() {
     queryKey: ['loja-product-groups', productId],
     queryFn: async () => {
       const { data } = await (supabase.from('product_variation_groups') as any)
-        .select('id, name, sort_order, product_variation_options(id, group_id, value, sort_order)')
+        .select('id, name, sort_order, product_variation_options(id, group_id, value, sort_order, price_adjustment_type, price_adjustment_value)')
         .eq('product_id', productId)
         .order('sort_order')
         .order('sort_order', { foreignTable: 'product_variation_options' })
@@ -246,7 +251,12 @@ export default function ProdutoLojaPage() {
   const price = product.catalog_starting_price ?? product.final_price
   const hasPromo = product.catalog_promo_price != null && product.catalog_promo_price < price
   const baseEffectivePrice = hasPromo ? product.catalog_promo_price! : price
-  const effectivePrice = selectedVariant?.price ?? baseEffectivePrice
+  const basePriceBeforeAdjustment = selectedVariant?.price ?? baseEffectivePrice
+  // Acréscimo das opções selecionadas (ex: "Personalizar +10%") — calculado em
+  // tempo real sobre o preço-base acima, nunca congelado em product_variants.price.
+  const selectedOptionRecords = groups.map(g => g.options.find(o => o.id === selectedOptions[g.id]))
+  const priceAdjustment = calcOptionsAdjustment(basePriceBeforeAdjustment, selectedOptionRecords)
+  const effectivePrice = priceAdjustment.finalPrice
   const variantHasPromo = selectedVariant?.price == null && hasPromo
 
   const photos = images.length ? images.map(i => i.url) : (product.catalog_photos?.length ? product.catalog_photos : [])
@@ -418,6 +428,11 @@ export default function ProdutoLojaPage() {
               </div>
             ) : (
               <p className="text-2xl font-bold text-primary mb-3">{formatCurrency(effectivePrice)}</p>
+            )}
+            {priceAdjustment.adjustmentAmount !== 0 && (
+              <p className="text-xs text-text-muted dark:text-stone-500 -mt-2 mb-3">
+                Preço base {formatCurrency(priceAdjustment.basePrice)} + {formatCurrency(priceAdjustment.adjustmentAmount)} de personalização
+              </p>
             )}
 
             {effectiveLeadTime && (

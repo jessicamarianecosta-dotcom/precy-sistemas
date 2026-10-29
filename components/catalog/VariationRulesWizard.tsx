@@ -287,9 +287,22 @@ export function VariationRulesWizard({ productId, companyId, groups, existingCom
                 </div>
               ) : (
                 <>
-                  <p className="text-xs sm:text-sm text-text-muted dark:text-stone-500">
-                    {`${newCombos.length} combinação(ões) nova(s) serão criadas. Desmarque as que não quiser gerar.`}
-                  </p>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <p className="text-xs sm:text-sm text-text-muted dark:text-stone-500">
+                      {`${newCombos.length} combinação(ões) nova(s) serão criadas. Todas já vêm marcadas — desmarque as que não quiser gerar.`}
+                    </p>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button type="button" onClick={() => setExcluded(new Set())}
+                        className="text-[11px] sm:text-xs font-medium text-primary hover:underline">
+                        Selecionar todas
+                      </button>
+                      <span className="text-text-muted">·</span>
+                      <button type="button" onClick={() => setExcluded(new Set(newCombos.map(comboKey)))}
+                        className="text-[11px] sm:text-xs font-medium text-primary hover:underline">
+                        Desmarcar todas
+                      </button>
+                    </div>
+                  </div>
                   <div
                     className="grid gap-2.5"
                     style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}

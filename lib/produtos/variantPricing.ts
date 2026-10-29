@@ -62,7 +62,80 @@ export function resolveVariantPricing(variant: VariantRecord | null, product: Pr
   return { price: productPrice, cost: productCost, profit: round2(productPrice - productCost), source: 'product' }
 }
 
+/**
+ * Aplica o acréscimo das opções selecionadas sobre um preço já resolvido
+ * (resolveVariantPricing) — mantém custo/origem, recalcula preço e lucro.
+ * Usado depois de resolveVariantPricing em todo lugar que precisa do preço
+ * final com acréscimo: editor de variações, seletor de orçamentos/pedidos,
+ * loja pública, checkout e orçamento da loja.
+ */
+export function applyOptionsAdjustment(resolved: ResolvedPricing, options: (OptionPriceAdjustment | null | undefined)[]): ResolvedPricing {
+  const adj = calcOptionsAdjustment(resolved.price, options)
+  if (adj.adjustmentAmount === 0) return resolved
+  return { ...resolved, price: adj.finalPrice, profit: round2(adj.finalPrice - resolved.cost) }
+}
+
 /** Rótulo legível da combinação (ex.: "300 un · Offset 240g"). */
 export function buildVariantLabel(optionValues: string[]): string {
   return optionValues.filter(Boolean).join(' · ')
+}
+
+/**
+ * Acréscimo de preço por opção de variação (product_variation_options
+ * .price_adjustment_type/price_adjustment_value — migration 088).
+ *   'fixed'   → price_adjustment_value em R$, soma direto ao preço-base.
+ *   'percent' → price_adjustment_value em % (ex: 10 = 10%), calculado sobre
+ *               o preço-base.
+ *   null/undefined → "Nenhum", sem acréscimo (opções antigas, 100% compatíveis).
+ */
+export interface OptionPriceAdjustment {
+  price_adjustment_type?: 'fixed' | 'percent' | null
+  price_adjustment_value?: number | null
+}
+
+export interface OptionsAdjustmentResult {
+  /** Preço-base da combinação, antes de qualquer acréscimo de opção. */
+  basePrice: number
+  /** Soma dos acréscimos fixos (R$) das opções selecionadas. */
+  fixedTotal: number
+  /** Soma dos percentuais (%) das opções selecionadas (ex: 10 + 5 = 15). */
+  percentTotal: number
+  /** Valor em R$ do acréscimo percentual (percentTotal aplicado 1x sobre basePrice). */
+  percentAmount: number
+  /** fixedTotal + percentAmount — total somado ao preço-base. */
+  adjustmentAmount: number
+  /** basePrice + adjustmentAmount — preço final da combinação. */
+  finalPrice: number
+}
+
+/**
+ * Soma os acréscimos das opções selecionadas (uma por grupo) sobre o
+ * preço-base da combinação, calculado sempre em tempo real (nunca
+ * congelado em product_variants.price) — por isso, se o preço-base mudar
+ * (ex: markup do produto, ou o preço próprio da combinação), o acréscimo
+ * percentual é recalculado automaticamente na próxima leitura.
+ *
+ * Regra de composição quando há mais de uma opção com acréscimo na mesma
+ * combinação (documentada para nunca cobrar duas vezes):
+ *   - acréscimos fixos se somam entre si (R$ + R$);
+ *   - acréscimos percentuais se somam entre si (10% + 5% = 15%) e são
+ *     aplicados UMA ÚNICA VEZ sobre o preço-base — nunca compostos em
+ *     cascata (não é basePrice × 1.10 × 1.05).
+ */
+export function calcOptionsAdjustment(basePrice: number, options: (OptionPriceAdjustment | null | undefined)[]): OptionsAdjustmentResult {
+  const base = round2(num(basePrice))
+  let fixedTotal = 0
+  let percentTotal = 0
+  for (const o of options) {
+    if (!o || !o.price_adjustment_type) continue
+    const value = num(o.price_adjustment_value)
+    if (value === 0) continue
+    if (o.price_adjustment_type === 'fixed') fixedTotal += value
+    else if (o.price_adjustment_type === 'percent') percentTotal += value
+  }
+  fixedTotal = round2(fixedTotal)
+  const percentAmount = round2((base * percentTotal) / 100)
+  const adjustmentAmount = round2(fixedTotal + percentAmount)
+  const finalPrice = round2(base + adjustmentAmount)
+  return { basePrice: base, fixedTotal, percentTotal, percentAmount, adjustmentAmount, finalPrice }
 }

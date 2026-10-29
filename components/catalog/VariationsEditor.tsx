@@ -5,12 +5,25 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toaster'
 import { clsx } from 'clsx'
-import { Plus, X, Loader2, AlertCircle, Copy, ClipboardCopy, Trash2, Sparkles, Upload, Image as ImageIcon, Calculator } from 'lucide-react'
-import { comboKey, type GroupRow } from '@/lib/catalog/variationCombos'
+import { Plus, X, Loader2, AlertCircle, Copy, ClipboardCopy, Trash2, Sparkles, Upload, Image as ImageIcon, Calculator, Pencil, Check } from 'lucide-react'
+import { comboKey, type GroupRow, type OptionRow } from '@/lib/catalog/variationCombos'
 import { compressImage } from '@/lib/catalog/useImageCompression'
 import { uploadImageXhr } from '@/lib/catalog/useImageUploadXhr'
 import { VariationRulesWizard } from './VariationRulesWizard'
 import { formatCurrency } from '@/lib/utils/format'
+import { calcOptionsAdjustment } from '@/lib/produtos/variantPricing'
+
+type AdjustmentType = '' | 'fixed' | 'percent'
+interface AdjustmentDraft { type: AdjustmentType; value: string }
+const EMPTY_ADJUSTMENT: AdjustmentDraft = { type: '', value: '' }
+
+/** Rótulo curto do acréscimo de uma opção, para exibir junto ao nome (ex: "+10%", "+R$ 5,00"). */
+function adjustmentBadge(opt: OptionRow): string | null {
+  if (!opt.price_adjustment_type || !opt.price_adjustment_value) return null
+  return opt.price_adjustment_type === 'percent'
+    ? `+${opt.price_adjustment_value}%`
+    : `+${formatCurrency(opt.price_adjustment_value)}`
+}
 
 const IMAGE_MAX_PHOTOS = 10
 const IMAGE_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
@@ -69,6 +82,9 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   const { toast } = useToast()
   const [newGroupName, setNewGroupName] = useState('')
   const [newOptionByGroup, setNewOptionByGroup] = useState<Record<string, string>>({})
+  const [newOptionAdjByGroup, setNewOptionAdjByGroup] = useState<Record<string, AdjustmentDraft>>({})
+  const [editingOptionId, setEditingOptionId] = useState<string | null>(null)
+  const [editOptionAdj, setEditOptionAdj] = useState<AdjustmentDraft>(EMPTY_ADJUSTMENT)
   const [error, setError] = useState<string | null>(null)
   const [showWizard, setShowWizard] = useState(false)
   const [variantForm, setVariantForm] = useState<{ selection: Record<string, string>; settings: Record<string, string> } | null>(null)
@@ -88,7 +104,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     enabled: !!productId,
     queryFn: async () => {
       const { data } = await (supabase.from('product_variation_groups') as any)
-        .select('id, name, sort_order, product_variation_options(id, group_id, value, sort_order)')
+        .select('id, name, sort_order, product_variation_options(id, group_id, value, sort_order, price_adjustment_type, price_adjustment_value)')
         .eq('product_id', productId)
         .order('sort_order')
         .order('sort_order', { foreignTable: 'product_variation_options' })
@@ -168,15 +184,20 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   })
 
   const addOptionMutation = useMutation({
-    mutationFn: async ({ groupId, value }: { groupId: string; value: string }) => {
+    mutationFn: async ({ groupId, value, adjustment }: { groupId: string; value: string; adjustment: AdjustmentDraft }) => {
       const group = groupsSorted.find(g => g.id === groupId)
       const { error: err } = await (supabase.from('product_variation_options') as any)
-        .insert({ group_id: groupId, company_id: companyId, value, sort_order: group?.options.length ?? 0 })
+        .insert({
+          group_id: groupId, company_id: companyId, value, sort_order: group?.options.length ?? 0,
+          price_adjustment_type: adjustment.type || null,
+          price_adjustment_value: adjustment.type ? Number(adjustment.value || 0) : null,
+        })
       if (err) throw err
     },
     onSuccess: (_d, vars) => {
       invalidateGroups()
       setNewOptionByGroup(prev => ({ ...prev, [vars.groupId]: '' }))
+      setNewOptionAdjByGroup(prev => ({ ...prev, [vars.groupId]: EMPTY_ADJUSTMENT }))
       setError(null)
     },
     onError: (err: Error) => setError(err.message.includes('duplicate') ? 'Essa opção já existe neste grupo.' : err.message),
@@ -189,6 +210,29 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     },
     onSuccess: () => { invalidateGroups(); invalidateVariants() },
   })
+
+  /** Atualiza só o tipo/valor de acréscimo de uma opção já existente (não mexe no nome). */
+  const updateOptionAdjustmentMutation = useMutation({
+    mutationFn: async ({ id, adjustment }: { id: string; adjustment: AdjustmentDraft }) => {
+      const { error: err } = await (supabase.from('product_variation_options') as any)
+        .update({
+          price_adjustment_type: adjustment.type || null,
+          price_adjustment_value: adjustment.type ? Number(adjustment.value || 0) : null,
+        })
+        .eq('id', id)
+      if (err) throw err
+    },
+    onSuccess: () => { invalidateGroups(); setEditingOptionId(null); setError(null) },
+    onError: (err: Error) => setError(err.message),
+  })
+
+  function startEditOption(opt: OptionRow) {
+    setEditingOptionId(opt.id)
+    setEditOptionAdj({
+      type: (opt.price_adjustment_type as AdjustmentType) ?? '',
+      value: opt.price_adjustment_value != null ? String(opt.price_adjustment_value) : '',
+    })
+  }
 
   /** Salva em lote apenas os campos alterados de cada combinação (um update por combinação, só com o patch dela). */
   const saveChangesMutation = useMutation({
@@ -351,6 +395,12 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     return g?.options.find(o => o.id === optionId)?.value ?? '—'
   }
 
+  /** Acréscimo total (fixo + percentual) das opções selecionadas desta combinação, sobre o preço-base exibido na célula "Preço". */
+  function variantAdjustment(v: VariantRow, basePrice: number) {
+    const options = groupsSorted.map((g, idx) => g.options.find(o => o.id === v.optionIds[idx]))
+    return calcOptionsAdjustment(basePrice, options)
+  }
+
   async function confirmRemoveOption(id: string) {
     const { count } = await (supabase.from('product_variant_option_values') as any)
       .select('variant_id', { count: 'exact', head: true }).eq('option_id', id)
@@ -437,31 +487,89 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
               <button type="button" onClick={() => confirmRemoveGroup(group.id)}
                 className="text-[11px] text-error hover:underline">Remover grupo</button>
             </div>
-            <div className="flex flex-wrap gap-1.5 mb-2">
+            <div className="flex flex-col gap-1.5 mb-2">
               {group.options.map(opt => (
-                <span key={opt.id} className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-primary-50 dark:bg-primary/10 text-primary">
-                  {opt.value}
-                  <button type="button" onClick={() => confirmRemoveOption(opt.id)} className="hover:text-error">
-                    <X size={11} />
-                  </button>
-                </span>
+                <div key={opt.id}>
+                  <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-primary-50 dark:bg-primary/10 text-primary w-fit">
+                    {opt.value}
+                    {adjustmentBadge(opt) && (
+                      <span className="px-1.5 py-0.5 rounded-full bg-white/60 dark:bg-black/20 text-[10px]">{adjustmentBadge(opt)}</span>
+                    )}
+                    <button type="button" onClick={() => startEditOption(opt)} className="hover:text-primary-700" title="Editar acréscimo de preço">
+                      <Pencil size={11} />
+                    </button>
+                    <button type="button" onClick={() => confirmRemoveOption(opt.id)} className="hover:text-error">
+                      <X size={11} />
+                    </button>
+                  </span>
+                  {editingOptionId === opt.id && (
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5 p-2 rounded-lg bg-surface dark:bg-white/5">
+                      <select
+                        value={editOptionAdj.type}
+                        onChange={e => setEditOptionAdj(a => ({ ...a, type: e.target.value as AdjustmentType }))}
+                        className="input text-[11px] h-7"
+                      >
+                        <option value="">Nenhum</option>
+                        <option value="fixed">Valor fixo (R$)</option>
+                        <option value="percent">Percentual (%)</option>
+                      </select>
+                      {editOptionAdj.type && (
+                        <input
+                          type="number" step="0.01" min="0"
+                          placeholder={editOptionAdj.type === 'percent' ? '0' : '0,00'}
+                          value={editOptionAdj.value}
+                          onChange={e => setEditOptionAdj(a => ({ ...a, value: e.target.value }))}
+                          className="input text-[11px] h-7 w-20"
+                        />
+                      )}
+                      <button type="button"
+                        onClick={() => updateOptionAdjustmentMutation.mutate({ id: opt.id, adjustment: editOptionAdj })}
+                        disabled={updateOptionAdjustmentMutation.isPending}
+                        className="btn-primary text-[11px] h-7 px-2 flex items-center gap-1 disabled:opacity-50">
+                        {updateOptionAdjustmentMutation.isPending ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />} Salvar
+                      </button>
+                      <button type="button" onClick={() => setEditingOptionId(null)} className="btn-secondary text-[11px] h-7 px-2">
+                        Cancelar
+                      </button>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
             <form
               onSubmit={e => {
                 e.preventDefault()
                 const value = (newOptionByGroup[group.id] ?? '').trim()
-                if (value) addOptionMutation.mutate({ groupId: group.id, value })
+                if (value) addOptionMutation.mutate({ groupId: group.id, value, adjustment: newOptionAdjByGroup[group.id] ?? EMPTY_ADJUSTMENT })
               }}
-              className="flex items-center gap-2"
+              className="flex flex-wrap items-center gap-2"
             >
               <input
                 type="text"
                 value={newOptionByGroup[group.id] ?? ''}
                 onChange={e => setNewOptionByGroup(prev => ({ ...prev, [group.id]: e.target.value }))}
                 placeholder="Nova opção (ex: Branco)"
-                className="input text-xs h-8 flex-1"
+                className="input text-xs h-8 flex-1 min-w-[120px]"
               />
+              <select
+                value={newOptionAdjByGroup[group.id]?.type ?? ''}
+                onChange={e => setNewOptionAdjByGroup(prev => ({ ...prev, [group.id]: { type: e.target.value as AdjustmentType, value: prev[group.id]?.value ?? '' } }))}
+                className="input text-xs h-8"
+                title="Tipo de acréscimo de preço desta opção"
+              >
+                <option value="">Sem acréscimo</option>
+                <option value="fixed">Valor fixo (R$)</option>
+                <option value="percent">Percentual (%)</option>
+              </select>
+              {newOptionAdjByGroup[group.id]?.type && (
+                <input
+                  type="number" step="0.01" min="0"
+                  placeholder={newOptionAdjByGroup[group.id]?.type === 'percent' ? '0' : '0,00'}
+                  value={newOptionAdjByGroup[group.id]?.value ?? ''}
+                  onChange={e => setNewOptionAdjByGroup(prev => ({ ...prev, [group.id]: { type: prev[group.id]?.type ?? '', value: e.target.value } }))}
+                  className="input text-xs h-8 w-20"
+                />
+              )}
               <button type="submit" className="btn-secondary text-xs h-8 px-2.5 flex items-center gap-1">
                 <Plus size={12} /> Adicionar
               </button>
@@ -543,6 +651,16 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                     <input type="number" step="0.01" value={(fieldValue(v, 'price') as number | null) ?? ''} placeholder="Padrão"
                       onChange={e => setPendingField(v, 'price', numOrNull(e.target.value))}
                       className={clsx('input text-xs h-7 w-20', pendingChanges[v.id]?.price !== undefined && 'ring-2 ring-primary/40')} />
+                    {(() => {
+                      const basePrice = (fieldValue(v, 'price') as number | null) ?? productPrice
+                      const adj = variantAdjustment(v, basePrice)
+                      if (adj.adjustmentAmount === 0) return null
+                      return (
+                        <p className="text-[10px] text-primary mt-0.5 whitespace-nowrap">
+                          Final: {formatCurrency(adj.finalPrice)} ({adj.adjustmentAmount > 0 ? '+' : ''}{formatCurrency(adj.adjustmentAmount)})
+                        </p>
+                      )
+                    })()}
                   </td>
                   <td className="p-2 whitespace-nowrap">
                     {v.total_cost != null ? (

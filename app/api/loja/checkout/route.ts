@@ -6,6 +6,7 @@ import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
 import { cleanObservation } from '@/lib/catalog/observation'
 import { quoteCartShipping } from '@/lib/catalog/shipping/quoteCart'
+import { calcOptionsAdjustment } from '@/lib/produtos/variantPricing'
 
 interface CheckoutItem { productId: string; variantId?: string | null; quantity: number; notes?: string | null }
 
@@ -88,7 +89,7 @@ export async function POST(request: Request) {
         id, product_id, sku, price, stock_quantity, image_id, is_active,
         product_variant_option_values(
           option_id,
-          product_variation_options(value, product_variation_groups(name))
+          product_variation_options(value, price_adjustment_type, price_adjustment_value, product_variation_groups(name))
         )
       `)
       .in('id', variantIds)
@@ -132,7 +133,12 @@ export async function POST(request: Request) {
   const orderItems = validItems.map(i => {
     const variant = i.variantId ? variantsById.get(i.variantId) : null
     const basePrice = priceById.get(i.productId) as number
-    const unitPrice = variant?.price != null ? Number(variant.price) : basePrice
+    const variantBasePrice = variant?.price != null ? Number(variant.price) : basePrice
+    // Acréscimo das opções da combinação (ex: "Personalizar +10%") — nunca
+    // confia em preço vindo do client, sempre recalcula a partir das opções
+    // revalidadas acima (mesma regra da exibição pública do produto).
+    const optionAdjustments = (variant?.product_variant_option_values ?? []).map((ov: any) => ov.product_variation_options)
+    const unitPrice = calcOptionsAdjustment(variantBasePrice, optionAdjustments).finalPrice
     return {
       product_id: i.productId,
       name: nameById.get(i.productId),

@@ -1,4 +1,9 @@
-export interface OptionRow { id: string; group_id: string; value: string; sort_order: number }
+export interface OptionRow {
+  id: string; group_id: string; value: string; sort_order: number
+  /** Acréscimo de preço desta opção sobre o preço-base da combinação (migration 088). */
+  price_adjustment_type?: 'fixed' | 'percent' | null
+  price_adjustment_value?: number | null
+}
 export interface GroupRow { id: string; name: string; sort_order: number; options: OptionRow[] }
 export interface DependencyRow { id?: string; option_id: string; depends_on_option_id: string }
 
