@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils/format'
-import { ArrowLeft, Clock, Store, Loader2, CheckCircle, X, ZoomIn, MessageCircle, Truck, ListChecks } from 'lucide-react'
+import { ArrowLeft, Clock, Store, Loader2, CheckCircle, X, ZoomIn, MessageCircle, Truck, ListChecks, Play } from 'lucide-react'
 import { useCart } from '@/lib/catalog/useCart'
 import { OBSERVATION_MAX, cleanObservation } from '@/lib/catalog/observation'
 import { useToast } from '@/components/ui/Toaster'
@@ -22,7 +22,7 @@ interface ProductDetail {
   catalog_category_id: string | null
   finishings: string[] | null; finishing_type: string | null; technical_notes: string | null
 }
-interface ProductImageRow { id: string; url: string; sort_order: number }
+interface ProductImageRow { id: string; url: string; sort_order: number; media_type: 'image' | 'video'; is_primary: boolean }
 interface OptionRow { id: string; group_id: string; value: string; sort_order: number }
 interface GroupRow { id: string; name: string; sort_order: number; options: OptionRow[] }
 interface VariantRow {
@@ -104,7 +104,7 @@ export default function ProdutoLojaPage() {
     queryKey: ['loja-product-images', productId],
     queryFn: async () => {
       const { data } = await (supabase.from('product_images') as any)
-        .select('id, url, sort_order').eq('product_id', productId).order('sort_order')
+        .select('id, url, sort_order, media_type, is_primary').eq('product_id', productId).order('sort_order')
       return data ?? []
     },
   })
@@ -148,7 +148,15 @@ export default function ProdutoLojaPage() {
   })
 
   const groups = useMemo(() => groupRows ?? [], [groupRows])
-  const images = imageRows ?? []
+  // Vídeo nunca entra na lista de fotos — é um item de galeria separado,
+  // sempre exibido por último, com player próprio.
+  const images = useMemo(
+    () => (imageRows ?? [])
+      .filter(i => i.media_type !== 'video')
+      .sort((a, b) => (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0) || a.sort_order - b.sort_order),
+    [imageRows]
+  )
+  const videoRow = (imageRows ?? []).find(i => i.media_type === 'video') ?? null
 
   const parentsByOption = useMemo(() => {
     const map = new Map<string, Set<string>>()
@@ -244,6 +252,14 @@ export default function ProdutoLojaPage() {
   const variantImage = selectedVariant?.image_id ? images.find(i => i.id === selectedVariant.image_id)?.url : null
   const displayPhotos = variantImage ? [variantImage, ...photos.filter(p => p !== variantImage)] : photos
 
+  // Galeria exibida: fotos + (quando houver) o vídeo como último item —
+  // nunca entra no lightbox de zoom nem é reordenado pela seleção de variação.
+  type GalleryItem = { type: 'image'; url: string } | { type: 'video'; url: string }
+  const galleryItems: GalleryItem[] = [
+    ...displayPhotos.map(url => ({ type: 'image' as const, url })),
+    ...(videoRow ? [{ type: 'video' as const, url: videoRow.url }] : []),
+  ]
+
   const effectiveStock = selectedVariant?.stock_quantity ?? null
   const isSoldOut = effectiveStock != null && effectiveStock <= 0
   const needsSelection = groups.length > 0 && !selectedVariant
@@ -258,7 +274,7 @@ export default function ProdutoLojaPage() {
 
   function goToPhoto(delta: number) {
     setActivePhoto(prev => {
-      const len = displayPhotos.length
+      const len = galleryItems.length
       if (len === 0) return prev
       return (prev + delta + len) % len
     })
@@ -300,35 +316,47 @@ export default function ProdutoLojaPage() {
 
         <div className="grid sm:grid-cols-2 gap-6">
           <div>
-            {/* Desktop/tablet: imagem grande + miniaturas ao lado */}
+            {/* Desktop/tablet: item grande + miniaturas ao lado */}
             <div className="hidden sm:block">
-              <button
-                type="button"
-                onClick={() => displayPhotos[activePhoto] && setLightboxOpen(true)}
-                className="relative w-full aspect-square rounded-2xl bg-surface dark:bg-white/5 overflow-hidden flex items-center justify-center mb-2 group"
-              >
-                {displayPhotos[activePhoto] ? (
-                  <>
-                    <motion.img
-                      key={displayPhotos[activePhoto]}
-                      src={displayPhotos[activePhoto]}
-                      alt={product.name}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ duration: 0.2 }}
-                      className="w-full h-full object-cover"
+              <div className="relative w-full aspect-square rounded-2xl bg-surface dark:bg-white/5 overflow-hidden flex items-center justify-center mb-2 group">
+                {galleryItems[activePhoto] ? (
+                  galleryItems[activePhoto].type === 'video' ? (
+                    <video
+                      key={galleryItems[activePhoto].url}
+                      src={galleryItems[activePhoto].url}
+                      controls
+                      preload="metadata"
+                      className="w-full h-full object-contain bg-black"
                     />
-                    <span className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                      <ZoomIn size={14} />
-                    </span>
-                  </>
+                  ) : (
+                    <button type="button" onClick={() => setLightboxOpen(true)} className="w-full h-full">
+                      <motion.img
+                        key={galleryItems[activePhoto].url}
+                        src={galleryItems[activePhoto].url}
+                        alt={product.name}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.2 }}
+                        className="w-full h-full object-cover"
+                      />
+                      <span className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                        <ZoomIn size={14} />
+                      </span>
+                    </button>
+                  )
                 ) : <Store size={40} className="text-text-muted" />}
-              </button>
-              {displayPhotos.length > 1 && (
+              </div>
+              {galleryItems.length > 1 && (
                 <div className="flex gap-2">
-                  {displayPhotos.map((p, i) => (
-                    <button key={p + i} onClick={() => setActivePhoto(i)} className={`relative w-14 h-14 rounded-lg overflow-hidden border-2 transition-colors ${activePhoto === i ? 'border-primary' : 'border-transparent'}`}>
-                      <Image src={p} alt="" fill sizes="56px" className="object-cover" />
+                  {galleryItems.map((item, i) => (
+                    <button key={item.url + i} onClick={() => setActivePhoto(i)} className={`relative w-14 h-14 rounded-lg overflow-hidden border-2 transition-colors bg-black ${activePhoto === i ? 'border-primary' : 'border-transparent'}`}>
+                      {item.type === 'video' ? (
+                        <span className="absolute inset-0 flex items-center justify-center">
+                          <Play size={18} className="text-white" fill="white" />
+                        </span>
+                      ) : (
+                        <Image src={item.url} alt="" fill sizes="56px" className="object-cover" />
+                      )}
                     </button>
                   ))}
                 </div>
@@ -341,26 +369,37 @@ export default function ProdutoLojaPage() {
                 className="relative w-full aspect-square rounded-2xl bg-surface dark:bg-white/5 overflow-hidden flex items-center justify-center mb-2"
                 onTouchStart={onTouchStart}
                 onTouchEnd={onTouchEnd}
-                onClick={() => displayPhotos[activePhoto] && setLightboxOpen(true)}
+                onClick={() => galleryItems[activePhoto]?.type === 'image' && setLightboxOpen(true)}
               >
-                {displayPhotos[activePhoto] ? (
-                  <AnimatePresence mode="wait">
-                    <motion.img
-                      key={displayPhotos[activePhoto]}
-                      src={displayPhotos[activePhoto]}
-                      alt={product.name}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="w-full h-full object-cover"
+                {galleryItems[activePhoto] ? (
+                  galleryItems[activePhoto].type === 'video' ? (
+                    <video
+                      key={galleryItems[activePhoto].url}
+                      src={galleryItems[activePhoto].url}
+                      controls
+                      preload="metadata"
+                      className="w-full h-full object-contain bg-black"
+                      onClick={e => e.stopPropagation()}
                     />
-                  </AnimatePresence>
+                  ) : (
+                    <AnimatePresence mode="wait">
+                      <motion.img
+                        key={galleryItems[activePhoto].url}
+                        src={galleryItems[activePhoto].url}
+                        alt={product.name}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="w-full h-full object-cover"
+                      />
+                    </AnimatePresence>
+                  )
                 ) : <Store size={40} className="text-text-muted" />}
               </div>
-              {displayPhotos.length > 1 && (
+              {galleryItems.length > 1 && (
                 <div className="flex items-center justify-center gap-1.5">
-                  {displayPhotos.map((_, i) => (
+                  {galleryItems.map((_, i) => (
                     <span key={i} className={`w-1.5 h-1.5 rounded-full transition-colors ${activePhoto === i ? 'bg-primary' : 'bg-border dark:bg-border-dark'}`} />
                   ))}
                 </div>
@@ -514,7 +553,7 @@ export default function ProdutoLojaPage() {
       </div>
 
       <AnimatePresence>
-        {lightboxOpen && displayPhotos[activePhoto] && (
+        {lightboxOpen && galleryItems[activePhoto]?.type === 'image' && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -530,7 +569,7 @@ export default function ProdutoLojaPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.92, opacity: 0 }}
               transition={{ duration: 0.2 }}
-              src={displayPhotos[activePhoto]}
+              src={galleryItems[activePhoto].url}
               alt={product.name}
               className="max-w-full max-h-full object-contain rounded-lg"
               onClick={e => e.stopPropagation()}

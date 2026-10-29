@@ -56,10 +56,16 @@ export default function LojaPage() {
     enabled: !!settings,
     queryFn: async () => {
       const { data } = await (supabase.from('products') as any)
-        .select('id, name, final_price, catalog_starting_price, catalog_promo_price, catalog_photos, catalog_category_id, created_at, product_images(id, url, sort_order)')
+        .select('id, name, final_price, catalog_starting_price, catalog_promo_price, catalog_photos, catalog_category_id, created_at, product_images(id, url, sort_order, media_type, is_primary)')
         .eq('company_id', settings!.company_id).eq('is_published_catalog', true)
         .order('sort_order', { foreignTable: 'product_images' })
-      return (data ?? []).map((p: any) => ({ ...p, images: p.product_images ?? [] }))
+      // Vídeo nunca aparece como capa da listagem — só fotos.
+      return (data ?? []).map((p: any) => ({
+        ...p,
+        images: (p.product_images ?? [])
+          .filter((i: any) => i.media_type !== 'video')
+          .sort((a: any, b: any) => (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0) || a.sort_order - b.sort_order),
+      }))
     },
   })
 
