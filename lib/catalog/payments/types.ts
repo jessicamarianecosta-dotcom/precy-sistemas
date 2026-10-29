@@ -5,6 +5,7 @@ export interface CatalogOrderForCharge {
   customerName: string
   customerDocument?: string | null
   customerPhone?: string | null
+  customerEmail?: string | null
   description: string
   /** Caminho (ex: "/loja/lumilife") para onde o gateway deve redirecionar o
    *  cliente após o pagamento, quando o gateway suportar back_urls. */

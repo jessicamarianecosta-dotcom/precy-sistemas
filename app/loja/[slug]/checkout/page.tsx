@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useCart } from '@/lib/catalog/useCart'
 import { useToast } from '@/components/ui/Toaster'
 import { formatCurrency } from '@/lib/utils/format'
+import { fetchCepData } from '@/lib/services/cep'
 import { ArrowLeft, Minus, Plus, Trash2, Loader2, Upload, MessageCircle } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -28,7 +29,11 @@ export default function CheckoutLojaPage() {
     },
   })
 
-  const [customer, setCustomer] = useState({ name: '', phone: '', cpfCnpj: '', address: '', cep: '', notes: '' })
+  const [customer, setCustomer] = useState({
+    name: '', phone: '', email: '', cpfCnpj: '',
+    cep: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '',
+    notes: '',
+  })
   const [artworkFile, setArtworkFile] = useState<File | null>(null)
   const [shipping, setShipping] = useState<{ service: string; price: number; days: number } | null>(null)
   const [shippingOptions, setShippingOptions] = useState<{ service: string; price: number; days: number }[]>([])
@@ -36,16 +41,40 @@ export default function CheckoutLojaPage() {
   const [submitting, setSubmitting] = useState(false)
   const [submittingVia, setSubmittingVia] = useState<'online' | 'whatsapp' | null>(null)
 
+  const [lookingUpCep, setLookingUpCep] = useState(false)
+
+  async function lookupCep() {
+    const cep = customer.cep.replace(/\D/g, '')
+    if (cep.length !== 8) return
+    setLookingUpCep(true)
+    try {
+      const result = await fetchCepData(cep)
+      if (result.ok) {
+        setCustomer(c => ({
+          ...c,
+          street: result.data.logradouro || c.street,
+          neighborhood: result.data.bairro || c.neighborhood,
+          city: result.data.cidade || c.city,
+          state: result.data.uf || c.state,
+        }))
+      }
+    } finally {
+      setLookingUpCep(false)
+    }
+  }
+
   async function calcShipping() {
     const cep = customer.cep.replace(/\D/g, '')
     if (cep.length !== 8) { toast('error', 'Informe um CEP válido'); return }
     setCalculatingShipping(true)
     try {
+      // Peso/dimensões reais do pedido são buscados no servidor a partir do
+      // cadastro de cada produto — o client só informa produto e quantidade.
       const res = await fetch('/api/loja/frete', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           slug, cep,
-          items: items.map(() => ({ weightKg: 0.3, lengthCm: 20, heightCm: 5, widthCm: 15, quantity: 1 })),
+          items: items.map(i => ({ productId: i.productId, quantity: i.quantity })),
         }),
       })
       const data = await res.json()
@@ -80,7 +109,9 @@ export default function CheckoutLojaPage() {
   async function submitOrder(fulfillment: 'online' | 'whatsapp') {
     if (items.length === 0) { toast('error', 'Seu carrinho está vazio'); return }
     if (!customer.name || !customer.phone) { toast('error', 'Nome e telefone são obrigatórios'); return }
+    if (fulfillment === 'online' && !customer.email) { toast('error', 'Informe seu e-mail para receber a confirmação do pagamento'); return }
     if (fulfillment === 'whatsapp' && !storeWhatsapp) { toast('error', 'Esta loja não configurou um WhatsApp para atendimento.'); return }
+    if (fulfillment === 'online' && !shipping) { toast('error', 'Calcule e escolha o frete antes de finalizar'); return }
 
     setSubmitting(true)
     setSubmittingVia(fulfillment)
@@ -102,7 +133,11 @@ export default function CheckoutLojaPage() {
           slug,
           items: items.map(i => ({ productId: i.productId, variantId: i.variantId ?? null, quantity: i.quantity, notes: i.notes ?? null })),
           customer,
-          shippingPrice: shipping?.price ?? 0,
+          // O preço do frete NUNCA é enviado — o servidor recota a mesma
+          // modalidade escolhida (shippingService) a partir do CEP e dos
+          // produtos reais antes de cobrar (ver /api/loja/checkout).
+          shippingService: shipping?.service ?? null,
+          shippingCep: customer.cep ? customer.cep.replace(/\D/g, '') : null,
           artwork,
           fulfillment,
         }),
@@ -127,7 +162,7 @@ export default function CheckoutLojaPage() {
         window.location.href = data.redirectUrl
       } else {
         toast('success', `Pedido ${data.orderNumber} criado!`)
-        router.push(`/loja/${slug}`)
+        router.push(`/loja/${slug}/pedido/${data.checkoutRef}`)
       }
     } catch (err: any) {
       toast('error', err.message)
@@ -176,14 +211,33 @@ export default function CheckoutLojaPage() {
               <div className="card p-4 space-y-3">
                 <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Seus dados</h3>
                 <input required className="input" placeholder="Nome completo" value={customer.name} onChange={e => setCustomer({ ...customer, name: e.target.value })} />
-                <input required className="input" placeholder="Telefone / WhatsApp" value={customer.phone} onChange={e => setCustomer({ ...customer, phone: e.target.value })} />
+                <div className="grid grid-cols-2 gap-2">
+                  <input required className="input" placeholder="Telefone / WhatsApp" value={customer.phone} onChange={e => setCustomer({ ...customer, phone: e.target.value })} />
+                  <input type="email" className="input" placeholder="E-mail" value={customer.email} onChange={e => setCustomer({ ...customer, email: e.target.value })} />
+                </div>
                 <input className="input" placeholder="CPF/CNPJ" value={customer.cpfCnpj} onChange={e => setCustomer({ ...customer, cpfCnpj: e.target.value })} />
-                <input className="input" placeholder="Endereço completo" value={customer.address} onChange={e => setCustomer({ ...customer, address: e.target.value })} />
+
                 <div className="flex gap-2">
-                  <input className="input flex-1" placeholder="CEP" value={customer.cep} onChange={e => setCustomer({ ...customer, cep: e.target.value })} />
-                  <button type="button" onClick={calcShipping} disabled={calculatingShipping} className="btn-secondary whitespace-nowrap">
+                  <input
+                    className="input flex-1" placeholder="CEP" value={customer.cep}
+                    onChange={e => setCustomer({ ...customer, cep: e.target.value })}
+                    onBlur={lookupCep}
+                  />
+                  <button type="button" onClick={calcShipping} disabled={calculatingShipping || lookingUpCep} className="btn-secondary whitespace-nowrap">
                     {calculatingShipping ? <Loader2 size={15} className="animate-spin" /> : 'Calcular frete'}
                   </button>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <input className="input col-span-2" placeholder="Rua / Logradouro" value={customer.street} onChange={e => setCustomer({ ...customer, street: e.target.value })} />
+                  <input className="input" placeholder="Número" value={customer.number} onChange={e => setCustomer({ ...customer, number: e.target.value })} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input className="input" placeholder="Complemento (opcional)" value={customer.complement} onChange={e => setCustomer({ ...customer, complement: e.target.value })} />
+                  <input className="input" placeholder="Bairro" value={customer.neighborhood} onChange={e => setCustomer({ ...customer, neighborhood: e.target.value })} />
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <input className="input col-span-2" placeholder="Cidade" value={customer.city} onChange={e => setCustomer({ ...customer, city: e.target.value })} />
+                  <input className="input" placeholder="UF" maxLength={2} value={customer.state} onChange={e => setCustomer({ ...customer, state: e.target.value.toUpperCase() })} />
                 </div>
                 {shippingOptions.length > 0 && (
                   <div className="space-y-1.5">

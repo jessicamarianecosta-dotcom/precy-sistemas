@@ -6,7 +6,7 @@ import type { ShippingAdapter, ShippingItem, ShippingQuote } from './types'
  * (SUPERFRETE_MODE=mock ou SUPERFRETE_API_KEY ausente).
  */
 export class MockShippingAdapter implements ShippingAdapter {
-  async quote(cep: string, items: ShippingItem[]): Promise<ShippingQuote[]> {
+  async quote(cep: string, items: ShippingItem[], _originCep?: string | null): Promise<ShippingQuote[]> {
     const totalWeight = items.reduce((s, i) => s + i.weightKg * i.quantity, 0)
     const base = 18 + totalWeight * 4
     return [

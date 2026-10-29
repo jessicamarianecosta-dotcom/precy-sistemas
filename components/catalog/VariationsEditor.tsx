@@ -12,7 +12,7 @@ import { uploadImageXhr } from '@/lib/catalog/useImageUploadXhr'
 import { VariationRulesWizard } from './VariationRulesWizard'
 import { formatCurrency } from '@/lib/utils/format'
 
-const IMAGE_MAX_PHOTOS = 4
+const IMAGE_MAX_PHOTOS = 10
 const IMAGE_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 interface VariantRow {
@@ -31,7 +31,7 @@ interface VariantRow {
   markup_percentage: number | null
   pricing_data: unknown
 }
-interface ProductImage { id: string; url: string; sort_order: number }
+interface ProductImage { id: string; url: string; sort_order: number; media_type?: 'image' | 'video' }
 
 /** Campos da tabela de combinações editáveis em lote (não incluem grupos/opções). */
 type EditableField = 'price' | 'stock_quantity' | 'sku' | 'lead_time_days' | 'weight_kg' | 'image_id'
@@ -116,13 +116,15 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     enabled: !!productId,
     queryFn: async () => {
       const { data } = await (supabase.from('product_images') as any)
-        .select('id, url, sort_order').eq('product_id', productId).order('sort_order')
+        .select('id, url, sort_order, media_type, is_primary, storage_path, duration_seconds').eq('product_id', productId).order('sort_order')
       return data ?? []
     },
   })
 
   const groupsSorted = useMemo(() => groupsQuery.data ?? [], [groupsQuery.data])
-  const productImages = imagesQuery.data ?? []
+  // Vídeo nunca é foto de variação — a galeria (ProductGalleryUpload) usa a
+  // mesma chave de cache ['product-images', productId] com o mesmo shape.
+  const productImages = (imagesQuery.data ?? []).filter(i => i.media_type !== 'video')
 
   const variantsNormalized = useMemo<VariantRow[]>(() => {
     return (variantsQuery.data ?? []).map(v => {

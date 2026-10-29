@@ -692,7 +692,7 @@ export default function ProdutosPage() {
               {/* ── Galeria de fotos e Variações (Catálogo Online, exclusivo PRO) ── */}
               {isPro && vp?.id && companyId && (
                 <>
-                  <FichaSection icon={Images} title="Fotos do produto"
+                  <FichaSection icon={Images} title="Fotos e vídeo do produto"
                     color="text-primary" bg="bg-primary-50 dark:bg-primary/10">
                     <ProductGalleryUpload productId={vp.id} companyId={companyId} />
                   </FichaSection>

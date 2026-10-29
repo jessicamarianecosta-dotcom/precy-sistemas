@@ -5,6 +5,7 @@ import { getPaymentAdapter } from '@/lib/catalog/payments'
 import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
 import { cleanObservation } from '@/lib/catalog/observation'
+import { quoteCartShipping } from '@/lib/catalog/shipping/quoteCart'
 
 interface CheckoutItem { productId: string; variantId?: string | null; quantity: number; notes?: string | null }
 
@@ -36,11 +37,11 @@ export async function POST(request: Request) {
   // direto com o lojista pelo WhatsApp. Nunca é tratado como pago só por
   // escolher essa opção.
   const fulfillment: 'online' | 'whatsapp' = body?.fulfillment === 'whatsapp' ? 'whatsapp' : 'online'
-  // Nunca confiar cegamente no valor de frete vindo do client — só ele decide
-  // o total cobrado no pagamento. Sem re-cotação server-side (ver nota no
-  // relatório de auditoria), pelo menos garante que não é negativo/absurdo.
-  const rawShipping = Number(body?.shippingPrice ?? 0)
-  const shippingPrice = Number.isFinite(rawShipping) ? Math.min(Math.max(rawShipping, 0), 10000) : 0
+  // O preço do frete nunca é lido do client: o servidor recota a mesma
+  // modalidade (shippingService) a partir do CEP informado e do peso/
+  // dimensões reais dos produtos antes de cobrar qualquer coisa.
+  const shippingService: string | null = body?.shippingService ? String(body.shippingService) : null
+  const shippingCep: string = String(body?.shippingCep ?? '').replace(/\D/g, '')
   const artwork = body?.artwork ?? null
 
   if (!slug || items.length === 0) {
@@ -150,8 +151,39 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Nenhum item válido no carrinho' }, { status: 400 })
   }
 
+  /* ── Revalidar frete: recota a mesma modalidade escolhida a partir do
+     CEP e do peso/dimensões reais dos produtos — o preço nunca vem do
+     client. Pedido via WhatsApp pode seguir sem frete calculado (o
+     lojista combina a entrega direto com o cliente). ── */
+  let shippingPrice = 0
+  let shippingDays: number | null = null
+  if (fulfillment === 'online') {
+    if (!shippingService || shippingCep.length !== 8) {
+      return NextResponse.json({ error: 'Calcule e escolha uma opção de frete antes de finalizar' }, { status: 400 })
+    }
+    let quotes
+    try {
+      quotes = await quoteCartShipping(companyId, shippingCep, validItems.map(i => ({ productId: i.productId, quantity: i.quantity })))
+    } catch (err: any) {
+      return NextResponse.json({ error: err?.message ?? 'Erro ao validar o frete' }, { status: 502 })
+    }
+    const matched = (quotes ?? []).find(q => q.service === shippingService)
+    if (!matched) {
+      return NextResponse.json({ error: 'A opção de frete escolhida não está mais disponível. Calcule o frete novamente.' }, { status: 409 })
+    }
+    shippingPrice = matched.price
+    shippingDays = matched.days
+  }
+
   const subtotal = orderItems.reduce((s, i) => s + i.subtotal, 0)
   const total = subtotal + shippingPrice
+
+  // Endereço estruturado em uma linha — mantém compatibilidade com o campo
+  // de texto livre `customers.address` usado no resto do sistema.
+  const addressLine = [
+    [customer.street, customer.number].filter(Boolean).join(', '),
+    customer.complement,
+  ].filter(Boolean).join(' - ') || null
 
   /* ── Dedup de cliente por telefone dentro da empresa ── */
   const phone = String(customer.phone).replace(/\D/g, '')
@@ -167,7 +199,10 @@ export async function POST(request: Request) {
     await (supabaseAdmin.from('customers') as any)
       .update({
         name: customer.name,
-        address: customer.address ?? null,
+        email: customer.email || undefined,
+        address: addressLine,
+        city: customer.city || null,
+        state: customer.state || null,
         cpf_cnpj: customer.cpfCnpj ?? null,
         updated_at: new Date().toISOString(),
       })
@@ -178,7 +213,10 @@ export async function POST(request: Request) {
         company_id: companyId,
         name: customer.name,
         phone,
-        address: customer.address ?? null,
+        email: customer.email || null,
+        address: addressLine,
+        city: customer.city || null,
+        state: customer.state || null,
         cpf_cnpj: customer.cpfCnpj ?? null,
       }])
       .select('id')
@@ -191,12 +229,10 @@ export async function POST(request: Request) {
 
   /* ── Criar pedido pendente ── */
   const checkoutRef = randomUUID()
-  // notes fica só com texto do cliente — arte enviada vira uma linha estruturada
-  // em order_files (ver abaixo), nunca mais uma URL solta aqui.
-  const notesParts = [
-    customer.notes ? `Observações: ${customer.notes}` : null,
-    customer.cep ? `CEP: ${customer.cep}` : null,
-  ].filter(Boolean)
+  // notes fica só com texto livre do cliente — endereço e arte enviada
+  // viram colunas estruturadas (delivery_* / order_files), nunca mais
+  // texto solto aqui.
+  const notesParts = [customer.notes ? `Observações: ${customer.notes}` : null].filter(Boolean)
 
   const { data: order, error: orderError } = await (supabaseAdmin.from('orders') as any)
     .insert([{
@@ -214,6 +250,16 @@ export async function POST(request: Request) {
       catalog_checkout_ref: checkoutRef,
       art_status: artwork ? 'recebida' : 'nao_enviada',
       description: fulfillment === 'whatsapp' ? 'Pedido via Catálogo Online (WhatsApp)' : 'Pedido via Catálogo Online',
+      delivery_email: customer.email || null,
+      delivery_cep: customer.cep ? customer.cep.replace(/\D/g, '') : null,
+      delivery_street: customer.street || null,
+      delivery_number: customer.number || null,
+      delivery_complement: customer.complement || null,
+      delivery_neighborhood: customer.neighborhood || null,
+      delivery_city: customer.city || null,
+      delivery_state: customer.state || null,
+      shipping_service: shippingService,
+      shipping_days: shippingDays,
     }])
     .select('id, order_number')
     .single()
@@ -265,10 +311,11 @@ export async function POST(request: Request) {
       customerName: customer.name,
       customerDocument: customer.cpfCnpj ?? null,
       customerPhone: phone,
+      customerEmail: customer.email || null,
       description: `Pedido ${order.order_number} — Catálogo Online`,
-      returnPath: `/loja/${slug}`,
+      returnPath: `/loja/${slug}/pedido/${checkoutRef}`,
     })
-    return NextResponse.json({ orderId: order.id, orderNumber: order.order_number, ...charge })
+    return NextResponse.json({ orderId: order.id, orderNumber: order.order_number, checkoutRef, ...charge })
   } catch (err: any) {
     return NextResponse.json({ error: err?.message ?? 'Erro ao iniciar pagamento' }, { status: 502 })
   }
