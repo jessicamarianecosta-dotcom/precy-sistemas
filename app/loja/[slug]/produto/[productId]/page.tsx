@@ -431,7 +431,10 @@ export default function ProdutoLojaPage() {
             )}
             {priceAdjustment.adjustmentAmount !== 0 && (
               <p className="text-xs text-text-muted dark:text-stone-500 -mt-2 mb-3">
-                Preço base {formatCurrency(priceAdjustment.basePrice)} + {formatCurrency(priceAdjustment.adjustmentAmount)} de personalização
+                Preço base {formatCurrency(priceAdjustment.basePrice)}
+                {priceAdjustment.adjustmentAmount > 0
+                  ? ` + ${formatCurrency(priceAdjustment.adjustmentAmount)} de personalização`
+                  : ` − ${formatCurrency(Math.abs(priceAdjustment.adjustmentAmount))} de desconto`}
               </p>
             )}
 

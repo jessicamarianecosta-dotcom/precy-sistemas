@@ -13,16 +13,36 @@ import { VariationRulesWizard } from './VariationRulesWizard'
 import { formatCurrency } from '@/lib/utils/format'
 import { calcOptionsAdjustment } from '@/lib/produtos/variantPricing'
 
-type AdjustmentType = '' | 'fixed' | 'percent'
-interface AdjustmentDraft { type: AdjustmentType; value: string }
-const EMPTY_ADJUSTMENT: AdjustmentDraft = { type: '', value: '' }
+/** Combina tipo (fixo/percentual) + direção (acréscimo/desconto) num único seletor. */
+type AdjustmentKind = '' | 'fixed_add' | 'fixed_discount' | 'percent_add' | 'percent_discount'
+interface AdjustmentDraft { kind: AdjustmentKind; value: string }
+const EMPTY_ADJUSTMENT: AdjustmentDraft = { kind: '', value: '' }
 
-/** Rótulo curto do acréscimo de uma opção, para exibir junto ao nome (ex: "+10%", "+R$ 5,00"). */
+/** Converte o rascunho do formulário (kind + magnitude sempre positiva) no formato salvo no banco (type + value com sinal). */
+function adjustmentDraftToPatch(d: AdjustmentDraft): { price_adjustment_type: 'fixed' | 'percent' | null; price_adjustment_value: number | null } {
+  if (!d.kind) return { price_adjustment_type: null, price_adjustment_value: null }
+  const magnitude = Math.abs(Number(d.value || 0))
+  const isDiscount = d.kind.endsWith('_discount')
+  const type: 'fixed' | 'percent' = d.kind.startsWith('fixed') ? 'fixed' : 'percent'
+  return { price_adjustment_type: type, price_adjustment_value: isDiscount ? -magnitude : magnitude }
+}
+
+/** Reconstrói o rascunho (kind + magnitude positiva) a partir dos valores já salvos de uma opção, pra editar. */
+function adjustmentKindFromOption(opt: OptionRow): AdjustmentDraft {
+  if (!opt.price_adjustment_type || opt.price_adjustment_value == null) return EMPTY_ADJUSTMENT
+  const isDiscount = opt.price_adjustment_value < 0
+  const kind: AdjustmentKind = opt.price_adjustment_type === 'fixed'
+    ? (isDiscount ? 'fixed_discount' : 'fixed_add')
+    : (isDiscount ? 'percent_discount' : 'percent_add')
+  return { kind, value: String(Math.abs(opt.price_adjustment_value)) }
+}
+
+/** Rótulo curto do acréscimo/desconto de uma opção, pra exibir junto ao nome (ex: "+10%", "-R$ 5,00"). */
 function adjustmentBadge(opt: OptionRow): string | null {
   if (!opt.price_adjustment_type || !opt.price_adjustment_value) return null
-  return opt.price_adjustment_type === 'percent'
-    ? `+${opt.price_adjustment_value}%`
-    : `+${formatCurrency(opt.price_adjustment_value)}`
+  const v = opt.price_adjustment_value
+  const sign = v > 0 ? '+' : ''
+  return opt.price_adjustment_type === 'percent' ? `${sign}${v}%` : `${sign}${formatCurrency(v)}`
 }
 
 const IMAGE_MAX_PHOTOS = 10
@@ -206,8 +226,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
       const { error: err } = await (supabase.from('product_variation_options') as any)
         .insert({
           group_id: groupId, company_id: companyId, value, sort_order: group?.options.length ?? 0,
-          price_adjustment_type: adjustment.type || null,
-          price_adjustment_value: adjustment.type ? Number(adjustment.value || 0) : null,
+          ...adjustmentDraftToPatch(adjustment),
         })
       if (err) throw err
     },
@@ -232,11 +251,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   const updateOptionMutation = useMutation({
     mutationFn: async ({ id, value, adjustment }: { id: string; value: string; adjustment: AdjustmentDraft }) => {
       const { error: err } = await (supabase.from('product_variation_options') as any)
-        .update({
-          value,
-          price_adjustment_type: adjustment.type || null,
-          price_adjustment_value: adjustment.type ? Number(adjustment.value || 0) : null,
-        })
+        .update({ value, ...adjustmentDraftToPatch(adjustment) })
         .eq('id', id)
       if (err) throw err
     },
@@ -247,10 +262,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   function startEditOption(opt: OptionRow) {
     setEditingOptionId(opt.id)
     setEditOptionValue(opt.value)
-    setEditOptionAdj({
-      type: (opt.price_adjustment_type as AdjustmentType) ?? '',
-      value: opt.price_adjustment_value != null ? String(opt.price_adjustment_value) : '',
-    })
+    setEditOptionAdj(adjustmentKindFromOption(opt))
   }
 
   /** Salva em lote apenas os campos alterados de cada combinação (um update por combinação, só com o patch dela). */
@@ -558,18 +570,20 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                         className="input py-1 text-[11px] h-7 w-28"
                       />
                       <select
-                        value={editOptionAdj.type}
-                        onChange={e => setEditOptionAdj(a => ({ ...a, type: e.target.value as AdjustmentType }))}
+                        value={editOptionAdj.kind}
+                        onChange={e => setEditOptionAdj(a => ({ ...a, kind: e.target.value as AdjustmentKind }))}
                         className="input py-1 text-[11px] h-7"
                       >
                         <option value="">Nenhum</option>
-                        <option value="fixed">Valor fixo (R$)</option>
-                        <option value="percent">Percentual (%)</option>
+                        <option value="fixed_add">Acréscimo fixo (R$)</option>
+                        <option value="fixed_discount">Desconto fixo (R$)</option>
+                        <option value="percent_add">Acréscimo percentual (%)</option>
+                        <option value="percent_discount">Desconto percentual (%)</option>
                       </select>
-                      {editOptionAdj.type && (
+                      {editOptionAdj.kind && (
                         <input
                           type="number" step="0.01" min="0"
-                          placeholder={editOptionAdj.type === 'percent' ? '0' : '0,00'}
+                          placeholder={editOptionAdj.kind.startsWith('percent') ? '0' : '0,00'}
                           value={editOptionAdj.value}
                           onChange={e => setEditOptionAdj(a => ({ ...a, value: e.target.value }))}
                           className="input py-1 text-[11px] h-7 w-20"
@@ -609,21 +623,23 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                 className="input py-1.5 text-xs h-8 flex-1 min-w-[120px]"
               />
               <select
-                value={newOptionAdjByGroup[group.id]?.type ?? ''}
-                onChange={e => setNewOptionAdjByGroup(prev => ({ ...prev, [group.id]: { type: e.target.value as AdjustmentType, value: prev[group.id]?.value ?? '' } }))}
+                value={newOptionAdjByGroup[group.id]?.kind ?? ''}
+                onChange={e => setNewOptionAdjByGroup(prev => ({ ...prev, [group.id]: { kind: e.target.value as AdjustmentKind, value: prev[group.id]?.value ?? '' } }))}
                 className="input py-1.5 text-xs h-8"
-                title="Tipo de acréscimo de preço desta opção"
+                title="Acréscimo ou desconto de preço desta opção"
               >
-                <option value="">Sem acréscimo</option>
-                <option value="fixed">Valor fixo (R$)</option>
-                <option value="percent">Percentual (%)</option>
+                <option value="">Sem acréscimo/desconto</option>
+                <option value="fixed_add">Acréscimo fixo (R$)</option>
+                <option value="fixed_discount">Desconto fixo (R$)</option>
+                <option value="percent_add">Acréscimo percentual (%)</option>
+                <option value="percent_discount">Desconto percentual (%)</option>
               </select>
-              {newOptionAdjByGroup[group.id]?.type && (
+              {newOptionAdjByGroup[group.id]?.kind && (
                 <input
                   type="number" step="0.01" min="0"
-                  placeholder={newOptionAdjByGroup[group.id]?.type === 'percent' ? '0' : '0,00'}
+                  placeholder={newOptionAdjByGroup[group.id]?.kind?.startsWith('percent') ? '0' : '0,00'}
                   value={newOptionAdjByGroup[group.id]?.value ?? ''}
-                  onChange={e => setNewOptionAdjByGroup(prev => ({ ...prev, [group.id]: { type: prev[group.id]?.type ?? '', value: e.target.value } }))}
+                  onChange={e => setNewOptionAdjByGroup(prev => ({ ...prev, [group.id]: { kind: prev[group.id]?.kind ?? '', value: e.target.value } }))}
                   className="input py-1.5 text-xs h-8 w-20"
                 />
               )}

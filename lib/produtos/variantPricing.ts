@@ -115,12 +115,17 @@ export interface OptionsAdjustmentResult {
  * (ex: markup do produto, ou o preço próprio da combinação), o acréscimo
  * percentual é recalculado automaticamente na próxima leitura.
  *
- * Regra de composição quando há mais de uma opção com acréscimo na mesma
- * combinação (documentada para nunca cobrar duas vezes):
- *   - acréscimos fixos se somam entre si (R$ + R$);
- *   - acréscimos percentuais se somam entre si (10% + 5% = 15%) e são
+ * price_adjustment_value pode ser negativo — isso representa um DESCONTO
+ * (ex: -10 em 'percent' = 10% de desconto; -5 em 'fixed' = R$5 de desconto),
+ * calculado com a mesma fórmula do acréscimo, só com o sinal invertido.
+ *
+ * Regra de composição quando há mais de uma opção com acréscimo/desconto na
+ * mesma combinação (documentada para nunca cobrar/descontar duas vezes):
+ *   - valores fixos se somam entre si (R$ + R$, descontos como negativo);
+ *   - percentuais se somam entre si (10% + 5% = 15%; 10% − 20% = −10%) e são
  *     aplicados UMA ÚNICA VEZ sobre o preço-base — nunca compostos em
  *     cascata (não é basePrice × 1.10 × 1.05).
+ * O preço final nunca fica negativo (piso em R$ 0,00).
  */
 export function calcOptionsAdjustment(basePrice: number, options: (OptionPriceAdjustment | null | undefined)[]): OptionsAdjustmentResult {
   const base = round2(num(basePrice))
@@ -136,6 +141,6 @@ export function calcOptionsAdjustment(basePrice: number, options: (OptionPriceAd
   fixedTotal = round2(fixedTotal)
   const percentAmount = round2((base * percentTotal) / 100)
   const adjustmentAmount = round2(fixedTotal + percentAmount)
-  const finalPrice = round2(base + adjustmentAmount)
+  const finalPrice = Math.max(0, round2(base + adjustmentAmount))
   return { basePrice: base, fixedTotal, percentTotal, percentAmount, adjustmentAmount, finalPrice }
 }
