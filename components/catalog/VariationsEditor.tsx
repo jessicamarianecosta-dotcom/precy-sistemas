@@ -83,7 +83,10 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   const [newGroupName, setNewGroupName] = useState('')
   const [newOptionByGroup, setNewOptionByGroup] = useState<Record<string, string>>({})
   const [newOptionAdjByGroup, setNewOptionAdjByGroup] = useState<Record<string, AdjustmentDraft>>({})
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null)
+  const [editGroupName, setEditGroupName] = useState('')
   const [editingOptionId, setEditingOptionId] = useState<string | null>(null)
+  const [editOptionValue, setEditOptionValue] = useState('')
   const [editOptionAdj, setEditOptionAdj] = useState<AdjustmentDraft>(EMPTY_ADJUSTMENT)
   const [error, setError] = useState<string | null>(null)
   const [showWizard, setShowWizard] = useState(false)
@@ -183,6 +186,20 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     onSuccess: () => { invalidateGroups(); invalidateVariants() },
   })
 
+  const updateGroupMutation = useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      const { error: err } = await (supabase.from('product_variation_groups') as any).update({ name }).eq('id', id)
+      if (err) throw err
+    },
+    onSuccess: () => { invalidateGroups(); setEditingGroupId(null); setError(null) },
+    onError: (err: Error) => setError(err.message),
+  })
+
+  function startEditGroup(group: GroupRow) {
+    setEditingGroupId(group.id)
+    setEditGroupName(group.name)
+  }
+
   const addOptionMutation = useMutation({
     mutationFn: async ({ groupId, value, adjustment }: { groupId: string; value: string; adjustment: AdjustmentDraft }) => {
       const group = groupsSorted.find(g => g.id === groupId)
@@ -211,23 +228,25 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     onSuccess: () => { invalidateGroups(); invalidateVariants() },
   })
 
-  /** Atualiza só o tipo/valor de acréscimo de uma opção já existente (não mexe no nome). */
-  const updateOptionAdjustmentMutation = useMutation({
-    mutationFn: async ({ id, adjustment }: { id: string; adjustment: AdjustmentDraft }) => {
+  /** Atualiza o nome e/ou o tipo/valor de acréscimo de uma opção já existente. */
+  const updateOptionMutation = useMutation({
+    mutationFn: async ({ id, value, adjustment }: { id: string; value: string; adjustment: AdjustmentDraft }) => {
       const { error: err } = await (supabase.from('product_variation_options') as any)
         .update({
+          value,
           price_adjustment_type: adjustment.type || null,
           price_adjustment_value: adjustment.type ? Number(adjustment.value || 0) : null,
         })
         .eq('id', id)
       if (err) throw err
     },
-    onSuccess: () => { invalidateGroups(); setEditingOptionId(null); setError(null) },
-    onError: (err: Error) => setError(err.message),
+    onSuccess: () => { invalidateGroups(); invalidateVariants(); setEditingOptionId(null); setError(null) },
+    onError: (err: Error) => setError(err.message.includes('duplicate') ? 'Essa opção já existe neste grupo.' : err.message),
   })
 
   function startEditOption(opt: OptionRow) {
     setEditingOptionId(opt.id)
+    setEditOptionValue(opt.value)
     setEditOptionAdj({
       type: (opt.price_adjustment_type as AdjustmentType) ?? '',
       value: opt.price_adjustment_value != null ? String(opt.price_adjustment_value) : '',
@@ -482,10 +501,38 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
       <div className="space-y-3">
         {groupsSorted.map(group => (
           <div key={group.id} className="rounded-xl border border-border dark:border-border-dark p-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-text-primary dark:text-stone-100">{group.name}</span>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              {editingGroupId === group.id ? (
+                <form
+                  onSubmit={e => {
+                    e.preventDefault()
+                    const name = editGroupName.trim()
+                    if (name) updateGroupMutation.mutate({ id: group.id, name })
+                  }}
+                  className="flex items-center gap-1.5 flex-1 min-w-0"
+                >
+                  <input
+                    type="text" autoFocus value={editGroupName}
+                    onChange={e => setEditGroupName(e.target.value)}
+                    className="input py-1 text-xs h-7 flex-1 min-w-0"
+                  />
+                  <button type="submit" disabled={updateGroupMutation.isPending}
+                    className="btn-primary text-[11px] h-7 px-2 flex items-center gap-1 disabled:opacity-50 flex-shrink-0">
+                    {updateGroupMutation.isPending ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                  </button>
+                  <button type="button" onClick={() => setEditingGroupId(null)}
+                    className="btn-secondary text-[11px] h-7 px-2 flex-shrink-0">Cancelar</button>
+                </form>
+              ) : (
+                <span className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs font-semibold text-text-primary dark:text-stone-100 truncate">{group.name}</span>
+                  <button type="button" onClick={() => startEditGroup(group)} className="text-text-muted hover:text-primary flex-shrink-0" title="Renomear grupo">
+                    <Pencil size={11} />
+                  </button>
+                </span>
+              )}
               <button type="button" onClick={() => confirmRemoveGroup(group.id)}
-                className="text-[11px] text-error hover:underline">Remover grupo</button>
+                className="text-[11px] text-error hover:underline flex-shrink-0">Remover grupo</button>
             </div>
             <div className="flex flex-col gap-1.5 mb-2">
               {group.options.map(opt => (
@@ -495,7 +542,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                     {adjustmentBadge(opt) && (
                       <span className="px-1.5 py-0.5 rounded-full bg-white/60 dark:bg-black/20 text-[10px]">{adjustmentBadge(opt)}</span>
                     )}
-                    <button type="button" onClick={() => startEditOption(opt)} className="hover:text-primary-700" title="Editar acréscimo de preço">
+                    <button type="button" onClick={() => startEditOption(opt)} className="hover:text-primary-700" title="Editar opção (nome e acréscimo de preço)">
                       <Pencil size={11} />
                     </button>
                     <button type="button" onClick={() => confirmRemoveOption(opt.id)} className="hover:text-error">
@@ -504,10 +551,16 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                   </span>
                   {editingOptionId === opt.id && (
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5 p-2 rounded-lg bg-surface dark:bg-white/5">
+                      <input
+                        type="text" value={editOptionValue}
+                        onChange={e => setEditOptionValue(e.target.value)}
+                        placeholder="Nome da opção"
+                        className="input py-1 text-[11px] h-7 w-28"
+                      />
                       <select
                         value={editOptionAdj.type}
                         onChange={e => setEditOptionAdj(a => ({ ...a, type: e.target.value as AdjustmentType }))}
-                        className="input text-[11px] h-7"
+                        className="input py-1 text-[11px] h-7"
                       >
                         <option value="">Nenhum</option>
                         <option value="fixed">Valor fixo (R$)</option>
@@ -519,14 +572,18 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                           placeholder={editOptionAdj.type === 'percent' ? '0' : '0,00'}
                           value={editOptionAdj.value}
                           onChange={e => setEditOptionAdj(a => ({ ...a, value: e.target.value }))}
-                          className="input text-[11px] h-7 w-20"
+                          className="input py-1 text-[11px] h-7 w-20"
                         />
                       )}
                       <button type="button"
-                        onClick={() => updateOptionAdjustmentMutation.mutate({ id: opt.id, adjustment: editOptionAdj })}
-                        disabled={updateOptionAdjustmentMutation.isPending}
+                        onClick={() => {
+                          const value = editOptionValue.trim()
+                          if (!value) { setError('O nome da opção não pode ficar vazio.'); return }
+                          updateOptionMutation.mutate({ id: opt.id, value, adjustment: editOptionAdj })
+                        }}
+                        disabled={updateOptionMutation.isPending}
                         className="btn-primary text-[11px] h-7 px-2 flex items-center gap-1 disabled:opacity-50">
-                        {updateOptionAdjustmentMutation.isPending ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />} Salvar
+                        {updateOptionMutation.isPending ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />} Salvar
                       </button>
                       <button type="button" onClick={() => setEditingOptionId(null)} className="btn-secondary text-[11px] h-7 px-2">
                         Cancelar
@@ -549,12 +606,12 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                 value={newOptionByGroup[group.id] ?? ''}
                 onChange={e => setNewOptionByGroup(prev => ({ ...prev, [group.id]: e.target.value }))}
                 placeholder="Nova opção (ex: Branco)"
-                className="input text-xs h-8 flex-1 min-w-[120px]"
+                className="input py-1.5 text-xs h-8 flex-1 min-w-[120px]"
               />
               <select
                 value={newOptionAdjByGroup[group.id]?.type ?? ''}
                 onChange={e => setNewOptionAdjByGroup(prev => ({ ...prev, [group.id]: { type: e.target.value as AdjustmentType, value: prev[group.id]?.value ?? '' } }))}
-                className="input text-xs h-8"
+                className="input py-1.5 text-xs h-8"
                 title="Tipo de acréscimo de preço desta opção"
               >
                 <option value="">Sem acréscimo</option>
@@ -567,7 +624,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                   placeholder={newOptionAdjByGroup[group.id]?.type === 'percent' ? '0' : '0,00'}
                   value={newOptionAdjByGroup[group.id]?.value ?? ''}
                   onChange={e => setNewOptionAdjByGroup(prev => ({ ...prev, [group.id]: { type: prev[group.id]?.type ?? '', value: e.target.value } }))}
-                  className="input text-xs h-8 w-20"
+                  className="input py-1.5 text-xs h-8 w-20"
                 />
               )}
               <button type="submit" className="btn-secondary text-xs h-8 px-2.5 flex items-center gap-1">
@@ -586,7 +643,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
             value={newGroupName}
             onChange={e => setNewGroupName(e.target.value)}
             placeholder="Nome do grupo (ex: Papel, Gramatura, Impressão)"
-            className="input text-xs h-9 flex-1"
+            className="input py-2 text-xs h-9 flex-1"
           />
           <button type="submit" className="btn-primary text-xs h-9 px-3 flex items-center gap-1.5 flex-shrink-0">
             <Plus size={13} /> Adicionar grupo
@@ -650,7 +707,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                   <td className="p-2">
                     <input type="number" step="0.01" value={(fieldValue(v, 'price') as number | null) ?? ''} placeholder="Padrão"
                       onChange={e => setPendingField(v, 'price', numOrNull(e.target.value))}
-                      className={clsx('input text-xs h-7 w-20', pendingChanges[v.id]?.price !== undefined && 'ring-2 ring-primary/40')} />
+                      className={clsx('input py-1 text-xs h-7 w-20', pendingChanges[v.id]?.price !== undefined && 'ring-2 ring-primary/40')} />
                     {(() => {
                       const basePrice = (fieldValue(v, 'price') as number | null) ?? productPrice
                       const adj = variantAdjustment(v, basePrice)
@@ -677,28 +734,28 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                   <td className="p-2">
                     <input type="number" step="1" value={(fieldValue(v, 'stock_quantity') as number | null) ?? ''} placeholder="Ilimitado"
                       onChange={e => setPendingField(v, 'stock_quantity', numOrNull(e.target.value))}
-                      className={clsx('input text-xs h-7 w-20', pendingChanges[v.id]?.stock_quantity !== undefined && 'ring-2 ring-primary/40')} />
+                      className={clsx('input py-1 text-xs h-7 w-20', pendingChanges[v.id]?.stock_quantity !== undefined && 'ring-2 ring-primary/40')} />
                   </td>
                   <td className="p-2">
                     <input type="text" value={(fieldValue(v, 'sku') as string | null) ?? ''}
                       onChange={e => setPendingField(v, 'sku', e.target.value || null)}
-                      className={clsx('input text-xs h-7 w-24', pendingChanges[v.id]?.sku !== undefined && 'ring-2 ring-primary/40')} />
+                      className={clsx('input py-1 text-xs h-7 w-24', pendingChanges[v.id]?.sku !== undefined && 'ring-2 ring-primary/40')} />
                   </td>
                   <td className="p-2">
                     <input type="number" step="1" value={(fieldValue(v, 'lead_time_days') as number | null) ?? ''} placeholder="Padrão"
                       onChange={e => setPendingField(v, 'lead_time_days', numOrNull(e.target.value))}
-                      className={clsx('input text-xs h-7 w-16', pendingChanges[v.id]?.lead_time_days !== undefined && 'ring-2 ring-primary/40')} />
+                      className={clsx('input py-1 text-xs h-7 w-16', pendingChanges[v.id]?.lead_time_days !== undefined && 'ring-2 ring-primary/40')} />
                   </td>
                   <td className="p-2">
                     <input type="number" step="0.001" value={(fieldValue(v, 'weight_kg') as number | null) ?? ''}
                       onChange={e => setPendingField(v, 'weight_kg', numOrNull(e.target.value))}
-                      className={clsx('input text-xs h-7 w-16', pendingChanges[v.id]?.weight_kg !== undefined && 'ring-2 ring-primary/40')} />
+                      className={clsx('input py-1 text-xs h-7 w-16', pendingChanges[v.id]?.weight_kg !== undefined && 'ring-2 ring-primary/40')} />
                   </td>
                   <td className="p-2">
                     <select
                       value={(fieldValue(v, 'image_id') as string | null) ?? ''}
                       onChange={e => setPendingField(v, 'image_id', e.target.value || null)}
-                      className={clsx('input text-xs h-7 w-24', pendingChanges[v.id]?.image_id !== undefined && 'ring-2 ring-primary/40')}
+                      className={clsx('input py-1 text-xs h-7 w-24', pendingChanges[v.id]?.image_id !== undefined && 'ring-2 ring-primary/40')}
                     >
                       <option value="">Padrão</option>
                       {productImages.map((img, i) => (
@@ -766,7 +823,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
             </div>
 
             {/* Body — só esta área rola */}
-            <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-5 sm:p-6 pb-8 sm:pb-10 space-y-6">
               {/* Dados principais */}
               <section className="space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400">Dados principais</h3>
@@ -949,7 +1006,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCopySourceId(null)} />
           <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-sm p-4">
             <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-3">Copiar configuração para...</h2>
-            <select value={copyTargetId} onChange={e => setCopyTargetId(e.target.value)} className="input text-xs h-9 w-full mb-3">
+            <select value={copyTargetId} onChange={e => setCopyTargetId(e.target.value)} className="input py-2 text-xs h-9 w-full mb-3">
               <option value="">Selecione a combinação de destino</option>
               {variantsNormalized.filter(v => v.id !== copySourceId).map(v => (
                 <option key={v.id} value={v.id}>

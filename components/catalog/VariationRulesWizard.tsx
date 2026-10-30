@@ -17,10 +17,17 @@ interface Props {
   onOpenManualForm: () => void
 }
 
-/** parentGroupId escolhido + quais opções-pai habilitam cada opção deste grupo */
+/**
+ * parentGroupId escolhido + quais pares (opção, opção-pai) foram
+ * explicitamente DESMARCADOS pela pessoa. Por padrão tudo é permitido (igual
+ * à tela final de prévia): toda opção deste grupo fica habilitada para todo
+ * valor do grupo-pai, a pessoa só desmarca o que não quer oferecer. Ausência
+ * de entrada em `excluded` para uma opção = nada foi desmarcado para ela =
+ * continua permitida em qualquer opção do grupo-pai.
+ */
 interface GroupConfig {
   parentGroupId: string
-  checks: Record<string, Set<string>> // optionId -> Set<parentOptionId>
+  excluded: Record<string, Set<string>> // optionId -> Set<parentOptionId> desmarcados
 }
 
 /**
@@ -53,8 +60,11 @@ export function VariationRulesWizard({ productId, companyId, groups, existingCom
     },
   })
 
-  // Inicializa a config de cada grupo (>=1) a partir das dependências já salvas,
-  // default de "depende de" = grupo imediatamente anterior.
+// Inicializa a config de cada grupo (>=1) a partir das dependências já salvas,
+  // default de "depende de" = grupo imediatamente anterior. Dependências salvas
+  // (lista positiva de pais permitidos) são convertidas para `excluded`
+  // (complemento, relativo ao grupo-pai atual) só pra exibição marcada por
+  // padrão — o formato salvo no banco continua o mesmo de sempre.
   useEffect(() => {
     if (loaded || !depsQuery.data) return
     const next: Record<string, GroupConfig> = {}
@@ -70,12 +80,19 @@ export function VariationRulesWizard({ productId, companyId, groups, existingCom
         const parentGroup = groups.slice(0, i).find(g => g.options.some(o => o.id === parentOptionId))
         if (parentGroup) parentGroupId = parentGroup.id
       }
-      const checks: Record<string, Set<string>> = {}
+      const allowedByOption: Record<string, Set<string>> = {}
       for (const d of relevantDeps) {
-        if (!checks[d.option_id]) checks[d.option_id] = new Set()
-        checks[d.option_id].add(d.depends_on_option_id)
+        if (!allowedByOption[d.option_id]) allowedByOption[d.option_id] = new Set()
+        allowedByOption[d.option_id].add(d.depends_on_option_id)
       }
-      next[group.id] = { parentGroupId, checks }
+      const parentOptionIds = (groups.find(g => g.id === parentGroupId)?.options ?? []).map(o => o.id)
+      const excluded: Record<string, Set<string>> = {}
+      for (const opt of group.options) {
+        const allowed = allowedByOption[opt.id]
+        if (allowed) excluded[opt.id] = new Set(parentOptionIds.filter(pid => !allowed.has(pid)))
+        // sem regra salva pra essa opção → nada excluído, fica permitida em todo pai (padrão)
+      }
+      next[group.id] = { parentGroupId, excluded }
     }
     setConfigs(next)
     setLoaded(true)
@@ -86,16 +103,26 @@ export function VariationRulesWizard({ productId, companyId, groups, existingCom
   const currentConfig = currentGroup ? configs[currentGroup.id] : null
   const parentGroup = currentConfig ? groups.find(g => g.id === currentConfig.parentGroupId) ?? null : null
 
-  const allDeps = useMemo<DependencyRow[]>(() => {
-    const rows: DependencyRow[] = []
-    for (const g of groups.slice(1)) {
-      const cfg = configs[g.id]
-      if (!cfg) continue
-      for (const [optionId, parents] of Object.entries(cfg.checks)) {
-        for (const p of parents) rows.push({ option_id: optionId, depends_on_option_id: p })
+/** Converte a config de um grupo (excluded) nas linhas positivas de dependência que o banco/gerador entendem. */
+  function configToDepRows(group: GroupRow, cfg: GroupConfig | undefined): { option_id: string; depends_on_option_id: string }[] {
+    if (!cfg) return []
+    const parentOptionIds = (groups.find(g => g.id === cfg.parentGroupId)?.options ?? []).map(o => o.id)
+    const rows: { option_id: string; depends_on_option_id: string }[] = []
+    for (const opt of group.options) {
+      const excludedSet = cfg.excluded[opt.id]
+      if (!excludedSet || excludedSet.size === 0) continue // nada desmarcado → sem restrição, não precisa de linha
+      for (const pid of parentOptionIds) {
+        if (!excludedSet.has(pid)) rows.push({ option_id: opt.id, depends_on_option_id: pid })
       }
     }
     return rows
+  }
+
+  const allDeps = useMemo<DependencyRow[]>(() => {
+    const rows: DependencyRow[] = []
+    for (const g of groups.slice(1)) rows.push(...configToDepRows(g, configs[g.id]))
+    return rows
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [configs, groups])
 
   const preview = useMemo(() => {
@@ -108,17 +135,19 @@ export function VariationRulesWizard({ productId, companyId, groups, existingCom
   function toggleCheck(optionId: string, parentOptionId: string) {
     if (!currentGroup) return
     setConfigs(prev => {
-      const cfg = prev[currentGroup.id] ?? { parentGroupId: parentGroup?.id ?? '', checks: {} }
-      const current = new Set(cfg.checks[optionId] ?? [])
+      const cfg = prev[currentGroup.id] ?? { parentGroupId: parentGroup?.id ?? '', excluded: {} }
+      const current = new Set(cfg.excluded[optionId] ?? [])
+      // Desmarcar a caixinha = excluir esse par; marcar de novo = remover a exclusão (volta ao padrão "permitido").
       if (current.has(parentOptionId)) current.delete(parentOptionId)
       else current.add(parentOptionId)
-      return { ...prev, [currentGroup.id]: { ...cfg, checks: { ...cfg.checks, [optionId]: current } } }
+      return { ...prev, [currentGroup.id]: { ...cfg, excluded: { ...cfg.excluded, [optionId]: current } } }
     })
   }
 
+  // Trocar o grupo-pai reinicia a seleção — tudo permitido por padrão de novo (nada excluído).
   function setParentGroup(groupId: string) {
     if (!currentGroup) return
-    setConfigs(prev => ({ ...prev, [currentGroup.id]: { parentGroupId: groupId, checks: {} } }))
+    setConfigs(prev => ({ ...prev, [currentGroup.id]: { parentGroupId: groupId, excluded: {} } }))
   }
 
   async function saveCurrentStep() {
@@ -129,12 +158,7 @@ export function VariationRulesWizard({ productId, companyId, groups, existingCom
       const optionIds = currentGroup.options.map(o => o.id)
       // Substitui por completo as regras deste grupo (evita sobras ao trocar o "depende de").
       await (supabase.from('product_variation_dependencies') as any).delete().in('option_id', optionIds)
-      const rows: { product_id: string; company_id: string; option_id: string; depends_on_option_id: string }[] = []
-      for (const [optionId, parents] of Object.entries(cfg?.checks ?? {})) {
-        for (const p of parents) {
-          rows.push({ product_id: productId, company_id: companyId, option_id: optionId, depends_on_option_id: p })
-        }
-      }
+      const rows = configToDepRows(currentGroup, cfg).map(r => ({ product_id: productId, company_id: companyId, ...r }))
       if (rows.length > 0) {
         const { error } = await (supabase.from('product_variation_dependencies') as any).insert(rows)
         if (error) throw error
@@ -197,7 +221,7 @@ export function VariationRulesWizard({ productId, companyId, groups, existingCom
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-8 sm:pb-10 space-y-4">
           {!loaded ? (
             <div className="flex items-center gap-2 text-xs text-text-muted py-6 justify-center">
               <Loader2 size={14} className="animate-spin" /> Carregando...
@@ -243,19 +267,41 @@ export function VariationRulesWizard({ productId, companyId, groups, existingCom
                 </div>
               </div>
 
+              <p className="text-xs sm:text-sm text-text-muted dark:text-stone-500">
+                Por padrão, todas as opções de &ldquo;{currentGroup.name}&rdquo; já vêm habilitadas para cada opção de &ldquo;{parentGroup?.name}&rdquo;.
+                Desmarque só as combinações que não quiser oferecer.
+              </p>
+
               <div
                 className="grid gap-3"
                 style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}
               >
                 {parentGroup?.options.map(parentOption => (
                   <div key={parentOption.id} className="rounded-xl border border-border dark:border-border-dark p-4">
-                    <p className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-3">{parentOption.value}</p>
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <p className="text-sm font-semibold text-text-primary dark:text-stone-100">{parentOption.value}</p>
+                      <button type="button"
+                        onClick={() => setConfigs(prev => {
+                          const cfg = prev[currentGroup.id] ?? { parentGroupId: parentGroup?.id ?? '', excluded: {} }
+                          const allExcluded = currentGroup.options.every(opt => cfg.excluded[opt.id]?.has(parentOption.id))
+                          const nextExcluded: Record<string, Set<string>> = {}
+                          for (const opt of currentGroup.options) {
+                            const set = new Set(cfg.excluded[opt.id] ?? [])
+                            if (allExcluded) set.delete(parentOption.id); else set.add(parentOption.id)
+                            nextExcluded[opt.id] = set
+                          }
+                          return { ...prev, [currentGroup.id]: { ...cfg, excluded: nextExcluded } }
+                        })}
+                        className="text-[11px] font-medium text-primary hover:underline flex-shrink-0">
+                        {currentGroup.options.every(opt => currentConfig.excluded[opt.id]?.has(parentOption.id)) ? 'Marcar todas' : 'Desmarcar todas'}
+                      </button>
+                    </div>
                     <div className="space-y-2">
                       {currentGroup.options.map(opt => (
                         <label key={opt.id} className="flex items-center gap-2.5 text-sm text-text-secondary dark:text-stone-300">
                           <input
                             type="checkbox"
-                            checked={currentConfig.checks[opt.id]?.has(parentOption.id) ?? false}
+                            checked={!(currentConfig.excluded[opt.id]?.has(parentOption.id) ?? false)}
                             onChange={() => toggleCheck(opt.id, parentOption.id)}
                             className="w-4 h-4 rounded accent-primary flex-shrink-0"
                           />

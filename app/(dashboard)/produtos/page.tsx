@@ -666,8 +666,9 @@ export default function ProdutosPage() {
               </button>
             </div>
 
-            {/* Body (scrollable) */}
-            <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">
+            {/* Body (scrollable) — pb extra garante que o último conteúdo (ex: fim das
+                Variações) nunca fique espremido contra o rodapé fixo abaixo. */}
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4 pb-8 sm:pb-10 space-y-3">
 
               {/* ── S1: Dados do produto ── */}
               <FichaSection icon={Tag} title="Dados do produto">
