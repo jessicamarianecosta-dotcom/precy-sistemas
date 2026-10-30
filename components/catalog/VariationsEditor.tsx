@@ -5,11 +5,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toaster'
 import { clsx } from 'clsx'
-import { Plus, X, Loader2, AlertCircle, Copy, ClipboardCopy, Trash2, Sparkles, Upload, Image as ImageIcon, Calculator, Pencil, Check } from 'lucide-react'
+import { Plus, X, Loader2, AlertCircle, Copy, ClipboardCopy, Trash2, Sparkles, Upload, Image as ImageIcon, Calculator, Pencil, Check, FileDown, FileUp } from 'lucide-react'
 import { comboKey, type GroupRow, type OptionRow } from '@/lib/catalog/variationCombos'
 import { compressImage } from '@/lib/catalog/useImageCompression'
 import { uploadImageXhr } from '@/lib/catalog/useImageUploadXhr'
 import { VariationRulesWizard } from './VariationRulesWizard'
+import { VariantsImportModal } from './VariantsImportModal'
 import { formatCurrency } from '@/lib/utils/format'
 import { calcOptionsAdjustment } from '@/lib/produtos/variantPricing'
 
@@ -110,6 +111,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   const [editOptionAdj, setEditOptionAdj] = useState<AdjustmentDraft>(EMPTY_ADJUSTMENT)
   const [error, setError] = useState<string | null>(null)
   const [showWizard, setShowWizard] = useState(false)
+  const [showImportModal, setShowImportModal] = useState(false)
   const [variantForm, setVariantForm] = useState<{ selection: Record<string, string>; settings: Record<string, string> } | null>(null)
   const [copySourceId, setCopySourceId] = useState<string | null>(null)
   const [copyTargetId, setCopyTargetId] = useState<string>('')
@@ -675,15 +677,32 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
 
       {/* Ações de combinação */}
       {groupsSorted.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => setShowWizard(true)}
-            className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5">
-            <Sparkles size={13} /> Gerenciar combinações
-          </button>
-          <button type="button" onClick={openNewVariantForm}
-            className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5">
-            <Plus size={13} /> Nova combinação
-          </button>
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setShowWizard(true)}
+              className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5">
+              <Sparkles size={13} /> Gerenciar combinações
+            </button>
+            <button type="button" onClick={openNewVariantForm}
+              className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5">
+              <Plus size={13} /> Nova combinação
+            </button>
+          </div>
+          {variantsNormalized.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              <a
+                href={`/api/produtos/variacoes/exportar?productId=${productId}`}
+                className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5"
+                title="Baixa uma planilha .xlsx com todas as combinações deste produto"
+              >
+                <FileDown size={13} /> Exportar Excel
+              </a>
+              <button type="button" onClick={() => setShowImportModal(true)}
+                className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5">
+                <FileUp size={13} /> Importar Excel
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -702,15 +721,24 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
           Nenhuma combinação cadastrada ainda. Use &ldquo;Gerenciar combinações&rdquo; ou &ldquo;Nova combinação&rdquo; acima.
         </p>
       ) : (
-        <div className="overflow-x-auto -mx-1">
+        <>
+        {/* Desktop/tablet: tabela com altura limitada — rolagem vertical e
+            horizontal próprias, barra horizontal sempre visível no final
+            desta caixa (nunca é preciso descer até a última combinação pra
+            alcançá-la). Cabeçalho e primeira coluna (1º grupo) ficam fixos
+            durante a rolagem. */}
+        <div className="hidden sm:block rounded-xl border border-border dark:border-border-dark overflow-auto overscroll-contain" style={{ maxHeight: 420 }}>
           <table className="w-full text-xs min-w-[860px]">
             <thead>
               <tr className="border-b border-border dark:border-border-dark">
-                {groupsSorted.map(g => (
-                  <th key={g.id} className="text-left font-semibold text-text-muted uppercase tracking-wider p-2">{g.name}</th>
+                {groupsSorted.map((g, idx) => (
+                  <th key={g.id} className={clsx(
+                    'text-left font-semibold text-text-muted uppercase tracking-wider p-2 whitespace-nowrap sticky top-0 bg-surface dark:bg-surface-card-dark',
+                    idx === 0 ? 'left-0 z-30' : 'z-20'
+                  )}>{g.name}</th>
                 ))}
                 {['Preço', 'Custo / Margem', 'Estoque', 'SKU', 'Prazo (dias)', 'Peso (kg)', 'Imagem', 'Ações'].map(h => (
-                  <th key={h} className="text-left font-semibold text-text-muted uppercase tracking-wider p-2">{h}</th>
+                  <th key={h} className="text-left font-semibold text-text-muted uppercase tracking-wider p-2 whitespace-nowrap sticky top-0 z-20 bg-surface dark:bg-surface-card-dark">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -718,7 +746,10 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
               {variantsNormalized.map(v => (
                 <tr key={v.id} className="border-b border-border dark:border-border-dark last:border-0">
                   {groupsSorted.map((g, idx) => (
-                    <td key={g.id} className="p-2 text-text-primary dark:text-stone-200">{optionValue(g.id, v.optionIds[idx])}</td>
+                    <td key={g.id} className={clsx(
+                      'p-2 text-text-primary dark:text-stone-200 whitespace-nowrap',
+                      idx === 0 && 'sticky left-0 z-10 bg-white dark:bg-surface-dark shadow-[2px_0_4px_-2px_rgba(0,0,0,0.15)]'
+                    )}>{optionValue(g.id, v.optionIds[idx])}</td>
                   ))}
                   <td className="p-2">
                     <input type="number" step="0.01" value={(fieldValue(v, 'price') as number | null) ?? ''} placeholder="Padrão"
@@ -807,6 +838,111 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
             </tbody>
           </table>
         </div>
+
+        {/* Celular: um cartão por combinação, com os mesmos campos da tabela
+            (nada fica escondido) — evita depender de rolagem horizontal
+            numa tela estreita. */}
+        <div className="sm:hidden space-y-2.5 overflow-y-auto overscroll-contain" style={{ maxHeight: 520 }}>
+          {variantsNormalized.map(v => {
+            const basePrice = (fieldValue(v, 'price') as number | null) ?? productPrice
+            const adj = variantAdjustment(v, basePrice)
+            return (
+              <div key={v.id} className="rounded-xl border border-border dark:border-border-dark p-3 space-y-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-xs font-semibold text-text-primary dark:text-stone-100 break-words">
+                    {groupsSorted.map((g, idx) => optionValue(g.id, v.optionIds[idx])).join(' · ')}
+                  </p>
+                  <div className="flex items-center gap-0.5 flex-shrink-0">
+                    <a title="Editar precificação" aria-label="Editar precificação"
+                      href={`/precificacao?productId=${productId}&variantId=${v.id}`}
+                      onClick={e => { if (hasPendingChanges && !confirm('Há alterações não salvas na tabela. Sair mesmo assim?')) e.preventDefault() }}
+                      className="p-1.5 rounded-lg text-primary hover:bg-primary-50 dark:hover:bg-white/5">
+                      <Calculator size={14} />
+                    </a>
+                    <button type="button" title="Duplicar combinação" onClick={() => openDuplicateForm(v)}
+                      className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5">
+                      <Copy size={14} />
+                    </button>
+                    <button type="button" title="Copiar configuração para outra combinação" onClick={() => setCopySourceId(v.id)}
+                      className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5">
+                      <ClipboardCopy size={14} />
+                    </button>
+                    <button type="button" title="Excluir combinação"
+                      onClick={() => { if (confirm('Excluir esta combinação?')) deleteVariantMutation.mutate(v.id) }}
+                      className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light dark:hover:bg-error/10">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <label className="block">
+                    <span className="block text-[10px] font-medium text-text-muted uppercase tracking-wider mb-1">Preço</span>
+                    <input type="number" step="0.01" value={(fieldValue(v, 'price') as number | null) ?? ''} placeholder="Padrão"
+                      onChange={e => setPendingField(v, 'price', numOrNull(e.target.value))}
+                      className={clsx('input py-1.5 text-xs h-9 w-full', pendingChanges[v.id]?.price !== undefined && 'ring-2 ring-primary/40')} />
+                    {adj.adjustmentAmount !== 0 && (
+                      <span className="block text-[10px] text-primary mt-0.5">
+                        Final: {formatCurrency(adj.finalPrice)} ({adj.adjustmentAmount > 0 ? '+' : ''}{formatCurrency(adj.adjustmentAmount)})
+                      </span>
+                    )}
+                  </label>
+                  <div>
+                    <span className="block text-[10px] font-medium text-text-muted uppercase tracking-wider mb-1">Custo / Margem</span>
+                    {v.total_cost != null ? (
+                      <div className="text-[11px] leading-tight text-text-secondary dark:text-stone-300 pt-1.5">
+                        <div>Custo: {formatCurrency(v.total_cost)}</div>
+                        <div>Margem: {v.markup_percentage ?? 0}%</div>
+                      </div>
+                    ) : (
+                      <span className="block text-[11px] text-text-muted pt-1.5" title="Sem precificação própria: usa o preço do produto">
+                        {productPrice > 0 ? `Usa produto (${formatCurrency(productPrice)})` : 'Sem precificação'}
+                      </span>
+                    )}
+                  </div>
+                  <label className="block">
+                    <span className="block text-[10px] font-medium text-text-muted uppercase tracking-wider mb-1">Estoque</span>
+                    <input type="number" step="1" value={(fieldValue(v, 'stock_quantity') as number | null) ?? ''} placeholder="Ilimitado"
+                      onChange={e => setPendingField(v, 'stock_quantity', numOrNull(e.target.value))}
+                      className={clsx('input py-1.5 text-xs h-9 w-full', pendingChanges[v.id]?.stock_quantity !== undefined && 'ring-2 ring-primary/40')} />
+                  </label>
+                  <label className="block">
+                    <span className="block text-[10px] font-medium text-text-muted uppercase tracking-wider mb-1">SKU</span>
+                    <input type="text" value={(fieldValue(v, 'sku') as string | null) ?? ''}
+                      onChange={e => setPendingField(v, 'sku', e.target.value || null)}
+                      className={clsx('input py-1.5 text-xs h-9 w-full', pendingChanges[v.id]?.sku !== undefined && 'ring-2 ring-primary/40')} />
+                  </label>
+                  <label className="block">
+                    <span className="block text-[10px] font-medium text-text-muted uppercase tracking-wider mb-1">Prazo (dias)</span>
+                    <input type="number" step="1" value={(fieldValue(v, 'lead_time_days') as number | null) ?? ''} placeholder="Padrão"
+                      onChange={e => setPendingField(v, 'lead_time_days', numOrNull(e.target.value))}
+                      className={clsx('input py-1.5 text-xs h-9 w-full', pendingChanges[v.id]?.lead_time_days !== undefined && 'ring-2 ring-primary/40')} />
+                  </label>
+                  <label className="block">
+                    <span className="block text-[10px] font-medium text-text-muted uppercase tracking-wider mb-1">Peso (kg)</span>
+                    <input type="number" step="0.001" value={(fieldValue(v, 'weight_kg') as number | null) ?? ''}
+                      onChange={e => setPendingField(v, 'weight_kg', numOrNull(e.target.value))}
+                      className={clsx('input py-1.5 text-xs h-9 w-full', pendingChanges[v.id]?.weight_kg !== undefined && 'ring-2 ring-primary/40')} />
+                  </label>
+                  <label className="block col-span-2">
+                    <span className="block text-[10px] font-medium text-text-muted uppercase tracking-wider mb-1">Imagem</span>
+                    <select
+                      value={(fieldValue(v, 'image_id') as string | null) ?? ''}
+                      onChange={e => setPendingField(v, 'image_id', e.target.value || null)}
+                      className={clsx('input py-1.5 text-xs h-9 w-full', pendingChanges[v.id]?.image_id !== undefined && 'ring-2 ring-primary/40')}
+                    >
+                      <option value="">Padrão</option>
+                      {productImages.map((img, i) => (
+                        <option key={img.id} value={img.id}>Foto {i + 1}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        </>
       )}
 
       {/* Assistente de dependência */}
@@ -819,6 +955,15 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
           onClose={() => setShowWizard(false)}
           onGenerate={combos => bulkGenerateMutation.mutateAsync(combos)}
           onOpenManualForm={() => { setShowWizard(false); openNewVariantForm() }}
+        />
+      )}
+
+      {/* Importação de preços por planilha Excel */}
+      {showImportModal && (
+        <VariantsImportModal
+          productId={productId}
+          onClose={() => setShowImportModal(false)}
+          onImported={() => invalidateVariants()}
         />
       )}
 
