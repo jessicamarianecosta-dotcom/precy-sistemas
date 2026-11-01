@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
@@ -11,6 +11,7 @@ import { fetchCepData } from '@/lib/services/cep'
 import { ArrowLeft, Minus, Plus, Trash2, Loader2, Upload, MessageCircle } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { PaymentMethodSelector, type PaymentMethodSelectorHandle } from '@/components/catalog/storefront/PaymentMethodSelector'
 
 export default function CheckoutLojaPage() {
   const { slug } = useParams<{ slug: string }>()
@@ -40,6 +41,7 @@ export default function CheckoutLojaPage() {
   const [calculatingShipping, setCalculatingShipping] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submittingVia, setSubmittingVia] = useState<'online' | 'whatsapp' | null>(null)
+  const paymentRef = useRef<PaymentMethodSelectorHandle>(null)
 
   const [lookingUpCep, setLookingUpCep] = useState(false)
 
@@ -113,6 +115,17 @@ export default function CheckoutLojaPage() {
     if (fulfillment === 'whatsapp' && !storeWhatsapp) { toast('error', 'Esta loja não configurou um WhatsApp para atendimento.'); return }
     if (fulfillment === 'online' && !shipping) { toast('error', 'Calcule e escolha o frete antes de finalizar'); return }
 
+    let payment: { method: 'pix' | 'credit_card'; installments?: number; cardToken?: string; paymentMethodId?: string } | undefined
+    if (fulfillment === 'online') {
+      if (!paymentRef.current?.hasOnlinePayment) { toast('error', 'Esta loja não habilitou pagamento online. Finalize pelo WhatsApp.'); return }
+      try {
+        payment = await paymentRef.current.resolvePayment()
+      } catch (err: any) {
+        toast('error', err.message ?? 'Erro ao processar os dados do pagamento')
+        return
+      }
+    }
+
     setSubmitting(true)
     setSubmittingVia(fulfillment)
     try {
@@ -140,10 +153,16 @@ export default function CheckoutLojaPage() {
           shippingCep: customer.cep ? customer.cep.replace(/\D/g, '') : null,
           artwork,
           fulfillment,
+          payment,
         }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Erro ao finalizar pedido')
+
+      if (fulfillment === 'online' && data.paymentMethod === 'credit_card' && data.status === 'rejected') {
+        toast('error', 'Pagamento recusado pelo cartão. Verifique os dados ou tente outro cartão.')
+        return
+      }
 
       if (fulfillment === 'whatsapp') {
         // Abrir o WhatsApp não significa que a mensagem foi enviada nem que o
@@ -158,12 +177,8 @@ export default function CheckoutLojaPage() {
       }
 
       clear()
-      if (data.redirectUrl) {
-        window.location.href = data.redirectUrl
-      } else {
-        toast('success', `Pedido ${data.orderNumber} criado!`)
-        router.push(`/loja/${slug}/pedido/${data.checkoutRef}`)
-      }
+      toast('success', `Pedido ${data.orderNumber} criado!`)
+      router.push(`/loja/${slug}/pedido/${data.checkoutRef}`)
     } catch (err: any) {
       toast('error', err.message)
     } finally {
@@ -261,6 +276,10 @@ export default function CheckoutLojaPage() {
                   </label>
                 </div>
               </div>
+
+              {shipping && (
+                <PaymentMethodSelector ref={paymentRef} slug={slug} amount={total + shipping.price} />
+              )}
 
               <div className="card p-4 space-y-1.5">
                 <div className="flex justify-between text-sm text-text-secondary dark:text-stone-400">

@@ -90,6 +90,10 @@ const OrderFilesSection = dynamic(
   () => import('@/components/orders/OrderFilesSection').then(m => m.OrderFilesSection),
   { ssr: false }
 )
+const OrderPaymentSection = dynamic(
+  () => import('@/components/orders/OrderPaymentSection').then(m => m.OrderPaymentSection),
+  { ssr: false }
+)
 
 /* ─────────────────────────────────────────────
    STATUS
@@ -2715,6 +2719,7 @@ function PedidosPage() {
                           </div>
                         </div>
                       </section>
+                      {companyId && <OrderPaymentSection orderId={o.id} companyId={companyId} />}
                     </>
                   )
                 })()}

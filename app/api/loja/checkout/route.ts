@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { getPaymentAdapter } from '@/lib/catalog/payments'
+import { getPaymentGateway } from '@/lib/catalog/payments'
 import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
 import { cleanObservation } from '@/lib/catalog/observation'
@@ -9,6 +9,12 @@ import { quoteCartShipping } from '@/lib/catalog/shipping/quoteCart'
 import { calcOptionsAdjustment } from '@/lib/produtos/variantPricing'
 
 interface CheckoutItem { productId: string; variantId?: string | null; quantity: number; notes?: string | null }
+interface PaymentChoice {
+  method: 'pix' | 'credit_card'
+  installments?: number
+  cardToken?: string
+  paymentMethodId?: string
+}
 
 /**
  * POST /api/loja/checkout
@@ -44,6 +50,9 @@ export async function POST(request: Request) {
   const shippingService: string | null = body?.shippingService ? String(body.shippingService) : null
   const shippingCep: string = String(body?.shippingCep ?? '').replace(/\D/g, '')
   const artwork = body?.artwork ?? null
+  const payment: PaymentChoice | null = fulfillment === 'online'
+    ? { method: body?.payment?.method === 'credit_card' ? 'credit_card' : 'pix', installments: Number(body?.payment?.installments) || 1, cardToken: body?.payment?.cardToken, paymentMethodId: body?.payment?.paymentMethodId }
+    : null
 
   if (!slug || items.length === 0) {
     return NextResponse.json({ error: 'Dados insuficientes para finalizar o pedido' }, { status: 400 })
@@ -55,6 +64,39 @@ export async function POST(request: Request) {
   const companyId = await resolveStoreCompanyId(slug)
   if (!companyId) {
     return NextResponse.json({ error: 'Loja não encontrada' }, { status: 404 })
+  }
+
+  /* ── Revalidar a forma de pagamento escolhida contra a configuração
+     REAL da loja — nunca confiar que o client só ofereceu modalidades
+     habilitadas; alguém podendo forjar o POST poderia tentar cobrar via
+     cartão numa loja que só habilitou Pix. ── */
+  let paymentSettings: { pix_enabled: boolean; card_enabled: boolean; card_max_installments: number; surcharge_mode: string } | null = null
+  if (fulfillment === 'online' && payment) {
+    const { data } = await (supabaseAdmin.from('store_payment_settings') as any)
+      .select('pix_enabled, card_enabled, card_max_installments, surcharge_mode')
+      .eq('company_id', companyId)
+      .maybeSingle()
+    paymentSettings = data
+    const gateway = getPaymentGateway()
+    const account = await gateway.getAccountStatus(companyId)
+    if (!account.connected || !paymentSettings) {
+      return NextResponse.json({ error: 'Pagamento online indisponível para esta loja no momento. Finalize pelo WhatsApp.' }, { status: 409 })
+    }
+    if (payment.method === 'pix' && !paymentSettings.pix_enabled) {
+      return NextResponse.json({ error: 'Pix não está disponível nesta loja' }, { status: 409 })
+    }
+    if (payment.method === 'credit_card') {
+      if (!paymentSettings.card_enabled) {
+        return NextResponse.json({ error: 'Cartão de crédito não está disponível nesta loja' }, { status: 409 })
+      }
+      const installments = payment.installments ?? 1
+      if (installments < 1 || installments > paymentSettings.card_max_installments) {
+        return NextResponse.json({ error: `Parcelamento inválido (máximo ${paymentSettings.card_max_installments}x)` }, { status: 400 })
+      }
+      if (!payment.cardToken || !payment.paymentMethodId) {
+        return NextResponse.json({ error: 'Dados do cartão incompletos' }, { status: 400 })
+      }
+    }
   }
 
   /* ── Revalidar produtos: publicados, ativos e da mesma empresa ── */
@@ -308,20 +350,72 @@ export async function POST(request: Request) {
     return NextResponse.json({ orderId: order.id, orderNumber: order.order_number, fulfillment: 'whatsapp' })
   }
 
-  /* ── Criar cobrança no adapter de pagamento (Mercado Pago ou mock) ── */
+  /* ── Criar a cobrança no gateway (Pix ou cartão) e persistir o detalhe
+     técnico em `payments`, além do snapshot em `orders` — total/taxa nunca
+     são recalculados depois, mesmo que a configuração de taxas mude. ── */
+  const gateway = getPaymentGateway()
+  const description = `Pedido ${order.order_number} — Catálogo Online`
+
   try {
-    const adapter = getPaymentAdapter()
-    const charge = await adapter.createCharge({
-      ref: checkoutRef,
-      amount: total,
-      customerName: customer.name,
-      customerDocument: customer.cpfCnpj ?? null,
-      customerPhone: phone,
-      customerEmail: customer.email || null,
-      description: `Pedido ${order.order_number} — Catálogo Online`,
-      returnPath: `/loja/${slug}/pedido/${checkoutRef}`,
+    if (payment!.method === 'pix') {
+      const charge = await gateway.createPixPayment({
+        companyId, checkoutRef, netAmount: total, description,
+        customerName: customer.name, customerEmail: customer.email || null, customerDocument: customer.cpfCnpj ?? null,
+      })
+
+      await (supabaseAdmin.from('payments') as any).insert([{
+        company_id: companyId, order_id: order.id, provider: 'mercadopago', provider_payment_id: charge.providerPaymentId,
+        checkout_ref: checkoutRef, payment_method: 'pix', installments: 1, status: charge.status,
+        amount: charge.grossAmount, net_amount: charge.netAmount, fee_amount: charge.feeAmount,
+        fee_percent_snapshot: charge.feePercentSnapshot, fee_fixed_snapshot: charge.feeFixedSnapshot,
+        pix_qr_code: charge.qrCode, pix_qr_code_base64: charge.qrCodeBase64, pix_expires_at: charge.expiresAt,
+        raw_response: charge.raw,
+      }])
+      await (supabaseAdmin.from('orders') as any).update({
+        payment_provider: 'mercadopago', payment_method: 'pix', installments: 1,
+        net_amount: charge.netAmount, fee_amount: charge.feeAmount,
+        fee_percent_snapshot: charge.feePercentSnapshot, fee_fixed_snapshot: charge.feeFixedSnapshot,
+      }).eq('id', order.id)
+
+      return NextResponse.json({
+        orderId: order.id, orderNumber: order.order_number, checkoutRef,
+        paymentMethod: 'pix', status: charge.status, amount: charge.grossAmount,
+        qrCode: charge.qrCode, qrCodeBase64: charge.qrCodeBase64, expiresAt: charge.expiresAt,
+      })
+    }
+
+    const installments = payment!.installments ?? 1
+    const charge = await gateway.createCardPayment({
+      companyId, checkoutRef, netAmount: total, installments,
+      cardToken: payment!.cardToken!, paymentMethodId: payment!.paymentMethodId!, description,
+      customerName: customer.name, customerEmail: customer.email || null,
+      customerDocument: customer.cpfCnpj ?? null, customerDocumentType: customer.cpfCnpj && customer.cpfCnpj.replace(/\D/g, '').length > 11 ? 'CNPJ' : 'CPF',
     })
-    return NextResponse.json({ orderId: order.id, orderNumber: order.order_number, checkoutRef, ...charge })
+
+    await (supabaseAdmin.from('payments') as any).insert([{
+      company_id: companyId, order_id: order.id, provider: 'mercadopago', provider_payment_id: charge.providerPaymentId,
+      checkout_ref: checkoutRef, payment_method: 'credit_card', installments, status: charge.status,
+      amount: charge.grossAmount, net_amount: charge.netAmount, fee_amount: charge.feeAmount,
+      fee_percent_snapshot: charge.feePercentSnapshot, fee_fixed_snapshot: charge.feeFixedSnapshot,
+      failure_reason: charge.statusDetail ?? null, raw_response: charge.raw,
+    }])
+    await (supabaseAdmin.from('orders') as any).update({
+      total: charge.grossAmount, payment_provider: 'mercadopago', payment_method: 'credit_card', installments,
+      net_amount: charge.netAmount, fee_amount: charge.feeAmount,
+      fee_percent_snapshot: charge.feePercentSnapshot, fee_fixed_snapshot: charge.feeFixedSnapshot,
+      payment_status: charge.status === 'rejected' ? 'failed' : undefined,
+    }).eq('id', order.id)
+
+    if (charge.status === 'approved') {
+      const { applyCatalogPaymentConfirmed } = await import('@/lib/orders/catalogPaymentCascade')
+      await applyCatalogPaymentConfirmed({ ref: checkoutRef, status: 'paid', amount: charge.grossAmount, paymentMethod: 'credit_card', raw: charge.raw }, 'mercadopago')
+    }
+
+    return NextResponse.json({
+      orderId: order.id, orderNumber: order.order_number, checkoutRef,
+      paymentMethod: 'credit_card', status: charge.status, amount: charge.grossAmount, installments,
+      statusDetail: charge.statusDetail,
+    })
   } catch (err: any) {
     return NextResponse.json({ error: err?.message ?? 'Erro ao iniciar pagamento' }, { status: 502 })
   }

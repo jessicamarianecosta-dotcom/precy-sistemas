@@ -1,38 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getPaymentAdapter } from '@/lib/catalog/payments'
+import { getPaymentGateway } from '@/lib/catalog/payments'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import { applyCatalogPaymentConfirmed } from '@/lib/orders/catalogPaymentCascade'
 
 export const runtime = 'nodejs'
 
+const FAILED_STATUSES = new Set(['rejected', 'cancelled', 'expired'])
+
 /**
- * POST /api/webhooks/mercadopago
+ * POST /api/webhooks/mercadopago?company_id=...
  *
- * Confirma o pagamento de um pedido do Catálogo Online feito via Mercado
- * Pago. Diferente da InfinityPay (que mandava status/valor direto no
- * corpo), o Mercado Pago só avisa QUAL pagamento mudou — o adapter busca os
- * detalhes reais (status/valor/external_reference) via GET
- * /v1/payments/{id} antes de confirmar (lib/catalog/payments/mercadopago.ts).
+ * Uma loja por vez: o `company_id` vai na notification_url de cada
+ * cobrança criada (lib/catalog/payments/providers/mercadoPagoProvider.ts),
+ * então o webhook já sabe de qual loja é o pagamento sem precisar
+ * adivinhar — e busca o detalhe do pagamento com o access_token DAQUELA
+ * loja (cada loja tem sua própria conta conectada).
  *
- * A cascata pós-pagamento (Financeiro/Clientes/Estoque/Agenda) é a mesma
- * para qualquer gateway — ver lib/orders/catalogPaymentCascade.ts, onde
- * também vive a trava de idempotência contra reenvios do webhook.
+ * Idempotência real: a trava é a combinação (provider, provider_payment_id,
+ * status resultante) em payment_webhook_events (UNIQUE) — processa a MESMA
+ * transição de status apenas uma vez, mas permite reprocessar quando o
+ * status evolui (pending → approved → refunded), diferente de travar só
+ * pelo id do pagamento.
  */
 export async function POST(req: NextRequest) {
   const rawBody = await req.text()
+  const companyId = req.nextUrl.searchParams.get('company_id')
 
-  let adapter
+  let gateway
   try {
-    adapter = getPaymentAdapter()
+    gateway = getPaymentGateway()
   } catch (err: any) {
-    console.error('[webhook/mercadopago] adapter indisponível:', err?.message)
+    console.error('[webhook/mercadopago] gateway indisponível:', err?.message)
     return NextResponse.json({ error: err?.message ?? 'Pagamentos indisponíveis' }, { status: 500 })
-  }
-
-  // Modo mock não verifica assinatura de verdade (qualquer POST com um ref
-  // válido confirma o pagamento) — só é alcançável fora de produção
-  // (getPaymentAdapter já falha explicitamente em produção sem credenciais).
-  if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
-    console.warn('[webhook/mercadopago] MERCADOPAGO_ACCESS_TOKEN ausente — rodando em modo mock, sem verificação real de assinatura')
   }
 
   const ctx = {
@@ -44,38 +43,102 @@ export async function POST(req: NextRequest) {
     searchParams: req.nextUrl.searchParams,
   }
 
-  if (!adapter.verifyWebhookSignature(ctx)) {
+  if (!gateway.verifyWebhookSignature(ctx)) {
     return NextResponse.json({ error: 'Assinatura inválida' }, { status: 400 })
   }
 
-  let event
+  const notification = gateway.parseWebhookNotification(ctx)
+
+  // Mercado Pago manda outros tipos de notificação além de "payment" (ex:
+  // merchant_order) — sem id de pagamento, não há o que confirmar.
+  if (!notification.providerPaymentId) {
+    return NextResponse.json({ received: true, ignored: notification.topic })
+  }
+  if (!companyId) {
+    console.error('[webhook/mercadopago] notificação sem company_id na URL — não é possível identificar a loja', notification)
+    return NextResponse.json({ received: true, warning: 'company_id ausente' })
+  }
+
+  let statusResult
   try {
-    event = await adapter.parseWebhookEvent(ctx)
+    statusResult = await gateway.getPaymentStatus(companyId, notification.providerPaymentId)
   } catch (err: any) {
     console.error('[webhook/mercadopago] falha ao consultar pagamento:', err?.message ?? err)
     return NextResponse.json({ error: 'Erro ao consultar pagamento' }, { status: 502 })
   }
 
-  // Notificações sem referência (ex: tipos diferentes de "payment", como
-  // merchant_order) ou com status ainda não pago não disparam a cascata.
-  if (!event.ref || event.status !== 'paid') {
-    return NextResponse.json({ received: true, status: event.status })
-  }
+  // Grava o evento ANTES de processar — se já existir a mesma transição
+  // (provider, provider_payment_id, status), o INSERT falha com 23505 e o
+  // processamento é pulado (evita duplicar o registro financeiro).
+  const { error: insertError } = await (supabaseAdmin.from('payment_webhook_events') as any)
+    .insert([{
+      provider: 'mercadopago',
+      provider_payment_id: notification.providerPaymentId,
+      resulting_status: statusResult.status,
+      payload: { notification, body: safeParse(rawBody) },
+      processing_status: 'received',
+    }])
 
-  const result = await applyCatalogPaymentConfirmed(event, 'mercadopago')
-
-  if (!result.ok) {
-    if (result.status === 'not_found') {
-      console.warn('[webhook/mercadopago] pedido não encontrado para ref', event.ref)
-      return NextResponse.json({ received: true, warning: result.warning })
+  if (insertError) {
+    if (insertError.code === '23505') {
+      return NextResponse.json({ received: true, alreadyProcessed: true })
     }
-    console.error('[webhook/mercadopago] cascata pós-pagamento falhou:', result.error)
-    return NextResponse.json({ error: result.error }, { status: 500 })
+    console.error('[webhook/mercadopago] falha ao registrar evento:', insertError.message)
+    return NextResponse.json({ error: insertError.message }, { status: 500 })
   }
 
-  if ('alreadyProcessed' in result) {
-    return NextResponse.json({ received: true, alreadyProcessed: true })
+  const { data: payment } = await (supabaseAdmin.from('payments') as any)
+    .select('id, order_id, checkout_ref, payment_method')
+    .eq('provider', 'mercadopago')
+    .eq('provider_payment_id', notification.providerPaymentId)
+    .maybeSingle()
+
+  if (!payment) {
+    console.warn('[webhook/mercadopago] pagamento não encontrado na tabela payments para', notification.providerPaymentId)
+    await markEventProcessed(notification.providerPaymentId, 'ignored', 'payment não encontrado localmente')
+    return NextResponse.json({ received: true, warning: 'payment não encontrado' })
   }
 
-  return NextResponse.json({ received: true, orderId: result.orderId })
+  await (supabaseAdmin.from('payments') as any)
+    .update({ status: statusResult.status, raw_response: statusResult.raw })
+    .eq('id', payment.id)
+
+  try {
+    if (statusResult.status === 'approved') {
+      const result = await applyCatalogPaymentConfirmed(
+        { ref: payment.checkout_ref, status: 'paid', amount: statusResult.amount, paymentMethod: payment.payment_method, raw: statusResult.raw },
+        'mercadopago',
+      )
+      if (!result.ok && result.status === 'error') throw new Error(result.error)
+    } else if (FAILED_STATUSES.has(statusResult.status)) {
+      await (supabaseAdmin.from('orders') as any)
+        .update({ payment_status: statusResult.status === 'expired' ? 'expired' : (statusResult.status === 'cancelled' ? 'cancelled' : 'failed') })
+        .eq('id', payment.order_id)
+    } else if (statusResult.status === 'refunded') {
+      await (supabaseAdmin.from('orders') as any).update({ payment_status: 'refunded' }).eq('id', payment.order_id)
+      await (supabaseAdmin.from('payment_refunds') as any)
+        .update({ status: 'approved' })
+        .eq('payment_id', payment.id)
+        .eq('status', 'pending')
+    }
+  } catch (err: any) {
+    console.error('[webhook/mercadopago] falha ao processar cascata:', err?.message ?? err)
+    await markEventProcessed(notification.providerPaymentId, 'error', err?.message ?? String(err))
+    return NextResponse.json({ error: err?.message ?? 'Erro ao processar pagamento' }, { status: 500 })
+  }
+
+  await markEventProcessed(notification.providerPaymentId, 'processed', null)
+  return NextResponse.json({ received: true, orderId: payment.order_id, status: statusResult.status })
+}
+
+async function markEventProcessed(providerPaymentId: string, status: 'processed' | 'ignored' | 'error', errorMessage: string | null) {
+  await (supabaseAdmin.from('payment_webhook_events') as any)
+    .update({ processing_status: status, error_message: errorMessage })
+    .eq('provider', 'mercadopago')
+    .eq('provider_payment_id', providerPaymentId)
+    .eq('processing_status', 'received')
+}
+
+function safeParse(raw: string): unknown {
+  try { return JSON.parse(raw) } catch { return null }
 }

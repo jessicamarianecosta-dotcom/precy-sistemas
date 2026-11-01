@@ -31,5 +31,26 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ref
     .select('name, variant_label, quantity, unit_price, subtotal, variant_photo')
     .eq('order_id', order.id)
 
-  return NextResponse.json({ order, items: items ?? [] })
+  // Pix só continua útil de mostrar enquanto o pagamento não foi decidido —
+  // depois de pago/recusado/expirado o QR Code não serve para nada.
+  let payment: { method: string | null; qrCode: string | null; qrCodeBase64: string | null; expiresAt: string | null; installments: number | null } | null = null
+  if (order.payment_status === 'pending' || order.payment_status === 'partial') {
+    const { data: paymentRow } = await (supabaseAdmin.from('payments') as any)
+      .select('payment_method, pix_qr_code, pix_qr_code_base64, pix_expires_at, installments')
+      .eq('order_id', order.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (paymentRow) {
+      payment = {
+        method: paymentRow.payment_method,
+        qrCode: paymentRow.pix_qr_code,
+        qrCodeBase64: paymentRow.pix_qr_code_base64,
+        expiresAt: paymentRow.pix_expires_at,
+        installments: paymentRow.installments,
+      }
+    }
+  }
+
+  return NextResponse.json({ order, items: items ?? [], payment })
 }

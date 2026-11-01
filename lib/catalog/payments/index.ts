@@ -1,31 +1,29 @@
-import { MockPaymentAdapter } from './mock'
-import { MercadoPagoAdapter } from './mercadopago'
-import type { PaymentAdapter } from './types'
+import { MockPaymentGateway } from './providers/mockProvider'
+import { MercadoPagoProvider } from './providers/mercadoPagoProvider'
+import type { PaymentGateway } from './types'
 
-export type { PaymentAdapter, CatalogOrderForCharge, ChargeResult, PaymentWebhookEvent, WebhookRequest } from './types'
+export type * from './types'
+export * from './feeCalculator'
 
 /**
- * Modo mock explícito (MERCADOPAGO_MODE=mock) ou implícito (sem token
- * configurado ainda) — permite desenvolver/testar o módulo Catálogo Online
- * sem depender das credenciais reais do Mercado Pago.
+ * Modo mock explícito (MERCADOPAGO_MODE=mock) ou implícito (sem a
+ * aplicação OAuth configurada ainda) — permite desenvolver/testar o
+ * checkout do catálogo sem depender de credenciais reais do Mercado Pago.
  *
- * Em produção (VERCEL_ENV=production), o mock NUNCA é usado — ele aceita
- * qualquer webhook como pagamento confirmado (verifyWebhookSignature
- * sempre true), então rodar em produção sem credenciais reais permitiria
- * qualquer pessoa "pagar" um pedido da loja de graça. Falha explicitamente
- * em vez de cair silenciosamente no mock.
+ * Em produção (VERCEL_ENV=production) o mock NUNCA é usado: falha
+ * explicitamente em vez de aceitar qualquer webhook como pago.
  */
-export function getPaymentAdapter(): PaymentAdapter {
+export function getPaymentGateway(): PaymentGateway {
   const mode = process.env.MERCADOPAGO_MODE
-  const hasCredentials = !!process.env.MERCADOPAGO_ACCESS_TOKEN
+  const hasAppCredentials = !!process.env.MERCADOPAGO_APP_ID && !!process.env.MERCADOPAGO_CLIENT_SECRET
   const isProdEnv = process.env.VERCEL_ENV === 'production'
 
-  if (isProdEnv && (mode === 'mock' || !hasCredentials)) {
+  if (isProdEnv && (mode === 'mock' || !hasAppCredentials)) {
     throw new Error(
-      'Pagamentos do Catálogo Online desabilitados: MERCADOPAGO_ACCESS_TOKEN não configurado em produção.'
+      'Pagamentos do Catálogo Online desabilitados: MERCADOPAGO_APP_ID/MERCADOPAGO_CLIENT_SECRET não configurados em produção.'
     )
   }
 
-  if (mode === 'mock' || !hasCredentials) return new MockPaymentAdapter()
-  return new MercadoPagoAdapter()
+  if (mode === 'mock' || !hasAppCredentials) return new MockPaymentGateway()
+  return new MercadoPagoProvider()
 }

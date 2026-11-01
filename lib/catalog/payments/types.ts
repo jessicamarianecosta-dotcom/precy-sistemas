@@ -1,53 +1,109 @@
-export interface CatalogOrderForCharge {
-  /** catalog_checkout_ref do pedido — usado para casar o webhook depois (idempotência). */
-  ref: string
-  amount: number
-  customerName: string
-  customerDocument?: string | null
-  customerPhone?: string | null
-  customerEmail?: string | null
+export type PaymentMethodKind = 'pix' | 'credit_card'
+
+export type PaymentStatus =
+  | 'pending' | 'in_process' | 'approved' | 'rejected' | 'cancelled' | 'refunded' | 'expired'
+
+export interface AccountStatus {
+  connected: boolean
+  providerUserId?: string | null
+  publicKey?: string | null
+  liveMode?: boolean
+  connectedAt?: string | null
+  lastError?: string | null
+}
+
+export interface CreatePixPaymentParams {
+  companyId: string
+  checkoutRef: string
+  /** Valor LÍQUIDO desejado pela loja (preço no Pix) — o gateway cobra exatamente isso, sem acréscimo. */
+  netAmount: number
   description: string
-  /** Caminho (ex: "/loja/lumilife") para onde o gateway deve redirecionar o
-   *  cliente após o pagamento, quando o gateway suportar back_urls. */
-  returnPath?: string | null
+  customerName: string
+  customerEmail?: string | null
+  customerDocument?: string | null
 }
 
-export interface ChargeResult {
-  ref: string
-  redirectUrl?: string
-  qrCode?: string
-  status: 'pending' | 'paid'
-}
-
-export interface PaymentWebhookEvent {
-  ref: string
-  status: 'paid' | 'failed' | 'pending'
-  amount: number
-  paymentMethod?: string | null
+export interface PixPaymentResult {
+  providerPaymentId: string
+  status: PaymentStatus
+  grossAmount: number
+  netAmount: number
+  feeAmount: number
+  feePercentSnapshot: number
+  feeFixedSnapshot: number
+  qrCode: string | null
+  qrCodeBase64: string | null
+  expiresAt: string | null
   raw: unknown
 }
 
-/**
- * Dados brutos da requisição de webhook recebida — um objeto só (em vez de
- * (rawBody, signatureHeader) como antes) porque gateways diferentes exigem
- * contexto diferente para validar a assinatura e identificar o pagamento:
- * a InfinityPay só precisa de um header, o Mercado Pago precisa também do
- * header x-request-id e do "data.id" que vem na query string da notificação.
- */
+export interface CreateCardPaymentParams {
+  companyId: string
+  checkoutRef: string
+  /** Valor LÍQUIDO desejado pela loja — o valor bruto (com acréscimo do parcelamento) é calculado aqui dentro. */
+  netAmount: number
+  installments: number
+  cardToken: string
+  paymentMethodId: string
+  description: string
+  customerName: string
+  customerEmail?: string | null
+  customerDocument?: string | null
+  customerDocumentType?: string | null
+}
+
+export interface CardPaymentResult {
+  providerPaymentId: string
+  status: PaymentStatus
+  grossAmount: number
+  netAmount: number
+  feeAmount: number
+  feePercentSnapshot: number
+  feeFixedSnapshot: number
+  installments: number
+  statusDetail?: string | null
+  raw: unknown
+}
+
+export interface PaymentStatusResult {
+  providerPaymentId: string
+  checkoutRef: string | null
+  status: PaymentStatus
+  amount: number
+  paymentMethod: PaymentMethodKind | null
+  installments: number | null
+  raw: unknown
+}
+
+export interface RefundResult {
+  providerRefundId: string | null
+  status: 'approved' | 'pending' | 'rejected'
+  raw: unknown
+}
+
 export interface WebhookRequest {
   rawBody: string
-  /** Headers relevantes, em minúsculo (ex: "x-signature", "x-request-id"). */
   headers: Record<string, string | null>
   searchParams: URLSearchParams
 }
 
-export interface PaymentAdapter {
-  createCharge(order: CatalogOrderForCharge): Promise<ChargeResult>
+export interface WebhookNotification {
+  topic: string
+  providerPaymentId: string | null
+  companyId: string | null
+}
+
+export interface PaymentGateway {
+  /** URL para redirecionar o lojista autorizar a conexão da conta (OAuth). */
+  getConnectUrl(companyId: string, state: string, redirectUri: string): string
+  /** Troca o "code" do callback OAuth pelos tokens de acesso e grava (criptografados) em store_payment_accounts. */
+  handleOAuthCallback(companyId: string, code: string, redirectUri: string): Promise<AccountStatus>
+  disconnectAccount(companyId: string): Promise<void>
+  getAccountStatus(companyId: string): Promise<AccountStatus>
+  createPixPayment(params: CreatePixPaymentParams): Promise<PixPaymentResult>
+  createCardPayment(params: CreateCardPaymentParams): Promise<CardPaymentResult>
+  getPaymentStatus(companyId: string, providerPaymentId: string): Promise<PaymentStatusResult>
+  refundPayment(companyId: string, providerPaymentId: string, amount?: number): Promise<RefundResult>
   verifyWebhookSignature(req: WebhookRequest): boolean
-  /**
-   * Async porque alguns gateways (Mercado Pago) só mandam uma referência no
-   * webhook — o adapter precisa buscar os detalhes reais do pagamento
-   * (status/valor) numa chamada à API antes de devolver o evento.
-   */
-  parseWebhookEvent(req: WebhookRequest): Promise<PaymentWebhookEvent>
+  parseWebhookNotification(req: WebhookRequest): WebhookNotification
 }

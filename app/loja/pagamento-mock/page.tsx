@@ -19,9 +19,10 @@ function MockPaymentContent() {
   async function confirm() {
     setStatus('loading')
     try {
-      const res = await fetch('/api/webhooks/mercadopago', {
+      const res = await fetch('/api/loja/pagamentos/mercadopago/mock-confirmar', {
         method: 'POST',
-        body: JSON.stringify({ ref, status: 'paid', amount: 0, paymentMethod: 'pix' }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checkoutRef: ref }),
       })
       if (!res.ok) throw new Error()
       setStatus('done')

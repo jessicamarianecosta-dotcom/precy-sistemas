@@ -1,6 +1,14 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { recalcOrderPaymentStatus, recalcCustomerTotalPurchases } from './recalc'
-import type { PaymentWebhookEvent } from '@/lib/catalog/payments/types'
+
+/** Formato mínimo exigido pela cascata — qualquer gateway/chamador pode montar isso. */
+export interface CatalogPaymentConfirmedEvent {
+  ref: string
+  status: 'paid' | 'failed' | 'pending'
+  amount: number
+  paymentMethod?: string | null
+  raw?: unknown
+}
 
 export type CatalogPaymentCascadeResult =
   | { ok: true; orderId: string }
@@ -29,7 +37,7 @@ export type CatalogPaymentCascadeResult =
  * passo de pagamento), nunca tentando estoque/agenda de novo.
  */
 export async function applyCatalogPaymentConfirmed(
-  event: PaymentWebhookEvent,
+  event: CatalogPaymentConfirmedEvent,
   gatewayLabel: string,
 ): Promise<CatalogPaymentCascadeResult> {
   const { data: order, error: orderError } = await (supabaseAdmin.from('orders') as any)

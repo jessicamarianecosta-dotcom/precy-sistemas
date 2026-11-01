@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
+    "test": "vitest run",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\""
   },
   "dependencies": {
@@ -57,6 +58,7 @@
     "eslint-config-next": "^15.0.0",
     "postcss": "^8.4.32",
     "prettier": "^3.1.1",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.9"
   }
 }

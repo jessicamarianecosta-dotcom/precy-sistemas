@@ -4,7 +4,8 @@ import { useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
 import Image from 'next/image'
-import { ArrowLeft, Package, Truck, CheckCircle2, Clock, XCircle } from 'lucide-react'
+import { useState } from 'react'
+import { ArrowLeft, Package, Truck, CheckCircle2, Clock, XCircle, Copy, Check } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils/format'
 
 interface OrderItem {
@@ -39,14 +40,27 @@ const STATUS_LABELS: Record<string, string> = {
 
 const PAYMENT_LABELS: Record<string, { label: string; icon: typeof Clock; className: string }> = {
   pending: { label: 'Aguardando pagamento', icon: Clock, className: 'text-warning' },
+  partial: { label: 'Pagamento parcial', icon: Clock, className: 'text-warning' },
   paid: { label: 'Pagamento confirmado', icon: CheckCircle2, className: 'text-success' },
   failed: { label: 'Pagamento recusado', icon: XCircle, className: 'text-error' },
+  cancelled: { label: 'Pagamento cancelado', icon: XCircle, className: 'text-error' },
+  expired: { label: 'Pagamento expirado', icon: XCircle, className: 'text-error' },
+  refunded: { label: 'Pagamento reembolsado', icon: XCircle, className: 'text-text-muted' },
+}
+
+interface PixInfo {
+  method: string | null
+  qrCode: string | null
+  qrCodeBase64: string | null
+  expiresAt: string | null
+  installments: number | null
 }
 
 export default function PedidoAcompanhamentoPage() {
   const { slug, ref } = useParams<{ slug: string; ref: string }>()
+  const [copied, setCopied] = useState(false)
 
-  const { data, isLoading, error } = useQuery<{ order: OrderSummary; items: OrderItem[] }>({
+  const { data, isLoading, error } = useQuery<{ order: OrderSummary; items: OrderItem[]; payment: PixInfo | null }>({
     queryKey: ['loja-pedido', ref],
     queryFn: async () => {
       const res = await fetch(`/api/loja/pedido/${ref}`)
@@ -54,8 +68,20 @@ export default function PedidoAcompanhamentoPage() {
       if (!res.ok) throw new Error(json.error ?? 'Pedido não encontrado')
       return json
     },
-    refetchInterval: 15000,
+    // Enquanto o pagamento não sair de "pendente/parcial", verifica de novo
+    // a cada 5s — é o servidor (via webhook do Mercado Pago) que confirma,
+    // nunca o retorno do navegador ao voltar da aba de pagamento.
+    refetchInterval: (query) => {
+      const status = query.state.data?.order?.payment_status
+      return status === 'pending' || status === 'partial' ? 5000 : false
+    },
   })
+
+  async function copyPix(code: string) {
+    await navigator.clipboard.writeText(code)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   return (
     <div className="min-h-screen bg-background dark:bg-background-dark">
@@ -68,9 +94,10 @@ export default function PedidoAcompanhamentoPage() {
         {error && <p className="text-sm text-error">{(error as Error).message}</p>}
 
         {data && (() => {
-          const { order, items } = data
-          const payment = PAYMENT_LABELS[order.payment_status] ?? PAYMENT_LABELS.pending
-          const PaymentIcon = payment.icon
+          const { order, items, payment: pix } = data
+          const paymentLabel = PAYMENT_LABELS[order.payment_status] ?? PAYMENT_LABELS.pending
+          const PaymentIcon = paymentLabel.icon
+          const showPixQr = (order.payment_status === 'pending' || order.payment_status === 'partial') && pix?.method === 'pix' && pix.qrCode
           return (
             <div className="space-y-5">
               <div className="card p-4">
@@ -79,8 +106,8 @@ export default function PedidoAcompanhamentoPage() {
                   Feito em {new Date(order.created_at).toLocaleDateString('pt-BR')}
                 </p>
                 <div className="flex items-center gap-2 mt-3">
-                  <PaymentIcon size={16} className={payment.className} />
-                  <span className={`text-sm font-medium ${payment.className}`}>{payment.label}</span>
+                  <PaymentIcon size={16} className={paymentLabel.className} />
+                  <span className={`text-sm font-medium ${paymentLabel.className}`}>{paymentLabel.label}</span>
                 </div>
                 <div className="flex items-center gap-2 mt-1.5">
                   <Package size={16} className="text-text-muted" />
@@ -102,6 +129,30 @@ export default function PedidoAcompanhamentoPage() {
                   <p className="text-xs text-text-muted mt-2">Rastreamento: <b className="text-text-primary dark:text-stone-100">{order.tracking_code}</b></p>
                 )}
               </div>
+
+              {showPixQr && (
+                <div className="card p-4 text-center space-y-3">
+                  <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">Pague com Pix para confirmar</h2>
+                  {pix!.qrCodeBase64 && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={`data:image/png;base64,${pix!.qrCodeBase64}`} alt="QR Code Pix" className="w-48 h-48 mx-auto rounded-lg border border-border dark:border-border-dark" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => copyPix(pix!.qrCode!)}
+                    className="btn-secondary text-xs flex items-center gap-1.5 mx-auto"
+                  >
+                    {copied ? <Check size={13} /> : <Copy size={13} />}
+                    {copied ? 'Código copiado!' : 'Copiar código Pix'}
+                  </button>
+                  {pix!.expiresAt && (
+                    <p className="text-[11px] text-text-muted">
+                      Expira em {new Date(pix!.expiresAt).toLocaleString('pt-BR')}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-text-muted">Esta página atualiza automaticamente quando o pagamento for confirmado.</p>
+                </div>
+              )}
 
               <div className="card divide-y divide-border dark:divide-border-dark">
                 {items.map((item, idx) => (
