@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { getPaymentAdapter } from '@/lib/catalog/payments'
+import { getPaymentAdapterForCompany } from '@/lib/catalog/payments'
 import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
 import { cleanObservation } from '@/lib/catalog/observation'
@@ -310,7 +310,7 @@ export async function POST(request: Request) {
 
   /* ── Criar cobrança no adapter de pagamento (Mercado Pago ou mock) ── */
   try {
-    const adapter = getPaymentAdapter()
+    const adapter = await getPaymentAdapterForCompany(companyId)
     const charge = await adapter.createCharge({
       ref: checkoutRef,
       amount: total,

@@ -15,14 +15,32 @@ import type { PaymentAdapter, CatalogOrderForCharge, ChargeResult, PaymentWebhoo
  * seguem o contrato documentado publicamente — ainda assim, teste com uma
  * conta de teste do Mercado Pago antes de liberar pagamentos reais.
  */
+export interface MercadoPagoAdapterOptions {
+  /** Access token da conexão OAuth da empresa (resolvido por lib/catalog/payments/index.ts). */
+  accessToken?: string
+  webhookSecret?: string
+  /** Quando presente, é anexado ao notification_url (?company_id=...) para o
+   *  webhook saber de qual empresa/conexão consultar o pagamento depois. */
+  companyId?: string
+}
+
 export class MercadoPagoAdapter implements PaymentAdapter {
-  private accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN ?? ''
-  private webhookSecret = process.env.MERCADOPAGO_WEBHOOK_SECRET ?? ''
+  private accessToken: string
+  private webhookSecret: string
   private baseUrl = (process.env.MERCADOPAGO_BASE_URL ?? 'https://api.mercadopago.com').replace(/\/$/, '')
+  private companyId?: string
+
+  constructor(opts?: MercadoPagoAdapterOptions) {
+    this.accessToken = opts?.accessToken ?? process.env.MERCADOPAGO_ACCESS_TOKEN ?? ''
+    this.webhookSecret = opts?.webhookSecret ?? process.env.MERCADOPAGO_WEBHOOK_SECRET ?? ''
+    this.companyId = opts?.companyId
+  }
 
   async createCharge(order: CatalogOrderForCharge): Promise<ChargeResult> {
     const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/$/, '')
-    const notificationUrl = appUrl ? `${appUrl}/api/webhooks/mercadopago` : undefined
+    const notificationUrl = appUrl
+      ? `${appUrl}/api/webhooks/mercadopago${this.companyId ? `?company_id=${encodeURIComponent(this.companyId)}` : ''}`
+      : undefined
     const returnUrl = appUrl && order.returnPath ? `${appUrl}${order.returnPath}` : undefined
 
     const res = await fetch(`${this.baseUrl}/checkout/preferences`, {
