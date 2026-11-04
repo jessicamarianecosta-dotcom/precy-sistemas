@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toaster'
@@ -108,6 +109,8 @@ function Field({ label, error, children }: { label: string; error?: string; chil
 /* ═══════════════════════════════════════ PAGE ═══ */
 export default function ClientesPage() {
   const supabase    = createClient()
+  const router       = useRouter()
+  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const { toast } = useToast()
 
@@ -297,6 +300,19 @@ export default function ClientesPage() {
     setSituacaoCadastral(null)
   }
 
+  /* Abre direto no modo edição ao chegar com ?edit=<id>, ex: vindo da ficha do cliente. */
+  useEffect(() => {
+    const editId = searchParams.get('edit')
+    if (editId && customers && !showModal) {
+      const c = customers.find(c => c.id === editId)
+      if (c) {
+        openEdit(c)
+        router.replace('/clientes')
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, customers])
+
   /* ── Filtros ── */
   const filtered = (customers ?? []).filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -412,7 +428,11 @@ export default function ClientesPage() {
               {/* ── MOBILE: cards ── */}
               <div className="md:hidden divide-y divide-border dark:divide-border-dark">
                 {filtered.map(c => (
-                  <div key={c.id} className="p-4">
+                  <div
+                    key={c.id}
+                    className="p-4 cursor-pointer active:bg-primary-50/40 dark:active:bg-white/[0.03] transition-colors"
+                    onClick={() => router.push(`/clientes/${c.id}`)}
+                  >
                     <div className="flex items-start gap-3">
                       <div className={clsx(
                         'w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-sm font-bold mt-0.5',
@@ -453,11 +473,11 @@ export default function ClientesPage() {
                           )}
                         </div>
                         <div className="flex items-center gap-2 mt-3">
-                          <button onClick={() => openEdit(c)}
+                          <button onClick={e => { e.stopPropagation(); openEdit(c) }}
                             className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg border border-border dark:border-border-dark hover:border-primary hover:text-primary transition-colors">
                             <Edit2 size={12} /> Editar
                           </button>
-                          <button onClick={() => setDeleteId(c.id)}
+                          <button onClick={e => { e.stopPropagation(); setDeleteId(c.id) }}
                             className="p-2 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors">
                             <Trash2 size={14} />
                           </button>
@@ -487,7 +507,8 @@ export default function ClientesPage() {
                   {filtered.map(c => (
                     <tr
                       key={c.id}
-                      className="border-b border-border dark:border-border-dark last:border-0 hover:bg-primary-50/30 dark:hover:bg-white/[0.02] transition-colors"
+                      className="border-b border-border dark:border-border-dark last:border-0 hover:bg-primary-50/30 dark:hover:bg-white/[0.02] transition-colors cursor-pointer"
+                      onClick={() => router.push(`/clientes/${c.id}`)}
                     >
                       {/* Nome + avatar */}
                       <td className="px-4 py-3.5">
@@ -571,14 +592,14 @@ export default function ClientesPage() {
                       <td className="px-4 py-3.5">
                         <div className="flex items-center gap-1.5">
                           <button
-                            onClick={() => openEdit(c)}
+                            onClick={e => { e.stopPropagation(); openEdit(c) }}
                             className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-primary/10 transition-colors"
                             title="Editar"
                           >
                             <Edit2 size={14} />
                           </button>
                           <button
-                            onClick={() => setDeleteId(c.id)}
+                            onClick={e => { e.stopPropagation(); setDeleteId(c.id) }}
                             className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light dark:hover:bg-error/10 transition-colors"
                             title="Excluir"
                           >

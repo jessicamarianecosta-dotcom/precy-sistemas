@@ -90,18 +90,26 @@ export function computeReceivableStatus(params: {
 export async function fetchOrderReceivables(
   supabase: SupabaseClient,
   companyId: string,
+  customerId?: string,
 ): Promise<OrderReceivable[]> {
+  let ordersQuery = supabase.from('orders')
+    .select('id, order_number, total, status, payment_method, service_name, customer_id, paid_at, customers(name)')
+    .eq('company_id', companyId)
+  let paymentsQuery = supabase.from('payment_history')
+    .select('order_id, amount')
+    .eq('company_id', companyId)
+  let scheduleQuery = supabase.from('payment_schedule')
+    .select('id, order_id, due_date, payment_method, status, installment_number, installment_count, amount, received_amount')
+    .eq('company_id', companyId)
+    .order('due_date', { ascending: true })
+  if (customerId) {
+    ordersQuery = ordersQuery.eq('customer_id', customerId)
+    paymentsQuery = paymentsQuery.eq('customer_id', customerId)
+    scheduleQuery = scheduleQuery.eq('customer_id', customerId)
+  }
+
   const [{ data: orders }, { data: paymentsRaw }, { data: scheduleRaw }] = await Promise.all([
-    supabase.from('orders')
-      .select('id, order_number, total, status, payment_method, service_name, customer_id, paid_at, customers(name)')
-      .eq('company_id', companyId),
-    supabase.from('payment_history')
-      .select('order_id, amount')
-      .eq('company_id', companyId),
-    supabase.from('payment_schedule')
-      .select('id, order_id, due_date, payment_method, status, installment_number, installment_count, amount, received_amount')
-      .eq('company_id', companyId)
-      .order('due_date', { ascending: true }),
+    ordersQuery, paymentsQuery, scheduleQuery,
   ])
 
   const receivedByOrder: Record<string, number> = {}
