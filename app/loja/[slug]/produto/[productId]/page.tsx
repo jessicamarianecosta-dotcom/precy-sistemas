@@ -452,8 +452,6 @@ export default function ProdutoLojaPage() {
                 <Clock size={14} /> Prazo estimado: {effectiveLeadTime} dia(s)
               </p>
             )}
-            {product.description && <ProductDescription text={product.description} className="mb-5" />}
-
             {groups.length > 0 && (
               <div className="space-y-3 mb-5">
                 {groups.map(g => (
