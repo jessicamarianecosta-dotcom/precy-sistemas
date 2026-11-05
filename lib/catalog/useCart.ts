@@ -61,10 +61,18 @@ export function useCart(slug: string) {
     })
   }, [slug])
 
+  const updateNotes = useCallback((productId: string, variantId: string | null | undefined, notes: string | null) => {
+    setItems(prev => {
+      const next = prev.map(i => sameLine(i, productId, variantId) ? { ...i, notes } : i)
+      try { localStorage.setItem(storageKey(slug), JSON.stringify(next)) } catch { /* ignore */ }
+      return next
+    })
+  }, [slug])
+
   const removeItem = useCallback((productId: string, variantId?: string | null) => updateQty(productId, variantId, 0), [updateQty])
   const clear = useCallback(() => persist([]), [persist])
 
   const total = items.reduce((s, i) => s + i.price * i.quantity, 0)
 
-  return { items, addItem, updateQty, removeItem, clear, total }
+  return { items, addItem, updateQty, updateNotes, removeItem, clear, total }
 }

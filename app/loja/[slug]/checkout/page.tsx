@@ -8,18 +8,20 @@ import { useCart } from '@/lib/catalog/useCart'
 import { useToast } from '@/components/ui/Toaster'
 import { formatCurrency } from '@/lib/utils/format'
 import { fetchCepData } from '@/lib/services/cep'
-import { ArrowLeft, Minus, Plus, Trash2, Loader2, Upload, MessageCircle } from 'lucide-react'
+import { ArrowLeft, Minus, Plus, Trash2, Loader2, Upload, MessageCircle, Pencil } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { StoreThemeRoot } from '@/components/catalog/storefront/StoreThemeRoot'
 import { resolvePalettes } from '@/lib/catalog/theme/palette'
+import { OBSERVATION_MAX, cleanObservation } from '@/lib/catalog/observation'
 
 export default function CheckoutLojaPage() {
   const { slug } = useParams<{ slug: string }>()
   const router = useRouter()
   const { toast } = useToast()
   const supabase = createClient()
-  const { items, updateQty, removeItem, total, clear } = useCart(slug)
+  const { items, updateQty, updateNotes, removeItem, total, clear } = useCart(slug)
+  const [editingNotesKey, setEditingNotesKey] = useState<string | null>(null)
 
   const { data: storeSettings } = useQuery<{ whatsapp: string | null; theme_color: string; theme_palette: import('@/lib/catalog/theme/palette').StoreThemePalettes | null } | null>({
     queryKey: ['loja-checkout-settings', slug],
@@ -216,25 +218,52 @@ export default function CheckoutLojaPage() {
         ) : (
           <div className="space-y-5">
             <div className="card divide-y divide-border dark:divide-border-dark">
-              {items.map(item => (
-                <div key={`${item.productId}:${item.variantId ?? ''}`} className="flex items-center gap-3 p-3">
-                  <div className="relative w-12 h-12 rounded-lg bg-surface dark:bg-white/5 overflow-hidden flex-shrink-0">
-                    {item.photo && <Image src={item.photo} alt="" fill sizes="48px" className="object-cover" />}
+              {items.map(item => {
+                const itemKey = `${item.productId}:${item.variantId ?? ''}`
+                const isEditingNotes = editingNotesKey === itemKey
+                return (
+                <div key={itemKey} className="p-3 space-y-2">
+                  <div className="flex items-center gap-3">
+                    <div className="relative w-12 h-12 rounded-lg bg-surface dark:bg-white/5 overflow-hidden flex-shrink-0">
+                      {item.photo && <Image src={item.photo} alt="" fill sizes="48px" className="object-cover" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{item.name}</p>
+                      {item.variantLabel && <p className="text-[11px] text-text-muted truncate">{item.variantLabel}</p>}
+                      {!isEditingNotes && item.notes && <p className="text-[11px] text-text-muted line-clamp-2">Obs.: {item.notes}</p>}
+                      <p className="text-xs text-text-muted">{formatCurrency(item.price)}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button type="button" onClick={() => updateQty(item.productId, item.variantId, item.quantity - 1)} className="p-1 rounded hover:bg-[var(--store-surface)] dark:hover:bg-white/5"><Minus size={13} /></button>
+                      <span className="text-sm w-5 text-center">{item.quantity}</span>
+                      <button type="button" onClick={() => updateQty(item.productId, item.variantId, item.quantity + 1)} className="p-1 rounded hover:bg-[var(--store-surface)] dark:hover:bg-white/5"><Plus size={13} /></button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditingNotesKey(isEditingNotes ? null : itemKey)}
+                      title="Editar observação"
+                      className="p-1.5 text-text-muted hover:text-[var(--store-primary)]"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button type="button" onClick={() => removeItem(item.productId, item.variantId)} className="p-1.5 text-text-muted hover:text-error"><Trash2 size={14} /></button>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{item.name}</p>
-                    {item.variantLabel && <p className="text-[11px] text-text-muted truncate">{item.variantLabel}</p>}
-                    {item.notes && <p className="text-[11px] text-text-muted line-clamp-2">Obs.: {item.notes}</p>}
-                    <p className="text-xs text-text-muted">{formatCurrency(item.price)}</p>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button type="button" onClick={() => updateQty(item.productId, item.variantId, item.quantity - 1)} className="p-1 rounded hover:bg-[var(--store-surface)] dark:hover:bg-white/5"><Minus size={13} /></button>
-                    <span className="text-sm w-5 text-center">{item.quantity}</span>
-                    <button type="button" onClick={() => updateQty(item.productId, item.variantId, item.quantity + 1)} className="p-1 rounded hover:bg-[var(--store-surface)] dark:hover:bg-white/5"><Plus size={13} /></button>
-                  </div>
-                  <button type="button" onClick={() => removeItem(item.productId, item.variantId)} className="p-1.5 text-text-muted hover:text-error"><Trash2 size={14} /></button>
+                  {isEditingNotes && (
+                    <div className="pl-[60px]">
+                      <textarea
+                        autoFocus
+                        className="input text-xs"
+                        rows={2}
+                        maxLength={OBSERVATION_MAX}
+                        placeholder="Observação sobre este produto..."
+                        defaultValue={item.notes ?? ''}
+                        onBlur={e => { updateNotes(item.productId, item.variantId, cleanObservation(e.target.value)); setEditingNotesKey(null) }}
+                      />
+                    </div>
+                  )}
                 </div>
-              ))}
+                )
+              })}
             </div>
 
             <form onSubmit={e => { e.preventDefault(); submitOrder('online') }} className="space-y-4">
