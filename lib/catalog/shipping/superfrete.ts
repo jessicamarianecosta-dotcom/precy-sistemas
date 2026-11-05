@@ -9,6 +9,10 @@ export class SuperFreteAdapter implements ShippingAdapter {
   private apiKey = process.env.SUPERFRETE_API_KEY ?? ''
   private originCep = process.env.SUPERFRETE_ORIGIN_CEP ?? ''
   private baseUrl = process.env.SUPERFRETE_BASE_URL ?? 'https://api.superfrete.com'
+  // Obrigatório pela API real — sem isso ela responde 200 com
+  // "Nenhum frete válido encontrado para esse serviço" mesmo com origem,
+  // destino e produto corretos. IDs: 1=PAC, 2=SEDEX, 17=Mini Envios.
+  private services = process.env.SUPERFRETE_SERVICES ?? '1,2,17'
 
   async quote(cep: string, items: ShippingItem[], originCep?: string | null): Promise<ShippingQuote[]> {
     const from = (originCep || this.originCep || '').replace(/\D/g, '')
@@ -32,6 +36,7 @@ export class SuperFreteAdapter implements ShippingAdapter {
         products: items.map(i => ({
           weight: i.weightKg, length: i.lengthCm, height: i.heightCm, width: i.widthCm, quantity: i.quantity,
         })),
+        services: this.services,
       }),
     })
 
