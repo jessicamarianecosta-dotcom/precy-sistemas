@@ -3,12 +3,31 @@ export interface OptionRow {
   /** Acréscimo de preço desta opção sobre o preço-base da combinação (migration 088). */
   price_adjustment_type?: 'fixed' | 'percent' | null
   price_adjustment_value?: number | null
+  /** Imagem padrão aplicada a combinações com esta opção sem imagem própria (migration 092). */
+  default_image_id?: string | null
 }
 export interface GroupRow { id: string; name: string; sort_order: number; options: OptionRow[] }
 export interface DependencyRow { id?: string; option_id: string; depends_on_option_id: string }
 
 export function comboKey(optionIds: string[]) {
   return optionIds.join('|')
+}
+
+/**
+ * Resolve a imagem padrão de uma combinação a partir das opções selecionadas
+ * (uma por grupo, na mesma ordem de `groups`). Quando mais de um grupo
+ * selecionado tem `default_image_id` configurado, o grupo que vem DEPOIS na
+ * ordem da tela vence — permite um grupo mais específico (ex: "Modelo",
+ * geralmente o último) sobrepor a imagem de um grupo mais genérico (ex:
+ * "Capa"). Retorna null quando nenhuma opção selecionada tem imagem padrão.
+ */
+export function resolveDefaultImageId(groups: GroupRow[], optionIdByGroup: (string | null | undefined)[]): string | null {
+  let result: string | null = null
+  groups.forEach((g, idx) => {
+    const opt = g.options.find(o => o.id === optionIdByGroup[idx])
+    if (opt?.default_image_id) result = opt.default_image_id
+  })
+  return result
 }
 
 /**

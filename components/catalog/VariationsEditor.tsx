@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toaster'
 import { clsx } from 'clsx'
 import { Plus, X, Loader2, AlertCircle, Copy, ClipboardCopy, Trash2, Sparkles, Upload, Image as ImageIcon, Calculator, Pencil, Check, FileDown, FileUp } from 'lucide-react'
-import { comboKey, type GroupRow, type OptionRow } from '@/lib/catalog/variationCombos'
+import { comboKey, resolveDefaultImageId, type GroupRow, type OptionRow } from '@/lib/catalog/variationCombos'
 import { compressImage } from '@/lib/catalog/useImageCompression'
 import { uploadImageXhr } from '@/lib/catalog/useImageUploadXhr'
 import { VariationRulesWizard } from './VariationRulesWizard'
@@ -109,6 +109,9 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   const [editingOptionId, setEditingOptionId] = useState<string | null>(null)
   const [editOptionValue, setEditOptionValue] = useState('')
   const [editOptionAdj, setEditOptionAdj] = useState<AdjustmentDraft>(EMPTY_ADJUSTMENT)
+  const [editOptionDefaultImage, setEditOptionDefaultImage] = useState<string>('')
+  /** Filtro por grupo na tabela de combinações — '' = sem filtro (mostra tudo). */
+  const [comboFilters, setComboFilters] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [showWizard, setShowWizard] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
@@ -129,7 +132,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     enabled: !!productId,
     queryFn: async () => {
       const { data } = await (supabase.from('product_variation_groups') as any)
-        .select('id, name, sort_order, product_variation_options(id, group_id, value, sort_order, price_adjustment_type, price_adjustment_value)')
+        .select('id, name, sort_order, product_variation_options(id, group_id, value, sort_order, price_adjustment_type, price_adjustment_value, default_image_id)')
         .eq('product_id', productId)
         .order('sort_order')
         .order('sort_order', { foreignTable: 'product_variation_options' })
@@ -182,6 +185,19 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   }, [variantsQuery.data, groupsSorted])
 
   const existingCombos = useMemo(() => new Set(variantsNormalized.map(v => comboKey(v.optionIds))), [variantsNormalized])
+
+  /** Combinações visíveis na tabela depois do filtro por grupo (comboFilters) — '' em um grupo = não filtra por ele. */
+  const filteredVariants = useMemo(() => {
+    const validGroupIds = new Set(groupsSorted.map(g => g.id))
+    const activeFilters = Object.entries(comboFilters).filter(([groupId, optionId]) => optionId !== '' && validGroupIds.has(groupId))
+    if (activeFilters.length === 0) return variantsNormalized
+    return variantsNormalized.filter(v =>
+      activeFilters.every(([groupId, optionId]) => {
+        const idx = groupsSorted.findIndex(g => g.id === groupId)
+        return idx !== -1 && v.optionIds[idx] === optionId
+      })
+    )
+  }, [variantsNormalized, groupsSorted, comboFilters])
 
   function invalidateVariants() {
     qc.invalidateQueries({ queryKey: ['product-variants', productId] })
@@ -249,13 +265,31 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     onSuccess: () => { invalidateGroups(); invalidateVariants() },
   })
 
-  /** Atualiza o nome e/ou o tipo/valor de acréscimo de uma opção já existente. */
+  /** Atualiza o nome, acréscimo e/ou imagem padrão de uma opção já existente. */
   const updateOptionMutation = useMutation({
-    mutationFn: async ({ id, value, adjustment }: { id: string; value: string; adjustment: AdjustmentDraft }) => {
+    mutationFn: async ({ id, value, adjustment, defaultImageId }: { id: string; value: string; adjustment: AdjustmentDraft; defaultImageId: string | null }) => {
       const { error: err } = await (supabase.from('product_variation_options') as any)
-        .update({ value, ...adjustmentDraftToPatch(adjustment) })
+        .update({ value, default_image_id: defaultImageId, ...adjustmentDraftToPatch(adjustment) })
         .eq('id', id)
       if (err) throw err
+
+      // Preenche a imagem desta opção nas combinações que já existem, usam
+      // esta opção e ainda não têm imagem própria escolhida — sem opção
+      // própria, eram "Padrão" (sem imagem definida), então não há risco de
+      // sobrescrever uma imagem que a pessoa já tinha escolhido à mão aqui.
+      if (defaultImageId) {
+        const groupsWithUpdate = groupsSorted.map(g => ({
+          ...g,
+          options: g.options.map(o => (o.id === id ? { ...o, default_image_id: defaultImageId } : o)),
+        }))
+        const targets = variantsNormalized.filter(v => v.image_id == null && v.optionIds.includes(id))
+        for (const v of targets) {
+          const resolved = resolveDefaultImageId(groupsWithUpdate, v.optionIds)
+          if (resolved) {
+            await (supabase.from('product_variants') as any).update({ image_id: resolved }).eq('id', v.id)
+          }
+        }
+      }
     },
     onSuccess: () => { invalidateGroups(); invalidateVariants(); setEditingOptionId(null); setError(null) },
     onError: (err: Error) => setError(err.message.includes('duplicate') ? 'Essa opção já existe neste grupo.' : err.message),
@@ -265,6 +299,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     setEditingOptionId(opt.id)
     setEditOptionValue(opt.value)
     setEditOptionAdj(adjustmentKindFromOption(opt))
+    setEditOptionDefaultImage(opt.default_image_id ?? '')
   }
 
   /** Salva em lote apenas os campos alterados de cada combinação (um update por combinação, só com o patch dela). */
@@ -340,7 +375,13 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
       if (settings.sku !== '') patch.sku = settings.sku
       if (settings.lead_time_days !== '') patch.lead_time_days = Number(settings.lead_time_days)
       if (settings.weight_kg !== '') patch.weight_kg = Number(settings.weight_kg)
-      if (settings.image_id !== '') patch.image_id = settings.image_id
+      if (settings.image_id !== '') {
+        patch.image_id = settings.image_id
+      } else {
+        const optionIdByGroup = groupsSorted.map(g => selection[g.id])
+        const resolved = resolveDefaultImageId(groupsSorted, optionIdByGroup)
+        if (resolved) patch.image_id = resolved
+      }
 
       const { data: newVariant, error: insErr } = await (supabase.from('product_variants') as any)
         .insert({ product_id: productId, company_id: companyId, ...patch })
@@ -359,8 +400,9 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   const bulkGenerateMutation = useMutation({
     mutationFn: async (combos: string[][]) => {
       for (const combo of combos) {
+        const resolved = resolveDefaultImageId(groupsSorted, combo)
         const { data: newVariant, error: insErr } = await (supabase.from('product_variants') as any)
-          .insert({ product_id: productId, company_id: companyId })
+          .insert({ product_id: productId, company_id: companyId, ...(resolved ? { image_id: resolved } : {}) })
           .select('id').single()
         if (insErr) throw insErr
         const rows = combo.map((optionId, idx) => ({
@@ -556,6 +598,9 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                     {adjustmentBadge(opt) && (
                       <span className="px-1.5 py-0.5 rounded-full bg-white/60 dark:bg-black/20 text-[10px]">{adjustmentBadge(opt)}</span>
                     )}
+                    {opt.default_image_id && (
+                      <ImageIcon size={11} className="text-primary" aria-label="Tem imagem padrão" />
+                    )}
                     <button type="button" onClick={() => startEditOption(opt)} className="hover:text-primary-700" title="Editar opção (nome e acréscimo de preço)">
                       <Pencil size={11} />
                     </button>
@@ -591,11 +636,22 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                           className="input py-1 text-[11px] h-7 w-20"
                         />
                       )}
+                      <select
+                        value={editOptionDefaultImage}
+                        onChange={e => setEditOptionDefaultImage(e.target.value)}
+                        className="input py-1 text-[11px] h-7"
+                        title="Imagem padrão: aplicada automaticamente a toda combinação que usar esta opção e ainda não tiver imagem própria"
+                      >
+                        <option value="">Sem imagem padrão</option>
+                        {productImages.map((img, i) => (
+                          <option key={img.id} value={img.id}>Foto {i + 1} como padrão</option>
+                        ))}
+                      </select>
                       <button type="button"
                         onClick={() => {
                           const value = editOptionValue.trim()
                           if (!value) { setError('O nome da opção não pode ficar vazio.'); return }
-                          updateOptionMutation.mutate({ id: opt.id, value, adjustment: editOptionAdj })
+                          updateOptionMutation.mutate({ id: opt.id, value, adjustment: editOptionAdj, defaultImageId: editOptionDefaultImage || null })
                         }}
                         disabled={updateOptionMutation.isPending}
                         className="btn-primary text-[11px] h-7 px-2 flex items-center gap-1 disabled:opacity-50">
@@ -722,6 +778,31 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
         </p>
       ) : (
         <>
+        {/* Filtro por grupo — um seletor por grupo, '' = mostra tudo nele. */}
+        <div className="flex flex-wrap items-center gap-2">
+          {groupsSorted.map(g => (
+            <select
+              key={g.id}
+              value={comboFilters[g.id] ?? ''}
+              onChange={e => setComboFilters(prev => ({ ...prev, [g.id]: e.target.value }))}
+              className="input py-1.5 text-xs h-8"
+            >
+              <option value="">{g.name}: todos</option>
+              {g.options.map(o => <option key={o.id} value={o.id}>{o.value}</option>)}
+            </select>
+          ))}
+          {Object.values(comboFilters).some(v => v !== '') && (
+            <button type="button" onClick={() => setComboFilters({})} className="text-xs font-medium text-primary hover:underline">
+              Limpar filtros
+            </button>
+          )}
+          <span className="text-[11px] text-text-muted">
+            {filteredVariants.length === variantsNormalized.length
+              ? `${variantsNormalized.length} combinação(ões)`
+              : `${filteredVariants.length} de ${variantsNormalized.length} combinação(ões)`}
+          </span>
+        </div>
+
         {/* Desktop/tablet: tabela com altura limitada — rolagem vertical e
             horizontal próprias, barra horizontal sempre visível no final
             desta caixa (nunca é preciso descer até a última combinação pra
@@ -743,7 +824,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
               </tr>
             </thead>
             <tbody>
-              {variantsNormalized.map(v => (
+              {filteredVariants.map(v => (
                 <tr key={v.id} className="border-b border-border dark:border-border-dark last:border-0">
                   {groupsSorted.map((g, idx) => (
                     <td key={g.id} className={clsx(
@@ -843,7 +924,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
             (nada fica escondido) — evita depender de rolagem horizontal
             numa tela estreita. */}
         <div className="sm:hidden space-y-2.5 overflow-y-auto overscroll-contain" style={{ maxHeight: 520 }}>
-          {variantsNormalized.map(v => {
+          {filteredVariants.map(v => {
             const basePrice = (fieldValue(v, 'price') as number | null) ?? productPrice
             const adj = variantAdjustment(v, basePrice)
             return (
