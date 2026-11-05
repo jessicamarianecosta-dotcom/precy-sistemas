@@ -137,7 +137,7 @@ export function StoreHero({ settings, storeName, categories = [], themeToggle }:
                   <button
                     onClick={() => toggle(settings.slug)}
                     className={clsx(GLASS_BUTTON, favorited && 'bg-error/80 border-error/50 hover:bg-error')}>
-                    <Heart size={13} className={favorited ? 'fill-current' : ''} /> {favorited ? 'Favoritado' : 'Favoritar'}
+                    <Heart size={13} className={favorited ? 'fill-current' : ''} /> {favorited ? 'Loja favoritada' : 'Favoritar loja'}
                   </button>
                   {themeToggle}
                 </div>
