@@ -8,6 +8,9 @@ import { ArrowLeft, Package, Truck, CheckCircle2, Clock, XCircle } from 'lucide-
 import { formatCurrency } from '@/lib/utils/format'
 import { createClient } from '@/lib/supabase/client'
 import { StoreThemeRoot } from '@/components/catalog/storefront/StoreThemeRoot'
+import { StoreHeader } from '@/components/catalog/storefront/StoreHeader'
+import { useCart } from '@/lib/catalog/useCart'
+import { useProductFavorites } from '@/lib/catalog/useProductFavorites'
 import { resolvePalettes, type StoreThemePalettes } from '@/lib/catalog/theme/palette'
 
 interface OrderItem {
@@ -50,15 +53,19 @@ export default function PedidoAcompanhamentoPage() {
   const { slug, ref } = useParams<{ slug: string; ref: string }>()
   const supabase = createClient()
 
-  const { data: storeSettings } = useQuery<{ theme_color: string; theme_palette: StoreThemePalettes | null } | null>({
+  const { data: storeSettings } = useQuery<{ theme_color: string; theme_palette: StoreThemePalettes | null; logo_url: string | null; companies: { name: string } | null } | null>({
     queryKey: ['loja-pedido-theme', slug],
     queryFn: async () => {
       const { data } = await (supabase.from('catalog_settings') as any)
-        .select('theme_color, theme_palette').eq('slug', slug).maybeSingle()
+        .select('theme_color, theme_palette, logo_url, companies(name)').eq('slug', slug).maybeSingle()
       return data ?? null
     },
   })
   const palettes = resolvePalettes(storeSettings ?? { theme_color: '#8B6C4F', theme_palette: null })
+  const storeName = storeSettings?.companies?.name ?? slug
+  const { items } = useCart(slug)
+  const { favoriteIds } = useProductFavorites(slug)
+  const cartCount = items.reduce((s, i) => s + i.quantity, 0)
 
   const { data, isLoading, error } = useQuery<{ order: OrderSummary; items: OrderItem[] }>({
     queryKey: ['loja-pedido', ref],
@@ -74,6 +81,7 @@ export default function PedidoAcompanhamentoPage() {
   return (
     <StoreThemeRoot palettes={palettes}>
     <div className="min-h-screen bg-[var(--store-bg)] text-[var(--store-text)]">
+      <StoreHeader slug={slug} storeName={storeName} logoUrl={storeSettings?.logo_url} cartCount={cartCount} favoriteCount={favoriteIds.length} />
       <div className="max-w-xl mx-auto px-4 py-6">
         <Link href={`/loja/${slug}`} className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-[var(--store-primary)] mb-4">
           <ArrowLeft size={15} /> Voltar para a loja

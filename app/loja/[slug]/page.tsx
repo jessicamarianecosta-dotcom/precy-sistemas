@@ -1,13 +1,16 @@
 'use client'
 
-import { useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useMemo, useState } from 'react'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
-import { Search, ShoppingBag } from 'lucide-react'
+import { Search, Package, Flame, Sparkles } from 'lucide-react'
 import { useCart } from '@/lib/catalog/useCart'
+import { useProductFavorites } from '@/lib/catalog/useProductFavorites'
+import { isNewProduct } from '@/lib/catalog/productFlags'
 import { StoreHero } from '@/components/catalog/storefront/StoreHero'
+import { StoreHeader } from '@/components/catalog/storefront/StoreHeader'
 import { StoreInfoBar } from '@/components/catalog/storefront/StoreInfoBar'
 import { ProductCard } from '@/components/catalog/storefront/ProductCard'
 import { StoreEmptyState } from '@/components/catalog/storefront/StoreEmptyState'
@@ -17,21 +20,29 @@ import { resolvePalettes } from '@/lib/catalog/theme/palette'
 import type { StorefrontSettings, StorefrontProduct } from '@/components/catalog/storefront/types'
 
 interface Category { id: string; name: string }
+type SortOption = 'relevancia' | 'menor-preco' | 'maior-preco' | 'recentes'
+type ViewFilter = '' | 'novidades' | 'mais-vendidos'
 
 const SETTINGS_COLUMNS = `
   company_id, slug, logo_url, banner_url, description, whatsapp, instagram,
   facebook, tiktok, youtube, pinterest, website, city, state, address,
-  business_hours, theme_color, theme_palette, companies(name)
+  business_hours, policies_text, theme_color, theme_palette, companies(name)
 `
 
 export default function LojaPage() {
   const { slug } = useParams<{ slug: string }>()
+  const searchParams = useSearchParams()
   const supabase = createClient()
   const router = useRouter()
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(searchParams.get('busca') ?? '')
   const [searchFocused, setSearchFocused] = useState(false)
   const [categoryId, setCategoryId] = useState('')
+  const [sort, setSort] = useState<SortOption>('relevancia')
+  const [priceMin, setPriceMin] = useState('')
+  const [priceMax, setPriceMax] = useState('')
+  const viewFilter = (searchParams.get('view') ?? '') as ViewFilter
   const { items } = useCart(slug)
+  const { favoriteIds } = useProductFavorites(slug)
 
   const { data: settings, isLoading: loadingSettings } = useQuery<(StorefrontSettings & { companies: { name: string } | null }) | null>({
     queryKey: ['loja-settings', slug],
@@ -71,8 +82,8 @@ export default function LojaPage() {
     },
   })
 
-  /* Top 3 mais vendidos — mesma query do dashboard do Catálogo (app/(dashboard)/catalogo/page.tsx) */
-  const { data: bestsellerIds } = useQuery<Set<string>>({
+  /* Mais vendidos — mesma query do dashboard do Catálogo (app/(dashboard)/catalogo/page.tsx) */
+  const { data: bestsellerRanking } = useQuery<string[]>({
     queryKey: ['loja-bestsellers', settings?.company_id],
     enabled: !!settings,
     queryFn: async () => {
@@ -87,46 +98,139 @@ export default function LojaPage() {
         if (!it.product_id) continue
         byProduct.set(it.product_id, (byProduct.get(it.product_id) ?? 0) + Number(it.quantity))
       }
-      const top = [...byProduct.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id]) => id)
-      return new Set(top)
+      return [...byProduct.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id)
     },
   })
+
+  const bestsellerIds = useMemo(() => new Set(bestsellerRanking?.slice(0, 8) ?? []), [bestsellerRanking])
 
   if (loadingSettings) return <div className="min-h-screen flex items-center justify-center text-text-muted">Carregando…</div>
   if (!settings) return <div className="min-h-screen flex items-center justify-center text-text-muted">Loja não encontrada.</div>
 
   const storeName = settings.companies?.name ?? settings.slug
+  const allProducts = products ?? []
 
-  const filtered = (products ?? []).filter(p =>
-    p.name.toLowerCase().includes(search.toLowerCase()) &&
-    (!categoryId || p.catalog_category_id === categoryId)
-  )
+  const bestsellerProducts = (bestsellerRanking ?? [])
+    .map(id => allProducts.find(p => p.id === id))
+    .filter((p): p is StorefrontProduct => !!p)
+    .slice(0, 8)
+
+  const newProducts = [...allProducts]
+    .filter(p => isNewProduct(p.created_at))
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 8)
+
+  const favoriteProducts = allProducts.filter(p => favoriteIds.includes(p.id))
+
+  let base = allProducts
+  if (viewFilter === 'novidades') base = newProducts
+  else if (viewFilter === 'mais-vendidos') base = bestsellerProducts
+
+  const min = priceMin ? Number(priceMin) : null
+  const max = priceMax ? Number(priceMax) : null
+
+  let filtered = base.filter(p => {
+    const price = p.catalog_starting_price ?? p.final_price
+    if (!p.name.toLowerCase().includes(search.toLowerCase())) return false
+    if (categoryId && p.catalog_category_id !== categoryId) return false
+    if (min != null && price < min) return false
+    if (max != null && price > max) return false
+    return true
+  })
+
+  filtered = [...filtered].sort((a, b) => {
+    if (sort === 'menor-preco') return (a.catalog_starting_price ?? a.final_price) - (b.catalog_starting_price ?? b.final_price)
+    if (sort === 'maior-preco') return (b.catalog_starting_price ?? b.final_price) - (a.catalog_starting_price ?? a.final_price)
+    if (sort === 'recentes') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    return 0
+  })
+
   const cartCount = items.reduce((s, i) => s + i.quantity, 0)
   const palettes = resolvePalettes(settings)
+
+  function setView(view: ViewFilter) {
+    const params = new URLSearchParams(searchParams.toString())
+    if (view) params.set('view', view); else params.delete('view')
+    router.push(`/loja/${slug}${params.toString() ? `?${params.toString()}` : ''}#produtos`)
+  }
 
   return (
     <StoreThemeRoot palettes={palettes}>
     <div className="min-h-screen bg-[var(--store-bg)] text-[var(--store-text)] flex flex-col">
+      <StoreHeader slug={slug} storeName={storeName} logoUrl={settings.logo_url} cartCount={cartCount} favoriteCount={favoriteProducts.length} />
       <StoreHero settings={settings} storeName={storeName} categories={categories} themeToggle={<StoreThemeToggle />} />
 
       <div className="max-w-6xl mx-auto px-4 -mt-5 relative z-10 w-full flex-1">
-        <div className="flex items-start gap-3 mb-5">
-          <div className="flex-1">
-            <StoreInfoBar productCount={(products ?? []).length} categoryCount={(categories ?? []).length} />
-          </div>
-          <button
-            onClick={() => router.push(`/loja/${slug}/checkout`)}
-            className="relative h-[52px] px-5 rounded-xl flex items-center justify-center font-semibold flex-shrink-0 transition-opacity hover:opacity-90"
-            style={{ backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }}
-          >
-            <ShoppingBag size={18} />
-            {cartCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-error text-white text-[10px] font-bold flex items-center justify-center">{cartCount}</span>
-            )}
-          </button>
-        </div>
+        <StoreInfoBar productCount={allProducts.length} categoryCount={(categories ?? []).length} />
 
-        <div className="space-y-4 mb-6">
+        {/* Categorias — Seção 3.2 */}
+        {(categories ?? []).length > 0 && (
+          <section id="categorias" className="mt-6 scroll-mt-20">
+            <h2 className="text-base font-bold mb-3" style={{ color: 'var(--store-text)' }}>Categorias</h2>
+            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2.5">
+              {(categories ?? []).map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => { setCategoryId(c.id); document.getElementById('produtos')?.scrollIntoView({ behavior: 'smooth' }) }}
+                  className="flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-colors hover:opacity-80"
+                  style={{
+                    backgroundColor: categoryId === c.id ? 'var(--store-primary)' : 'var(--store-surface)',
+                    borderColor: 'var(--store-border)',
+                    color: categoryId === c.id ? 'var(--store-button-text)' : 'var(--store-text-secondary)',
+                  }}
+                >
+                  <Package size={20} />
+                  <span className="text-[11px] font-medium text-center line-clamp-2">{c.name}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Mais vendidos — Seção 3.4 (dados reais de vendas) */}
+        {!viewFilter && bestsellerProducts.length > 0 && (
+          <section className="mt-8">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-bold flex items-center gap-1.5" style={{ color: 'var(--store-text)' }}>
+                <Flame size={16} /> Mais vendidos
+              </h2>
+              <button onClick={() => setView('mais-vendidos')} className="text-xs font-semibold" style={{ color: 'var(--store-primary)' }}>Ver todos</button>
+            </div>
+            <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+              {bestsellerProducts.map(p => (
+                <div key={p.id} className="w-36 flex-shrink-0">
+                  <ProductCard slug={slug} product={p} href={`/loja/${slug}/produto/${p.id}`} isBestseller />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Novidades — Seção 3.5 */}
+        {!viewFilter && newProducts.length > 0 && (
+          <section className="mt-8">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-bold flex items-center gap-1.5" style={{ color: 'var(--store-text)' }}>
+                <Sparkles size={16} /> Novidades
+              </h2>
+              <button onClick={() => setView('novidades')} className="text-xs font-semibold" style={{ color: 'var(--store-primary)' }}>Ver todas</button>
+            </div>
+            <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+              {newProducts.map(p => (
+                <div key={p.id} className="w-36 flex-shrink-0">
+                  <ProductCard slug={slug} product={p} href={`/loja/${slug}/produto/${p.id}`} isBestseller={bestsellerIds.has(p.id)} />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Catálogo completo com busca, filtros e ordenação — Seção 4 */}
+        <section id="produtos" className="mt-8 scroll-mt-20 space-y-4 mb-6">
+          <h2 className="text-base font-bold" style={{ color: 'var(--store-text)' }}>
+            {viewFilter === 'novidades' ? 'Novidades' : viewFilter === 'mais-vendidos' ? 'Mais vendidos' : 'Todos os produtos'}
+          </h2>
+
           <motion.div
             className="relative"
             animate={{ scale: searchFocused ? 1.01 : 1 }}
@@ -146,6 +250,34 @@ export default function LojaPage() {
               onBlur={() => setSearchFocused(false)}
             />
           </motion.div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {viewFilter && (
+              <button
+                onClick={() => setView('')}
+                className="px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap"
+                style={{ backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }}
+              >
+                {viewFilter === 'novidades' ? 'Novidades' : 'Mais vendidos'} ✕
+              </button>
+            )}
+            <input
+              type="number" inputMode="numeric" placeholder="Preço mín."
+              value={priceMin} onChange={e => setPriceMin(e.target.value)}
+              className="input h-9 w-24 text-xs"
+            />
+            <input
+              type="number" inputMode="numeric" placeholder="Preço máx."
+              value={priceMax} onChange={e => setPriceMax(e.target.value)}
+              className="input h-9 w-24 text-xs"
+            />
+            <select value={sort} onChange={e => setSort(e.target.value as SortOption)} className="input h-9 w-auto text-xs">
+              <option value="relevancia">Relevância</option>
+              <option value="menor-preco">Menor preço</option>
+              <option value="maior-preco">Maior preço</option>
+              <option value="recentes">Mais recentes</option>
+            </select>
+          </div>
 
           {(categories ?? []).length > 0 && (
             <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
@@ -172,36 +304,37 @@ export default function LojaPage() {
               ))}
             </div>
           )}
-        </div>
 
-        {loadingProducts ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 pb-10">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="card overflow-hidden animate-pulse">
-                <div className="aspect-square bg-surface dark:bg-white/5" />
-                <div className="p-3 space-y-2">
-                  <div className="h-3 bg-surface dark:bg-white/5 rounded" />
-                  <div className="h-3 w-1/2 bg-surface dark:bg-white/5 rounded" />
+          {loadingProducts ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 pb-10">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="card overflow-hidden animate-pulse">
+                  <div className="aspect-square bg-surface dark:bg-white/5" />
+                  <div className="p-3 space-y-2">
+                    <div className="h-3 bg-surface dark:bg-white/5 rounded" />
+                    <div className="h-3 w-1/2 bg-surface dark:bg-white/5 rounded" />
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : filtered.length === 0 ? (
-          (products ?? []).length === 0
-            ? <StoreEmptyState whatsapp={settings.whatsapp} />
-            : <div className="py-16 text-center text-text-muted text-sm">Nenhum produto encontrado para essa busca.</div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 pb-10">
-            {filtered.map(p => (
-              <ProductCard
-                key={p.id}
-                product={p}
-                href={`/loja/${slug}/produto/${p.id}`}
-                isBestseller={bestsellerIds?.has(p.id) ?? false}
-              />
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          ) : filtered.length === 0 ? (
+            allProducts.length === 0
+              ? <StoreEmptyState whatsapp={settings.whatsapp} />
+              : <div className="py-16 text-center text-text-muted text-sm">Nenhum produto encontrado para essa busca.</div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 pb-10">
+              {filtered.map(p => (
+                <ProductCard
+                  key={p.id}
+                  slug={slug}
+                  product={p}
+                  href={`/loja/${slug}/produto/${p.id}`}
+                  isBestseller={bestsellerIds.has(p.id)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
       </div>
 
       <StoreFooter settings={settings} storeName={storeName} />

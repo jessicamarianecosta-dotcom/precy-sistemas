@@ -11,6 +11,8 @@ import { useCart } from '@/lib/catalog/useCart'
 import { OBSERVATION_MAX, cleanObservation } from '@/lib/catalog/observation'
 import { useToast } from '@/components/ui/Toaster'
 import { StoreFooter } from '@/components/catalog/storefront/StoreFooter'
+import { StoreHeader } from '@/components/catalog/storefront/StoreHeader'
+import { useProductFavorites } from '@/lib/catalog/useProductFavorites'
 import { StoreThemeRoot } from '@/components/catalog/storefront/StoreThemeRoot'
 import { resolvePalettes } from '@/lib/catalog/theme/palette'
 import { ProductDescription } from '@/components/catalog/storefront/ProductDescription'
@@ -56,7 +58,9 @@ export default function ProdutoLojaPage() {
   const router = useRouter()
   const supabase = createClient()
   const { toast } = useToast()
-  const { addItem } = useCart(slug)
+  const { items: cartItems, addItem } = useCart(slug)
+  const { favoriteIds } = useProductFavorites(slug)
+  const cartCount = cartItems.reduce((s, i) => s + i.quantity, 0)
   const [activePhoto, setActivePhoto] = useState(0)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({})
@@ -324,6 +328,7 @@ export default function ProdutoLojaPage() {
   return (
     <StoreThemeRoot palettes={palettes}>
     <div className="min-h-screen bg-[var(--store-bg)] text-[var(--store-text)]">
+      <StoreHeader slug={slug} storeName={storeName} logoUrl={settings?.logo_url} cartCount={cartCount} favoriteCount={favoriteIds.length} />
       <div className="max-w-4xl mx-auto px-4 py-6">
         <Link href={`/loja/${slug}`} className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-[var(--store-primary)] mb-4">
           <ArrowLeft size={15} /> Voltar à loja

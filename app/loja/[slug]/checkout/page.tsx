@@ -12,6 +12,8 @@ import { ArrowLeft, Minus, Plus, Trash2, Loader2, Upload, MessageCircle, Pencil 
 import Link from 'next/link'
 import Image from 'next/image'
 import { StoreThemeRoot } from '@/components/catalog/storefront/StoreThemeRoot'
+import { StoreHeader } from '@/components/catalog/storefront/StoreHeader'
+import { useProductFavorites } from '@/lib/catalog/useProductFavorites'
 import { resolvePalettes } from '@/lib/catalog/theme/palette'
 import { OBSERVATION_MAX, cleanObservation } from '@/lib/catalog/observation'
 
@@ -23,17 +25,20 @@ export default function CheckoutLojaPage() {
   const { items, updateQty, updateNotes, removeItem, total, clear } = useCart(slug)
   const [editingNotesKey, setEditingNotesKey] = useState<string | null>(null)
 
-  const { data: storeSettings } = useQuery<{ whatsapp: string | null; theme_color: string; theme_palette: import('@/lib/catalog/theme/palette').StoreThemePalettes | null } | null>({
+  const { data: storeSettings } = useQuery<{ whatsapp: string | null; logo_url: string | null; theme_color: string; theme_palette: import('@/lib/catalog/theme/palette').StoreThemePalettes | null; companies: { name: string } | null } | null>({
     queryKey: ['loja-checkout-settings', slug],
     queryFn: async () => {
       const { data, error } = await (supabase.from('catalog_settings') as any)
-        .select('whatsapp, theme_color, theme_palette').eq('slug', slug).maybeSingle()
+        .select('whatsapp, logo_url, theme_color, theme_palette, companies(name)').eq('slug', slug).maybeSingle()
       if (error) throw error
       return data ?? null
     },
   })
   const storeWhatsapp = storeSettings?.whatsapp ?? null
+  const storeName = storeSettings?.companies?.name ?? slug
   const palettes = resolvePalettes(storeSettings ?? { theme_color: '#8B6C4F', theme_palette: null })
+  const { favoriteIds } = useProductFavorites(slug)
+  const cartCount = items.reduce((s, i) => s + i.quantity, 0)
 
   // Sem conexão Mercado Pago ativa da empresa, "Finalizar pelo site" não tem
   // como cobrar nada — nem mostramos o botão, igual já acontece hoje para
@@ -206,6 +211,7 @@ export default function CheckoutLojaPage() {
   return (
     <StoreThemeRoot palettes={palettes}>
     <div className="min-h-screen bg-[var(--store-bg)] text-[var(--store-text)]">
+      <StoreHeader slug={slug} storeName={storeName} logoUrl={storeSettings?.logo_url} cartCount={cartCount} favoriteCount={favoriteIds.length} />
       <div className="max-w-2xl mx-auto px-4 py-6">
         <Link href={`/loja/${slug}`} className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-[var(--store-primary)] mb-4">
           <ArrowLeft size={15} /> Continuar comprando

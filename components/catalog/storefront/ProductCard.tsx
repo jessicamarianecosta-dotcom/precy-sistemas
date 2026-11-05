@@ -3,24 +3,28 @@
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import Image from 'next/image'
-import { Store } from 'lucide-react'
+import { Store, Heart } from 'lucide-react'
+import { clsx } from 'clsx'
 import { formatCurrency } from '@/lib/utils/format'
+import { isNewProduct } from '@/lib/catalog/productFlags'
+import { useProductFavorites } from '@/lib/catalog/useProductFavorites'
 import type { StorefrontProduct } from './types'
 
-const NEW_THRESHOLD_DAYS = 14
-
 interface Props {
+  slug:         string
   product:      StorefrontProduct
   href:         string
   isBestseller: boolean
 }
 
-export function ProductCard({ product, href, isBestseller }: Props) {
+export function ProductCard({ slug, product, href, isBestseller }: Props) {
   const price = product.catalog_starting_price ?? product.final_price
   const hasPromo = product.catalog_promo_price != null && product.catalog_promo_price < price
   const photo = product.images?.[0]?.url ?? product.catalog_photos?.[0]
+  const { isFavorite, toggle } = useProductFavorites(slug)
+  const favorited = isFavorite(product.id)
 
-  const isNew = (Date.now() - new Date(product.created_at).getTime()) / 86400000 <= NEW_THRESHOLD_DAYS
+  const isNew = isNewProduct(product.created_at)
 
   const badge = hasPromo ? { label: 'Promoção', className: 'bg-error text-white' }
     : isBestseller ? { label: 'Mais vendido', className: 'bg-amber-500 text-white' }
@@ -48,6 +52,17 @@ export function ProductCard({ product, href, isBestseller }: Props) {
               {badge.label}
             </span>
           )}
+          <button
+            type="button"
+            onClick={e => { e.preventDefault(); e.stopPropagation(); toggle(product.id) }}
+            title={favorited ? 'Remover dos favoritos' : 'Favoritar'}
+            className={clsx(
+              'absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-sm transition-colors',
+              favorited ? 'bg-error text-white' : 'bg-white/80 text-text-muted hover:text-error dark:bg-black/40'
+            )}
+          >
+            <Heart size={13} className={favorited ? 'fill-current' : ''} />
+          </button>
         </div>
         <div className="p-3">
           <p className="text-sm font-medium text-text-primary dark:text-stone-100 line-clamp-2 mb-1.5 min-h-[2.5em]">{product.name}</p>

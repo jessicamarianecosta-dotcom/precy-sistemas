@@ -17,6 +17,7 @@ export interface StorefrontSettings {
   state:        string | null
   address:      string | null
   business_hours: string | null
+  policies_text: string | null
   theme_color:  string
   theme_palette: StoreThemePalettes | null
 }
