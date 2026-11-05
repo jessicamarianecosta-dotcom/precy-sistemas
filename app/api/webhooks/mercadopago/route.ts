@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getPaymentAdapter } from '@/lib/catalog/payments'
+import { getPaymentAdapter, getPaymentAdapterForCompany } from '@/lib/catalog/payments'
 import { applyCatalogPaymentConfirmed } from '@/lib/orders/catalogPaymentCascade'
 
 export const runtime = 'nodejs'
@@ -13,26 +13,29 @@ export const runtime = 'nodejs'
  * detalhes reais (status/valor/external_reference) via GET
  * /v1/payments/{id} antes de confirmar (lib/catalog/payments/mercadopago.ts).
  *
+ * Modelo Marketplace: cada empresa cobra na própria conta MP, então o
+ * adapter usado aqui precisa ser o DAQUELA empresa (token OAuth próprio),
+ * nunca um token global — por isso a notification_url configurada em
+ * MercadoPagoAdapter.createCharge carrega ?company_id=..., usado para
+ * resolver a conexão certa antes de consultar o pagamento.
+ *
  * A cascata pós-pagamento (Financeiro/Clientes/Estoque/Agenda) é a mesma
  * para qualquer gateway — ver lib/orders/catalogPaymentCascade.ts, onde
  * também vive a trava de idempotência contra reenvios do webhook.
  */
 export async function POST(req: NextRequest) {
   const rawBody = await req.text()
+  const companyId = req.nextUrl.searchParams.get('company_id')
 
   let adapter
   try {
-    adapter = getPaymentAdapter()
+    // Sem company_id na notificação (ex: preferência antiga, ou ambiente de
+    // desenvolvimento em modo mock) cai no adapter padrão — que em produção
+    // sem credenciais globais falha explicitamente, nunca cobra silenciosamente.
+    adapter = companyId ? await getPaymentAdapterForCompany(companyId) : getPaymentAdapter()
   } catch (err: any) {
     console.error('[webhook/mercadopago] adapter indisponível:', err?.message)
     return NextResponse.json({ error: err?.message ?? 'Pagamentos indisponíveis' }, { status: 500 })
-  }
-
-  // Modo mock não verifica assinatura de verdade (qualquer POST com um ref
-  // válido confirma o pagamento) — só é alcançável fora de produção
-  // (getPaymentAdapter já falha explicitamente em produção sem credenciais).
-  if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
-    console.warn('[webhook/mercadopago] MERCADOPAGO_ACCESS_TOKEN ausente — rodando em modo mock, sem verificação real de assinatura')
   }
 
   const ctx = {

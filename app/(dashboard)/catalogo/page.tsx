@@ -12,20 +12,22 @@ import { clsx } from 'clsx'
 import {
   LayoutGrid, Package, BookOpen, Settings, Plus, Trash2, Edit2,
   Search, CheckSquare, Square, Loader2, ShoppingBag,
-  TrendingUp, DollarSign, Tags, Copy, MoreVertical,
+  TrendingUp, DollarSign, Tags, Copy, MoreVertical, CreditCard,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils/format'
 import { toSlug } from '@/lib/utils/slug'
 import { deleteProduct, duplicateProduct } from '@/lib/produtos/actions'
 import { ConfiguracoesTab } from './ConfiguracoesTab'
+import { PagamentosTab } from './PagamentosTab'
 
-type Tab = 'dashboard' | 'categorias' | 'produtos' | 'biblioteca' | 'configuracoes'
+type Tab = 'dashboard' | 'categorias' | 'produtos' | 'biblioteca' | 'pagamentos' | 'configuracoes'
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'dashboard',      label: 'Visão geral',   icon: LayoutGrid },
   { id: 'categorias',     label: 'Categorias',    icon: Tags },
   { id: 'produtos',       label: 'Produtos',      icon: Package },
   { id: 'biblioteca',     label: 'Biblioteca Precy+', icon: BookOpen },
+  { id: 'pagamentos',     label: 'Pagamentos',    icon: CreditCard },
   { id: 'configuracoes',  label: 'Configurações', icon: Settings },
 ]
 
@@ -68,6 +70,7 @@ export default function CatalogoPage() {
       {tab === 'categorias' && <CategoriasTab />}
       {tab === 'produtos' && <ProdutosTab />}
       {tab === 'biblioteca' && <BibliotecaTab />}
+      {tab === 'pagamentos' && <PagamentosTab />}
       {tab === 'configuracoes' && <ConfiguracoesTab />}
     </div>
   )

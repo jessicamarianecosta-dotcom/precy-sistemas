@@ -1,5 +1,6 @@
 import { MockPaymentAdapter } from './mock'
 import { MercadoPagoAdapter } from './mercadopago'
+import { getActiveConnectionAccessToken } from './mercadopagoConnection'
 import type { PaymentAdapter } from './types'
 
 export type { PaymentAdapter, CatalogOrderForCharge, ChargeResult, PaymentWebhookEvent, WebhookRequest } from './types'
@@ -28,4 +29,32 @@ export function getPaymentAdapter(): PaymentAdapter {
 
   if (mode === 'mock' || !hasCredentials) return new MockPaymentAdapter()
   return new MercadoPagoAdapter()
+}
+
+/**
+ * Modelo Marketplace: cada empresa cobra na PRÓPRIA conta do Mercado Pago,
+ * conectada via OAuth em Catálogo > Pagamentos (mercadopago_connections).
+ * Usada pelo checkout real e pelo webhook (que roteia por ?company_id= no
+ * notification_url — ver MercadoPagoAdapter.createCharge).
+ *
+ * Nunca cai silenciosamente no MERCADOPAGO_ACCESS_TOKEN global como
+ * fallback: sem conexão própria, falha explicitamente (mesma postura do
+ * getPaymentAdapter() em produção) para não cobrar pedidos de uma empresa
+ * na conta de outra. MERCADOPAGO_MODE=mock continua funcionando fora de
+ * produção para desenvolvimento, sem precisar conectar nenhuma conta real.
+ */
+export async function getPaymentAdapterForCompany(companyId: string): Promise<PaymentAdapter> {
+  const isProdEnv = process.env.VERCEL_ENV === 'production'
+  if (!isProdEnv && process.env.MERCADOPAGO_MODE === 'mock') return new MockPaymentAdapter()
+
+  const accessToken = await getActiveConnectionAccessToken(companyId)
+  if (!accessToken) {
+    throw new Error('Conecte sua conta Mercado Pago em Catálogo > Pagamentos para receber pagamentos online.')
+  }
+
+  return new MercadoPagoAdapter({
+    accessToken,
+    companyId,
+    webhookSecret: process.env.MERCADOPAGO_WEBHOOK_SECRET,
+  })
 }
