@@ -29,6 +29,19 @@ export default function CheckoutLojaPage() {
     },
   })
 
+  // Sem conexão Mercado Pago ativa da empresa, "Finalizar pelo site" não tem
+  // como cobrar nada — nem mostramos o botão, igual já acontece hoje para
+  // produtos em modo "quote" (ver app/loja/[slug]/produto/[productId]/page.tsx).
+  const { data: onlinePaymentAvailable, isLoading: loadingOnlinePayment } = useQuery<boolean>({
+    queryKey: ['loja-checkout-pagamento-online', slug],
+    queryFn: async () => {
+      const res = await fetch(`/api/loja/pagamento-online?slug=${encodeURIComponent(slug)}`)
+      if (!res.ok) return false
+      const data = await res.json()
+      return !!data.available
+    },
+  })
+
   const [customer, setCustomer] = useState({
     name: '', phone: '', email: '', cpfCnpj: '',
     cep: '', street: '', number: '', complement: '', neighborhood: '', city: '', state: '',
@@ -109,6 +122,10 @@ export default function CheckoutLojaPage() {
   async function submitOrder(fulfillment: 'online' | 'whatsapp') {
     if (items.length === 0) { toast('error', 'Seu carrinho está vazio'); return }
     if (!customer.name || !customer.phone) { toast('error', 'Nome e telefone são obrigatórios'); return }
+    if (fulfillment === 'online' && !onlinePaymentAvailable) {
+      toast('error', 'Pagamento pelo site indisponível nesta loja — finalize pelo WhatsApp.')
+      return
+    }
     if (fulfillment === 'online' && !customer.email) { toast('error', 'Informe seu e-mail para receber a confirmação do pagamento'); return }
     if (fulfillment === 'whatsapp' && !storeWhatsapp) { toast('error', 'Esta loja não configurou um WhatsApp para atendimento.'); return }
     if (fulfillment === 'online' && !shipping) { toast('error', 'Calcule e escolha o frete antes de finalizar'); return }
@@ -142,8 +159,16 @@ export default function CheckoutLojaPage() {
           fulfillment,
         }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Erro ao finalizar pedido')
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        throw new Error(
+          data?.error ??
+          (fulfillment === 'online'
+            ? 'Não foi possível iniciar o pagamento. Tente novamente ou finalize pelo WhatsApp.'
+            : 'Erro ao finalizar pedido')
+        )
+      }
+      if (!data) throw new Error('Resposta inesperada do servidor. Tente novamente.')
 
       if (fulfillment === 'whatsapp') {
         // Abrir o WhatsApp não significa que a mensagem foi enviada nem que o
@@ -275,10 +300,12 @@ export default function CheckoutLojaPage() {
               </div>
 
               <div className="space-y-2">
-                <button type="submit" disabled={submitting} className="btn-primary w-full flex items-center justify-center gap-2">
-                  {submittingVia === 'online' && <Loader2 size={15} className="animate-spin" />}
-                  Finalizar pelo site
-                </button>
+                {!loadingOnlinePayment && onlinePaymentAvailable && (
+                  <button type="submit" disabled={submitting} className="btn-primary w-full flex items-center justify-center gap-2">
+                    {submittingVia === 'online' && <Loader2 size={15} className="animate-spin" />}
+                    Finalizar pelo site
+                  </button>
+                )}
                 {storeWhatsapp && (
                   <button
                     type="button"
@@ -290,9 +317,11 @@ export default function CheckoutLojaPage() {
                     Finalizar pelo WhatsApp
                   </button>
                 )}
-                <p className="text-[11px] text-text-muted text-center">
-                  Pelo site, o pagamento é confirmado automaticamente. Pelo WhatsApp, você combina o pagamento direto com a loja.
-                </p>
+                {!loadingOnlinePayment && onlinePaymentAvailable && (
+                  <p className="text-[11px] text-text-muted text-center">
+                    Pelo site, o pagamento é confirmado automaticamente. Pelo WhatsApp, você combina o pagamento direto com a loja.
+                  </p>
+                )}
               </div>
             </form>
           </div>
