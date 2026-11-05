@@ -1,3 +1,5 @@
+import type { StoreThemePalettes } from '@/lib/catalog/theme/palette'
+
 export interface CatalogSettings {
   slug:              string
   logo_url:          string | null
@@ -18,6 +20,7 @@ export interface CatalogSettings {
   zip_code:          string | null
   business_hours:    string | null
   theme_color:       string
+  theme_palette:     StoreThemePalettes | null
   checkout_mode:     'buy' | 'quote'
   policies_text:     string | null
   seo_title:         string | null
@@ -31,7 +34,7 @@ export const DEFAULT_CATALOG_SETTINGS: CatalogSettings = {
   whatsapp: null, instagram: null, facebook: null, tiktok: null, youtube: null,
   pinterest: null, website: null, address: null, phone: null, email: null,
   city: null, state: null, zip_code: null, business_hours: null,
-  theme_color: '#8B6C4F', checkout_mode: 'quote', policies_text: null,
+  theme_color: '#8B6C4F', theme_palette: null, checkout_mode: 'quote', policies_text: null,
   seo_title: null, seo_description: null, seo_keywords: null, seo_image_url: null,
 }
 

@@ -6,6 +6,9 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { ArrowLeft, Package, Truck, CheckCircle2, Clock, XCircle } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils/format'
+import { createClient } from '@/lib/supabase/client'
+import { StoreThemeRoot } from '@/components/catalog/storefront/StoreThemeRoot'
+import { resolvePalettes, type StoreThemePalettes } from '@/lib/catalog/theme/palette'
 
 interface OrderItem {
   name: string
@@ -45,6 +48,17 @@ const PAYMENT_LABELS: Record<string, { label: string; icon: typeof Clock; classN
 
 export default function PedidoAcompanhamentoPage() {
   const { slug, ref } = useParams<{ slug: string; ref: string }>()
+  const supabase = createClient()
+
+  const { data: storeSettings } = useQuery<{ theme_color: string; theme_palette: StoreThemePalettes | null } | null>({
+    queryKey: ['loja-pedido-theme', slug],
+    queryFn: async () => {
+      const { data } = await (supabase.from('catalog_settings') as any)
+        .select('theme_color, theme_palette').eq('slug', slug).maybeSingle()
+      return data ?? null
+    },
+  })
+  const palettes = resolvePalettes(storeSettings ?? { theme_color: '#8B6C4F', theme_palette: null })
 
   const { data, isLoading, error } = useQuery<{ order: OrderSummary; items: OrderItem[] }>({
     queryKey: ['loja-pedido', ref],
@@ -58,9 +72,10 @@ export default function PedidoAcompanhamentoPage() {
   })
 
   return (
-    <div className="min-h-screen bg-background dark:bg-background-dark">
+    <StoreThemeRoot palettes={palettes}>
+    <div className="min-h-screen bg-[var(--store-bg)] text-[var(--store-text)]">
       <div className="max-w-xl mx-auto px-4 py-6">
-        <Link href={`/loja/${slug}`} className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-primary mb-4">
+        <Link href={`/loja/${slug}`} className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-[var(--store-primary)] mb-4">
           <ArrowLeft size={15} /> Voltar para a loja
         </Link>
 
@@ -135,5 +150,6 @@ export default function PedidoAcompanhamentoPage() {
         })()}
       </div>
     </div>
+    </StoreThemeRoot>
   )
 }

@@ -24,7 +24,7 @@ export function ProductCard({ product, href, isBestseller }: Props) {
 
   const badge = hasPromo ? { label: 'Promoção', className: 'bg-error text-white' }
     : isBestseller ? { label: 'Mais vendido', className: 'bg-amber-500 text-white' }
-    : isNew ? { label: 'Novo', className: 'bg-primary text-white' }
+    : isNew ? { label: 'Novo', className: 'text-[var(--store-button-text)] bg-[var(--store-primary)]' }
     : null
 
   return (
@@ -57,7 +57,7 @@ export function ProductCard({ product, href, isBestseller }: Props) {
               <span className="text-xs text-text-muted line-through">{formatCurrency(price)}</span>
             </div>
           ) : (
-            <p className="text-sm font-bold text-primary">{formatCurrency(price)}</p>
+            <p className="text-sm font-bold text-[var(--store-primary)]">{formatCurrency(price)}</p>
           )}
         </div>
       </Link>

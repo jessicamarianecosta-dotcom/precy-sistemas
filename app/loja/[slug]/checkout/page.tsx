@@ -11,6 +11,8 @@ import { fetchCepData } from '@/lib/services/cep'
 import { ArrowLeft, Minus, Plus, Trash2, Loader2, Upload, MessageCircle } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { StoreThemeRoot } from '@/components/catalog/storefront/StoreThemeRoot'
+import { resolvePalettes } from '@/lib/catalog/theme/palette'
 
 export default function CheckoutLojaPage() {
   const { slug } = useParams<{ slug: string }>()
@@ -19,15 +21,17 @@ export default function CheckoutLojaPage() {
   const supabase = createClient()
   const { items, updateQty, removeItem, total, clear } = useCart(slug)
 
-  const { data: storeWhatsapp } = useQuery<string | null>({
-    queryKey: ['loja-checkout-whatsapp', slug],
+  const { data: storeSettings } = useQuery<{ whatsapp: string | null; theme_color: string; theme_palette: import('@/lib/catalog/theme/palette').StoreThemePalettes | null } | null>({
+    queryKey: ['loja-checkout-settings', slug],
     queryFn: async () => {
       const { data, error } = await (supabase.from('catalog_settings') as any)
-        .select('whatsapp').eq('slug', slug).maybeSingle()
+        .select('whatsapp, theme_color, theme_palette').eq('slug', slug).maybeSingle()
       if (error) throw error
-      return data?.whatsapp ?? null
+      return data ?? null
     },
   })
+  const storeWhatsapp = storeSettings?.whatsapp ?? null
+  const palettes = resolvePalettes(storeSettings ?? { theme_color: '#8B6C4F', theme_palette: null })
 
   // Sem conexão Mercado Pago ativa da empresa, "Finalizar pelo site" não tem
   // como cobrar nada — nem mostramos o botão, igual já acontece hoje para
@@ -198,9 +202,10 @@ export default function CheckoutLojaPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background dark:bg-background-dark">
+    <StoreThemeRoot palettes={palettes}>
+    <div className="min-h-screen bg-[var(--store-bg)] text-[var(--store-text)]">
       <div className="max-w-2xl mx-auto px-4 py-6">
-        <Link href={`/loja/${slug}`} className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-primary mb-4">
+        <Link href={`/loja/${slug}`} className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-[var(--store-primary)] mb-4">
           <ArrowLeft size={15} /> Continuar comprando
         </Link>
 
@@ -223,9 +228,9 @@ export default function CheckoutLojaPage() {
                     <p className="text-xs text-text-muted">{formatCurrency(item.price)}</p>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <button type="button" onClick={() => updateQty(item.productId, item.variantId, item.quantity - 1)} className="p-1 rounded hover:bg-primary-50 dark:hover:bg-white/5"><Minus size={13} /></button>
+                    <button type="button" onClick={() => updateQty(item.productId, item.variantId, item.quantity - 1)} className="p-1 rounded hover:bg-[var(--store-surface)] dark:hover:bg-white/5"><Minus size={13} /></button>
                     <span className="text-sm w-5 text-center">{item.quantity}</span>
-                    <button type="button" onClick={() => updateQty(item.productId, item.variantId, item.quantity + 1)} className="p-1 rounded hover:bg-primary-50 dark:hover:bg-white/5"><Plus size={13} /></button>
+                    <button type="button" onClick={() => updateQty(item.productId, item.variantId, item.quantity + 1)} className="p-1 rounded hover:bg-[var(--store-surface)] dark:hover:bg-white/5"><Plus size={13} /></button>
                   </div>
                   <button type="button" onClick={() => removeItem(item.productId, item.variantId)} className="p-1.5 text-text-muted hover:text-error"><Trash2 size={14} /></button>
                 </div>
@@ -301,7 +306,12 @@ export default function CheckoutLojaPage() {
 
               <div className="space-y-2">
                 {!loadingOnlinePayment && onlinePaymentAvailable && (
-                  <button type="submit" disabled={submitting} className="btn-primary w-full flex items-center justify-center gap-2">
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold disabled:opacity-50 transition-opacity hover:opacity-90"
+                    style={{ backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }}
+                  >
                     {submittingVia === 'online' && <Loader2 size={15} className="animate-spin" />}
                     Finalizar pelo site
                   </button>
@@ -328,5 +338,6 @@ export default function CheckoutLojaPage() {
         )}
       </div>
     </div>
+    </StoreThemeRoot>
   )
 }

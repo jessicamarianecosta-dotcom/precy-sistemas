@@ -12,6 +12,8 @@ import { StoreInfoBar } from '@/components/catalog/storefront/StoreInfoBar'
 import { ProductCard } from '@/components/catalog/storefront/ProductCard'
 import { StoreEmptyState } from '@/components/catalog/storefront/StoreEmptyState'
 import { StoreFooter } from '@/components/catalog/storefront/StoreFooter'
+import { StoreThemeRoot, StoreThemeToggle } from '@/components/catalog/storefront/StoreThemeRoot'
+import { resolvePalettes } from '@/lib/catalog/theme/palette'
 import type { StorefrontSettings, StorefrontProduct } from '@/components/catalog/storefront/types'
 
 interface Category { id: string; name: string }
@@ -19,7 +21,7 @@ interface Category { id: string; name: string }
 const SETTINGS_COLUMNS = `
   company_id, slug, logo_url, banner_url, description, whatsapp, instagram,
   facebook, tiktok, youtube, pinterest, website, city, state, address,
-  business_hours, theme_color, companies(name)
+  business_hours, theme_color, theme_palette, companies(name)
 `
 
 export default function LojaPage() {
@@ -100,17 +102,23 @@ export default function LojaPage() {
     (!categoryId || p.catalog_category_id === categoryId)
   )
   const cartCount = items.reduce((s, i) => s + i.quantity, 0)
+  const palettes = resolvePalettes(settings)
 
   return (
-    <div className="min-h-screen bg-background dark:bg-background-dark flex flex-col">
-      <StoreHero settings={settings} storeName={storeName} categories={categories} />
+    <StoreThemeRoot palettes={palettes}>
+    <div className="min-h-screen bg-[var(--store-bg)] text-[var(--store-text)] flex flex-col">
+      <StoreHero settings={settings} storeName={storeName} categories={categories} themeToggle={<StoreThemeToggle />} />
 
       <div className="max-w-6xl mx-auto px-4 -mt-5 relative z-10 w-full flex-1">
         <div className="flex items-start gap-3 mb-5">
           <div className="flex-1">
             <StoreInfoBar productCount={(products ?? []).length} categoryCount={(categories ?? []).length} />
           </div>
-          <button onClick={() => router.push(`/loja/${slug}/checkout`)} className="btn-primary relative h-[52px] flex-shrink-0">
+          <button
+            onClick={() => router.push(`/loja/${slug}/checkout`)}
+            className="relative h-[52px] px-5 rounded-xl flex items-center justify-center font-semibold flex-shrink-0 transition-opacity hover:opacity-90"
+            style={{ backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }}
+          >
             <ShoppingBag size={18} />
             {cartCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-error text-white text-[10px] font-bold flex items-center justify-center">{cartCount}</span>
@@ -124,7 +132,11 @@ export default function LojaPage() {
             animate={{ scale: searchFocused ? 1.01 : 1 }}
             transition={{ duration: 0.2 }}
           >
-            <Search size={16} className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${searchFocused ? 'text-primary' : 'text-text-muted'}`} />
+            <Search
+              size={16}
+              className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${searchFocused ? '' : 'text-text-muted'}`}
+              style={searchFocused ? { color: 'var(--store-primary)' } : undefined}
+            />
             <input
               className="input pl-11 h-12 text-sm"
               placeholder="O que você procura hoje?"
@@ -139,7 +151,10 @@ export default function LojaPage() {
             <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
               <button
                 onClick={() => setCategoryId('')}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${!categoryId ? 'bg-primary text-white' : 'bg-surface dark:bg-white/5 text-text-secondary dark:text-stone-400 hover:bg-primary-50'}`}
+                className="px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors"
+                style={!categoryId
+                  ? { backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }
+                  : { backgroundColor: 'var(--store-surface)', color: 'var(--store-text-secondary)' }}
               >
                 Todos
               </button>
@@ -147,7 +162,10 @@ export default function LojaPage() {
                 <button
                   key={c.id}
                   onClick={() => setCategoryId(c.id)}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${categoryId === c.id ? 'bg-primary text-white' : 'bg-surface dark:bg-white/5 text-text-secondary dark:text-stone-400 hover:bg-primary-50'}`}
+                  className="px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors"
+                  style={categoryId === c.id
+                    ? { backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }
+                    : { backgroundColor: 'var(--store-surface)', color: 'var(--store-text-secondary)' }}
                 >
                   {c.name}
                 </button>
@@ -188,5 +206,6 @@ export default function LojaPage() {
 
       <StoreFooter settings={settings} storeName={storeName} />
     </div>
+    </StoreThemeRoot>
   )
 }

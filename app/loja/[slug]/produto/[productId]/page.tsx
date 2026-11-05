@@ -11,6 +11,8 @@ import { useCart } from '@/lib/catalog/useCart'
 import { OBSERVATION_MAX, cleanObservation } from '@/lib/catalog/observation'
 import { useToast } from '@/components/ui/Toaster'
 import { StoreFooter } from '@/components/catalog/storefront/StoreFooter'
+import { StoreThemeRoot } from '@/components/catalog/storefront/StoreThemeRoot'
+import { resolvePalettes } from '@/lib/catalog/theme/palette'
 import { ProductDescription } from '@/components/catalog/storefront/ProductDescription'
 import { calcOptionsAdjustment } from '@/lib/produtos/variantPricing'
 import type { StorefrontSettings } from '@/components/catalog/storefront/types'
@@ -44,7 +46,7 @@ interface VariantRow {
 const SETTINGS_COLUMNS = `
   company_id, slug, logo_url, banner_url, description, whatsapp, instagram,
   facebook, tiktok, youtube, pinterest, website, city, state, address,
-  business_hours, theme_color, checkout_mode, companies(name)
+  business_hours, theme_color, theme_palette, checkout_mode, companies(name)
 `
 
 function comboKey(optionIds: (string | undefined)[]) { return optionIds.join('|') }
@@ -278,6 +280,7 @@ export default function ProdutoLojaPage() {
 
   const mode = product.catalog_checkout_mode ?? settings?.checkout_mode ?? 'quote'
   const storeName = settings?.companies?.name ?? slug
+  const palettes = resolvePalettes(settings ?? { theme_color: '#8B6C4F', theme_palette: null })
 
   const variantLabel = groups.length > 0 && selectedVariant
     ? groups.map(g => `${g.name}: ${g.options.find(o => o.id === selectedOptions[g.id])?.value ?? ''}`).join(' · ')
@@ -319,9 +322,10 @@ export default function ProdutoLojaPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background dark:bg-background-dark">
+    <StoreThemeRoot palettes={palettes}>
+    <div className="min-h-screen bg-[var(--store-bg)] text-[var(--store-text)]">
       <div className="max-w-4xl mx-auto px-4 py-6">
-        <Link href={`/loja/${slug}`} className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-primary mb-4">
+        <Link href={`/loja/${slug}`} className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-[var(--store-primary)] mb-4">
           <ArrowLeft size={15} /> Voltar à loja
         </Link>
 
@@ -360,7 +364,7 @@ export default function ProdutoLojaPage() {
               {galleryItems.length > 1 && (
                 <div className="flex gap-2">
                   {galleryItems.map((item, i) => (
-                    <button key={item.url + i} onClick={() => setActivePhoto(i)} className={`relative w-14 h-14 rounded-lg overflow-hidden border-2 transition-colors bg-black ${activePhoto === i ? 'border-primary' : 'border-transparent'}`}>
+                    <button key={item.url + i} onClick={() => setActivePhoto(i)} className={`relative w-14 h-14 rounded-lg overflow-hidden border-2 transition-colors bg-black ${activePhoto === i ? 'border-[var(--store-primary)]' : 'border-transparent'}`}>
                       {item.type === 'video' ? (
                         <span className="absolute inset-0 flex items-center justify-center">
                           <Play size={18} className="text-white" fill="white" />
@@ -411,7 +415,7 @@ export default function ProdutoLojaPage() {
               {galleryItems.length > 1 && (
                 <div className="flex items-center justify-center gap-1.5">
                   {galleryItems.map((_, i) => (
-                    <span key={i} className={`w-1.5 h-1.5 rounded-full transition-colors ${activePhoto === i ? 'bg-primary' : 'bg-border dark:bg-border-dark'}`} />
+                    <span key={i} className={`w-1.5 h-1.5 rounded-full transition-colors ${activePhoto === i ? 'bg-[var(--store-primary)]' : 'bg-border dark:bg-border-dark'}`} />
                   ))}
                 </div>
               )}
@@ -427,7 +431,7 @@ export default function ProdutoLojaPage() {
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-error text-white">Promoção</span>
               </div>
             ) : (
-              <p className="text-2xl font-bold text-primary mb-3">{formatCurrency(effectivePrice)}</p>
+              <p className="text-2xl font-bold text-[var(--store-primary)] mb-3">{formatCurrency(effectivePrice)}</p>
             )}
             {priceAdjustment.adjustmentAmount !== 0 && (
               <p className="text-xs text-text-muted dark:text-stone-500 -mt-2 mb-3">
@@ -465,8 +469,8 @@ export default function ProdutoLojaPage() {
                               !allowed
                                 ? 'bg-surface dark:bg-white/5 text-text-muted/40 dark:text-stone-600 border-border dark:border-border-dark cursor-not-allowed opacity-50'
                                 : active
-                                ? 'bg-primary text-white border-primary'
-                                : 'bg-surface dark:bg-white/5 text-text-secondary dark:text-stone-400 border-border dark:border-border-dark hover:border-primary/50'
+                                ? 'text-[var(--store-button-text)] border-[var(--store-primary)] bg-[var(--store-primary)]'
+                                : 'bg-surface dark:bg-white/5 text-text-secondary dark:text-stone-400 border-border dark:border-border-dark hover:border-[var(--store-primary)]'
                             }`}
                           >
                             {opt.value}
@@ -520,7 +524,7 @@ export default function ProdutoLojaPage() {
                     toast('success', 'Adicionado ao carrinho!')
                     router.push(`/loja/${slug}/checkout`)
                   }}
-                  className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full disabled:opacity-50 disabled:cursor-not-allowed px-4 py-3 rounded-xl font-semibold text-center transition-opacity hover:opacity-90" style={{ backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }}
                 >
                   {isSoldOut ? 'Esgotado' : needsSelection ? 'Selecione as opções' : 'Comprar'}
                 </button>
@@ -555,13 +559,13 @@ export default function ProdutoLojaPage() {
                 <input required className="input" placeholder="Seu nome" value={quoteData.name} onChange={e => setQuoteData({ ...quoteData, name: e.target.value })} />
                 <input required className="input" placeholder="Telefone / WhatsApp" value={quoteData.phone} onChange={e => setQuoteData({ ...quoteData, phone: e.target.value })} />
                 <textarea className="input" rows={3} placeholder="Detalhes do que você precisa (opcional)" value={quoteData.message} onChange={e => setQuoteData({ ...quoteData, message: e.target.value })} />
-                <button type="submit" disabled={sending} className="btn-primary w-full flex items-center justify-center gap-2">
+                <button type="submit" disabled={sending} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold disabled:opacity-50 transition-opacity hover:opacity-90" style={{ backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }}>
                   {sending && <Loader2 size={15} className="animate-spin" />}
                   Enviar solicitação
                 </button>
               </form>
             ) : (
-              <button disabled={needsSelection} onClick={() => setShowQuoteForm(true)} className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed">
+              <button disabled={needsSelection} onClick={() => setShowQuoteForm(true)} className="w-full disabled:opacity-50 disabled:cursor-not-allowed px-4 py-3 rounded-xl font-semibold text-center transition-opacity hover:opacity-90" style={{ backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }}>
                 {needsSelection ? 'Selecione as opções' : 'Solicitar orçamento'}
               </button>
             )}
@@ -599,6 +603,7 @@ export default function ProdutoLojaPage() {
 
       {settings && <StoreFooter settings={settings as any} storeName={storeName} />}
     </div>
+    </StoreThemeRoot>
   )
 }
 
@@ -636,8 +641,8 @@ function ProductDetailsSection({ product, effectiveLeadTime }: { product: Produc
               onClick={() => setTab(t.id)}
               className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium transition-colors ${
                 activeTab === t.id
-                  ? 'bg-primary text-white'
-                  : 'bg-surface dark:bg-white/5 text-text-secondary dark:text-stone-400 hover:text-primary'
+                  ? 'text-[var(--store-button-text)] bg-[var(--store-primary)]'
+                  : 'bg-surface dark:bg-white/5 text-text-secondary dark:text-stone-400 hover:text-[var(--store-primary)]'
               }`}
             >
               <Icon size={14} /> {t.label}

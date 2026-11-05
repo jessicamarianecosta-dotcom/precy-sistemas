@@ -36,7 +36,7 @@ export function ProductDescription({ text, className = '' }: { text: string; cla
             <h4 className="font-semibold text-text-primary dark:text-stone-100 mt-3 mb-1.5 first:mt-0">{children}</h4>
           ),
           a: ({ children, href }) => (
-            <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+            <a href={href} target="_blank" rel="noopener noreferrer" className="text-[var(--store-primary)] underline">
               {children}
             </a>
           ),

@@ -1,3 +1,5 @@
+import type { StoreThemePalettes } from '@/lib/catalog/theme/palette'
+
 export interface StorefrontSettings {
   company_id:   string
   slug:         string
@@ -16,6 +18,7 @@ export interface StorefrontSettings {
   address:      string | null
   business_hours: string | null
   theme_color:  string
+  theme_palette: StoreThemePalettes | null
 }
 
 export interface StorefrontProduct {

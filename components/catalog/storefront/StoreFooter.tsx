@@ -17,27 +17,27 @@ export function StoreFooter({ settings, storeName }: Props) {
         {hasSocial && (
           <div className="flex flex-wrap items-center gap-4 text-sm text-text-secondary dark:text-stone-400">
             {settings.whatsapp && (
-              <a href={`https://wa.me/${settings.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-primary transition-colors">
+              <a href={`https://wa.me/${settings.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-[var(--store-primary)] transition-colors">
                 <MessageCircle size={14} /> WhatsApp
               </a>
             )}
             {settings.instagram && (
-              <a href={`https://instagram.com/${settings.instagram.replace('@', '')}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-primary transition-colors">
+              <a href={`https://instagram.com/${settings.instagram.replace('@', '')}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-[var(--store-primary)] transition-colors">
                 <Instagram size={14} /> Instagram
               </a>
             )}
             {settings.facebook && (
-              <a href={settings.facebook.startsWith('http') ? settings.facebook : `https://${settings.facebook}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-primary transition-colors">
+              <a href={settings.facebook.startsWith('http') ? settings.facebook : `https://${settings.facebook}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-[var(--store-primary)] transition-colors">
                 <Facebook size={14} /> Facebook
               </a>
             )}
             {settings.youtube && (
-              <a href={settings.youtube.startsWith('http') ? settings.youtube : `https://${settings.youtube}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-primary transition-colors">
+              <a href={settings.youtube.startsWith('http') ? settings.youtube : `https://${settings.youtube}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-[var(--store-primary)] transition-colors">
                 <Youtube size={14} /> YouTube
               </a>
             )}
             {settings.website && (
-              <a href={settings.website.startsWith('http') ? settings.website : `https://${settings.website}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-primary transition-colors">
+              <a href={settings.website.startsWith('http') ? settings.website : `https://${settings.website}`} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-[var(--store-primary)] transition-colors">
                 <Globe size={14} /> Site
               </a>
             )}

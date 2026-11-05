@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import Image from 'next/image'
 import { Store, MessageCircle, Instagram, Share2, Link2, Heart, MapPin, ShieldCheck, Zap } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -15,6 +15,7 @@ interface Props {
   settings:   StorefrontSettings
   storeName:  string
   categories?: Category[]
+  themeToggle?: ReactNode
 }
 
 // Overlay de referência (banner claro, pior caso): topo 15%, meio 55%, base 75%.
@@ -33,7 +34,7 @@ const GLASS_BUTTON = 'flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs
 const NAME_SHADOW = { textShadow: '0 3px 15px rgba(0,0,0,.65)' }
 const DESC_SHADOW = { textShadow: '0 2px 8px rgba(0,0,0,.60)' }
 
-export function StoreHero({ settings, storeName, categories = [] }: Props) {
+export function StoreHero({ settings, storeName, categories = [], themeToggle }: Props) {
   const { toast } = useToast()
   const { isFavorite, toggle } = useFavorites()
   const favorited = isFavorite(settings.slug)
@@ -59,7 +60,7 @@ export function StoreHero({ settings, storeName, categories = [] }: Props) {
         {settings.banner_url ? (
           <Image src={settings.banner_url} alt="" fill sizes="100vw" priority className="object-cover" />
         ) : (
-          <div className="w-full h-full" style={{ background: `linear-gradient(135deg, ${settings.theme_color}, ${settings.theme_color}66)` }} />
+          <div className="w-full h-full" style={{ background: 'linear-gradient(135deg, var(--store-primary), var(--store-accent))' }} />
         )}
         {/* Overlay escuro inteligente — mais forte quanto mais claro for o banner */}
         <div className="absolute inset-0" style={{ background: gradient }} />
@@ -138,6 +139,7 @@ export function StoreHero({ settings, storeName, categories = [] }: Props) {
                     className={clsx(GLASS_BUTTON, favorited && 'bg-error/80 border-error/50 hover:bg-error')}>
                     <Heart size={13} className={favorited ? 'fill-current' : ''} /> {favorited ? 'Favoritado' : 'Favoritar'}
                   </button>
+                  {themeToggle}
                 </div>
               </div>
             </div>

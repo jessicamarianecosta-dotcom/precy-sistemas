@@ -21,7 +21,7 @@ import { DEFAULT_CATALOG_SETTINGS, type CatalogSettings } from './catalogSetting
 const SETTINGS_COLUMNS = `
   slug, logo_url, banner_url, description, whatsapp, instagram, facebook,
   tiktok, youtube, pinterest, website, address, phone, email, city, state,
-  zip_code, business_hours, theme_color, checkout_mode, policies_text,
+  zip_code, business_hours, theme_color, theme_palette, checkout_mode, policies_text,
   seo_title, seo_description, seo_keywords, seo_image_url
 `
 
