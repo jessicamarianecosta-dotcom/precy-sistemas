@@ -39,9 +39,10 @@ export function ProductCard({ slug, product, href, isBestseller }: Props) {
     >
       <Link
         href={href}
-        className="group card overflow-hidden hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 block"
+        className="group rounded-2xl border overflow-hidden shadow-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 block"
+        style={{ backgroundColor: 'var(--store-surface)', borderColor: 'var(--store-border)' }}
       >
-        <div className="relative aspect-square bg-surface dark:bg-white/5 flex items-center justify-center overflow-hidden">
+        <div className="relative aspect-square flex items-center justify-center overflow-hidden" style={{ backgroundColor: 'var(--store-bg)' }}>
           {photo ? (
             <Image src={photo} alt={product.name} fill sizes="(max-width: 640px) 50vw, 300px" className="object-cover group-hover:scale-105 transition-transform duration-300" />
           ) : (
@@ -65,7 +66,7 @@ export function ProductCard({ slug, product, href, isBestseller }: Props) {
           </button>
         </div>
         <div className="p-3">
-          <p className="text-sm font-medium text-text-primary dark:text-stone-100 line-clamp-2 mb-1.5 min-h-[2.5em]">{product.name}</p>
+          <p className="text-sm font-medium line-clamp-2 mb-1.5 min-h-[2.5em]" style={{ color: 'var(--store-text)' }}>{product.name}</p>
           {hasPromo ? (
             <div className="flex items-baseline gap-1.5">
               <span className="text-sm font-bold text-error">{formatCurrency(product.catalog_promo_price!)}</span>
