@@ -38,8 +38,6 @@ export default function LojaPage() {
   const [searchFocused, setSearchFocused] = useState(false)
   const [categoryId, setCategoryId] = useState('')
   const [sort, setSort] = useState<SortOption>('relevancia')
-  const [priceMin, setPriceMin] = useState('')
-  const [priceMax, setPriceMax] = useState('')
   const viewFilter = (searchParams.get('view') ?? '') as ViewFilter
   const { items } = useCart(slug)
   const { favoriteIds } = useProductFavorites(slug)
@@ -126,15 +124,9 @@ export default function LojaPage() {
   if (viewFilter === 'novidades') base = newProducts
   else if (viewFilter === 'mais-vendidos') base = bestsellerProducts
 
-  const min = priceMin ? Number(priceMin) : null
-  const max = priceMax ? Number(priceMax) : null
-
   let filtered = base.filter(p => {
-    const price = p.catalog_starting_price ?? p.final_price
     if (!p.name.toLowerCase().includes(search.toLowerCase())) return false
     if (categoryId && p.catalog_category_id !== categoryId) return false
-    if (min != null && price < min) return false
-    if (max != null && price > max) return false
     return true
   })
 
@@ -261,16 +253,18 @@ export default function LojaPage() {
                 {viewFilter === 'novidades' ? 'Novidades' : 'Mais vendidos'} ✕
               </button>
             )}
-            <input
-              type="number" inputMode="numeric" placeholder="Preço mín."
-              value={priceMin} onChange={e => setPriceMin(e.target.value)}
-              className="input h-9 w-24 text-xs"
-            />
-            <input
-              type="number" inputMode="numeric" placeholder="Preço máx."
-              value={priceMax} onChange={e => setPriceMax(e.target.value)}
-              className="input h-9 w-24 text-xs"
-            />
+            {(categories ?? []).length > 0 && (
+              <select
+                value={categoryId}
+                onChange={e => setCategoryId(e.target.value)}
+                className="input h-9 w-auto text-xs"
+              >
+                <option value="">Todas as categorias</option>
+                {(categories ?? []).map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            )}
             <select value={sort} onChange={e => setSort(e.target.value as SortOption)} className="input h-9 w-auto text-xs">
               <option value="relevancia">Relevância</option>
               <option value="menor-preco">Menor preço</option>
@@ -278,32 +272,6 @@ export default function LojaPage() {
               <option value="recentes">Mais recentes</option>
             </select>
           </div>
-
-          {(categories ?? []).length > 0 && (
-            <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
-              <button
-                onClick={() => setCategoryId('')}
-                className="px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors"
-                style={!categoryId
-                  ? { backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }
-                  : { backgroundColor: 'var(--store-surface)', color: 'var(--store-text-secondary)' }}
-              >
-                Todos
-              </button>
-              {(categories ?? []).map(c => (
-                <button
-                  key={c.id}
-                  onClick={() => setCategoryId(c.id)}
-                  className="px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors"
-                  style={categoryId === c.id
-                    ? { backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }
-                    : { backgroundColor: 'var(--store-surface)', color: 'var(--store-text-secondary)' }}
-                >
-                  {c.name}
-                </button>
-              ))}
-            </div>
-          )}
 
           {loadingProducts ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 pb-10">
