@@ -44,9 +44,47 @@ export interface CheckoutShippingSelection {
   days: number
 }
 
+export interface UploadedArtFile {
+  url: string
+  path: string
+  fileName: string
+  fileSize: number
+  mimeType: string | null
+}
+
+export type ArtOrigin = 'own' | 'lumilife'
+
+/**
+ * Arte de UM item do carrinho — nunca compartilhada entre produtos
+ * diferentes do mesmo pedido. Indexada por itemKey (`${productId}:${variantId ?? ''}`,
+ * igual à chave usada pelo useCart).
+ */
+export interface ItemArtState {
+  origin: ArtOrigin | null
+  /** Arquivos enviados pelo cliente quando origin = 'own'. */
+  ownFiles: UploadedArtFile[]
+  /** Briefing de criação quando origin = 'lumilife'. */
+  brief: {
+    text: string
+    colors: string
+    style: string
+    description: string
+  }
+  /** Referências visuais opcionais quando origin = 'lumilife'. */
+  referenceFiles: UploadedArtFile[]
+}
+
+export const EMPTY_ITEM_ART: ItemArtState = {
+  origin: null,
+  ownFiles: [],
+  brief: { text: '', colors: '', style: '', description: '' },
+  referenceFiles: [],
+}
+
 export interface CheckoutState {
   step: CheckoutStep
   customer: CheckoutCustomer
+  itemsArt: Record<string, ItemArtState>
   fulfillmentMethod: FulfillmentMethod | null
   pickupChoice: PickupChoice | null
   shipping: CheckoutShippingSelection | null
@@ -61,6 +99,7 @@ const EMPTY_CUSTOMER: CheckoutCustomer = {
 const EMPTY_STATE: CheckoutState = {
   step: 'cadastro',
   customer: EMPTY_CUSTOMER,
+  itemsArt: {},
   fulfillmentMethod: null,
   pickupChoice: null,
   shipping: null,
@@ -82,6 +121,7 @@ export function useCheckoutState(slug: string) {
         setState({
           step: CHECKOUT_STEPS.includes(parsed.step) ? parsed.step : 'cadastro',
           customer: { ...EMPTY_CUSTOMER, ...(parsed.customer ?? {}) },
+          itemsArt: parsed.itemsArt ?? {},
           fulfillmentMethod: parsed.fulfillmentMethod ?? null,
           pickupChoice: parsed.pickupChoice ?? null,
           shipping: parsed.shipping ?? null,
@@ -120,6 +160,36 @@ export function useCheckoutState(slug: string) {
     })
   }, [slug])
 
+  const patchItemArt = useCallback((itemKey: string, patch: Partial<ItemArtState>) => {
+    setState(prev => {
+      const current = prev.itemsArt[itemKey] ?? EMPTY_ITEM_ART
+      const next = { ...prev, itemsArt: { ...prev.itemsArt, [itemKey]: { ...current, ...patch } } }
+      try { localStorage.setItem(storageKey(slug), JSON.stringify(next)) } catch { /* ignore */ }
+      return next
+    })
+  }, [slug])
+
+  const patchItemArtBrief = useCallback((itemKey: string, patch: Partial<ItemArtState['brief']>) => {
+    setState(prev => {
+      const current = prev.itemsArt[itemKey] ?? EMPTY_ITEM_ART
+      const next = {
+        ...prev,
+        itemsArt: { ...prev.itemsArt, [itemKey]: { ...current, brief: { ...current.brief, ...patch } } },
+      }
+      try { localStorage.setItem(storageKey(slug), JSON.stringify(next)) } catch { /* ignore */ }
+      return next
+    })
+  }, [slug])
+
+  const removeItemArt = useCallback((itemKey: string) => {
+    setState(prev => {
+      const next = { ...prev, itemsArt: { ...prev.itemsArt } }
+      delete next.itemsArt[itemKey]
+      try { localStorage.setItem(storageKey(slug), JSON.stringify(next)) } catch { /* ignore */ }
+      return next
+    })
+  }, [slug])
+
   const setShipping = useCallback((shipping: CheckoutShippingSelection | null) => {
     setState(prev => {
       const next = { ...prev, shipping }
@@ -152,10 +222,14 @@ export function useCheckoutState(slug: string) {
     step: state.step,
     stepIndex: CHECKOUT_STEPS.indexOf(state.step),
     customer: state.customer,
+    itemsArt: state.itemsArt,
     fulfillmentMethod: state.fulfillmentMethod,
     pickupChoice: state.pickupChoice,
     shipping: state.shipping,
     patchCustomer,
+    patchItemArt,
+    patchItemArtBrief,
+    removeItemArt,
     setStep,
     setFulfillment,
     setShipping,

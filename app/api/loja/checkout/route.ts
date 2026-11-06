@@ -10,6 +10,19 @@ import { calcOptionsAdjustment } from '@/lib/produtos/variantPricing'
 
 interface CheckoutItem { productId: string; variantId?: string | null; quantity: number; notes?: string | null }
 
+interface UploadedArtFileBody { url: string; path: string; fileName: string; fileSize: number; mimeType: string | null }
+
+interface ItemArtBody {
+  origin: 'own' | 'lumilife' | null
+  ownFiles?: UploadedArtFileBody[]
+  brief?: { text?: string; colors?: string; style?: string; description?: string }
+  referenceFiles?: UploadedArtFileBody[]
+}
+
+function itemKeyOf(productId: string, variantId?: string | null) {
+  return `${productId}:${variantId ?? ''}`
+}
+
 /**
  * POST /api/loja/checkout
  * Rota pública (visitante anônimo da loja) — cria o pedido pendente
@@ -43,7 +56,11 @@ export async function POST(request: Request) {
   // dimensões reais dos produtos antes de cobrar qualquer coisa.
   const shippingService: string | null = body?.shippingService ? String(body.shippingService) : null
   const shippingCep: string = String(body?.shippingCep ?? '').replace(/\D/g, '')
-  const artwork = body?.artwork ?? null
+  // Arte por item (Etapa 2 do checkout) — nunca um upload único por pedido:
+  // cada item do carrinho tem sua própria origem de arte, arquivos e
+  // briefing, indexados pela mesma chave do carrinho no client
+  // (`${productId}:${variantId ?? ''}`).
+  const itemsArt: Record<string, ItemArtBody> = body?.itemsArt && typeof body.itemsArt === 'object' ? body.itemsArt : {}
 
   if (!slug || items.length === 0) {
     return NextResponse.json({ error: 'Dados insuficientes para finalizar o pedido' }, { status: 400 })
@@ -139,6 +156,8 @@ export async function POST(request: Request) {
     // revalidadas acima (mesma regra da exibição pública do produto).
     const optionAdjustments = (variant?.product_variant_option_values ?? []).map((ov: any) => ov.product_variation_options)
     const unitPrice = calcOptionsAdjustment(variantBasePrice, optionAdjustments).finalPrice
+    const art = itemsArt[itemKeyOf(i.productId, i.variantId)]
+    const artOrigin = art?.origin === 'own' || art?.origin === 'lumilife' ? art.origin : null
     return {
       product_id: i.productId,
       name: nameById.get(i.productId),
@@ -150,6 +169,15 @@ export async function POST(request: Request) {
       variant_sku: variant?.sku ?? null,
       variant_photo: variant?.image_id ? imageUrlById.get(variant.image_id) ?? null : null,
       technical_notes: cleanObservation(i.notes),
+      art_origin: artOrigin,
+      art_brief: artOrigin === 'lumilife'
+        ? {
+            text: String(art?.brief?.text ?? '').slice(0, 300),
+            colors: String(art?.brief?.colors ?? '').slice(0, 300),
+            style: String(art?.brief?.style ?? '').slice(0, 300),
+            description: String(art?.brief?.description ?? '').slice(0, 2000),
+          }
+        : null,
     }
   })
 
@@ -254,7 +282,7 @@ export async function POST(request: Request) {
       notes: notesParts.join(' · ') || null,
       source: 'catalog',
       catalog_checkout_ref: checkoutRef,
-      art_status: artwork ? 'recebida' : 'nao_enviada',
+      art_status: 'nao_enviada',
       description: fulfillment === 'whatsapp' ? 'Pedido via Catálogo Online (WhatsApp)' : 'Pedido via Catálogo Online',
       delivery_email: customer.email || null,
       delivery_cep: customer.cep ? customer.cep.replace(/\D/g, '') : null,
@@ -274,30 +302,69 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Erro ao criar pedido: ${orderError.message}` }, { status: 500 })
   }
 
-  const { error: itemsError } = await (supabaseAdmin.from('order_items') as any)
+  const { data: insertedItems, error: itemsError } = await (supabaseAdmin.from('order_items') as any)
     .insert(orderItems.map(i => ({ ...i, order_id: order.id })))
+    .select('id, product_id, variant_id')
 
   if (itemsError) {
     return NextResponse.json({ error: `Erro ao registrar itens do pedido: ${itemsError.message}` }, { status: 500 })
   }
 
-  if (artwork?.url) {
-    await (supabaseAdmin.from('order_files') as any).insert([{
-      order_id: order.id,
-      company_id: companyId,
-      file_name: artwork.fileName,
-      file_url: artwork.url,
-      file_path: artwork.path,
-      file_size: artwork.fileSize ?? 0,
-      mime_type: artwork.mimeType,
-      uploaded_by: 'cliente',
-    }])
-    await (supabaseAdmin.from('order_art_events') as any).insert([{
-      order_id: order.id,
-      company_id: companyId,
-      event_type: 'arte_enviada',
-      description: `Arte enviada pelo cliente: ${artwork.fileName}`,
-    }])
+  // Arquivos de arte/referência de cada item — sempre vinculados ao
+  // order_item_id certo, isolando-os entre produtos diferentes do mesmo
+  // pedido (nunca um upload único genérico do pedido inteiro).
+  const fileRows: any[] = []
+  const artEvents: any[] = []
+  let anyArtProvided = false
+
+  for (const row of insertedItems ?? []) {
+    const art = itemsArt[itemKeyOf(row.product_id, row.variant_id)]
+    if (!art?.origin) continue
+
+    if (art.origin === 'own' && Array.isArray(art.ownFiles)) {
+      for (const f of art.ownFiles) {
+        if (!f?.url) continue
+        anyArtProvided = true
+        fileRows.push({
+          order_id: order.id, order_item_id: row.id, company_id: companyId,
+          file_name: f.fileName, file_url: f.url, file_path: f.path,
+          file_size: f.fileSize ?? 0, mime_type: f.mimeType,
+          uploaded_by: 'cliente', file_role: 'cliente_arte',
+        })
+      }
+      if (art.ownFiles.length > 0) {
+        artEvents.push({
+          order_id: order.id, company_id: companyId, event_type: 'arte_enviada',
+          description: `Arte própria enviada pelo cliente (${art.ownFiles.length} arquivo(s))`,
+        })
+      }
+    }
+
+    if (art.origin === 'lumilife') {
+      anyArtProvided = true
+      if (Array.isArray(art.referenceFiles)) {
+        for (const f of art.referenceFiles) {
+          if (!f?.url) continue
+          fileRows.push({
+            order_id: order.id, order_item_id: row.id, company_id: companyId,
+            file_name: f.fileName, file_url: f.url, file_path: f.path,
+            file_size: f.fileSize ?? 0, mime_type: f.mimeType,
+            uploaded_by: 'cliente', file_role: 'referencia',
+          })
+        }
+      }
+      artEvents.push({
+        order_id: order.id, company_id: companyId, event_type: 'briefing_recebido',
+        description: 'Cliente solicitou criação de arte pela equipe e enviou o briefing.',
+      })
+    }
+  }
+
+  if (fileRows.length > 0) await (supabaseAdmin.from('order_files') as any).insert(fileRows)
+  if (artEvents.length > 0) await (supabaseAdmin.from('order_art_events') as any).insert(artEvents)
+
+  if (anyArtProvided) {
+    await (supabaseAdmin.from('orders') as any).update({ art_status: 'recebida' }).eq('id', order.id)
   }
 
   /* ── Finalização pelo WhatsApp: pedido fica pendente, sem cobrança no

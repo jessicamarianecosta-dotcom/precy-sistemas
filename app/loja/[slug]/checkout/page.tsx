@@ -7,25 +7,24 @@ import { createClient } from '@/lib/supabase/client'
 import { useCart } from '@/lib/catalog/useCart'
 import { useToast } from '@/components/ui/Toaster'
 import { formatCurrency } from '@/lib/utils/format'
-import { ArrowLeft, Minus, Plus, Trash2, Loader2, Upload, MessageCircle, Pencil } from 'lucide-react'
+import { ArrowLeft, Loader2, MessageCircle } from 'lucide-react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { StoreThemeRoot } from '@/components/catalog/storefront/StoreThemeRoot'
 import { StoreHeader } from '@/components/catalog/storefront/StoreHeader'
 import { useProductFavorites } from '@/lib/catalog/useProductFavorites'
 import { resolvePalettes } from '@/lib/catalog/theme/palette'
-import { OBSERVATION_MAX, cleanObservation } from '@/lib/catalog/observation'
 import { useCheckoutState, CHECKOUT_STEPS, type CheckoutStep } from '@/lib/catalog/checkout/useCheckoutState'
 import { StepIndicator } from '@/components/catalog/checkout/StepIndicator'
 import { StepCadastro } from '@/components/catalog/checkout/steps/StepCadastro'
+import { StepProdutoArte } from '@/components/catalog/checkout/steps/StepProdutoArte'
 
 /**
  * Checkout da loja — reformulado em 4 etapas (Cadastro / Produto e arte /
- * Entrega / Pagamento). A Etapa 1 já é um passo isolado e real
- * (StepCadastro). As etapas 2 a 4 ainda estão consolidadas numa única tela
- * (mesmos campos e integrações de antes — carrinho, upload de arte, frete
- * via SuperFrete, Mercado Pago/WhatsApp) enquanto são divididas em etapas
- * próprias nas próximas fases desta reformulação; nada aqui é mock.
+ * Entrega / Pagamento). Etapas 1 e 2 já são passos isolados e reais
+ * (StepCadastro, StepProdutoArte). As etapas 3 e 4 ainda estão
+ * consolidadas numa única tela (mesmos campos e integrações de antes —
+ * frete via SuperFrete, Mercado Pago/WhatsApp) enquanto são divididas em
+ * etapas próprias nas próximas fases desta reformulação; nada aqui é mock.
  */
 export default function CheckoutLojaPage() {
   const { slug } = useParams<{ slug: string }>()
@@ -33,7 +32,6 @@ export default function CheckoutLojaPage() {
   const { toast } = useToast()
   const supabase = createClient()
   const { items, updateQty, updateNotes, removeItem, total, clear } = useCart(slug)
-  const [editingNotesKey, setEditingNotesKey] = useState<string | null>(null)
   const checkout = useCheckoutState(slug)
 
   const { data: storeSettings } = useQuery<{ whatsapp: string | null; logo_url: string | null; theme_color: string; theme_palette: import('@/lib/catalog/theme/palette').StoreThemePalettes | null; companies: { name: string } | null } | null>({
@@ -65,7 +63,6 @@ export default function CheckoutLojaPage() {
   })
 
   const customer = checkout.customer
-  const [artworkFile, setArtworkFile] = useState<File | null>(null)
   const [shippingOptions, setShippingOptions] = useState<{ service: string; price: number; days: number }[]>([])
   const [calculatingShipping, setCalculatingShipping] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -133,29 +130,21 @@ export default function CheckoutLojaPage() {
     setSubmitting(true)
     setSubmittingVia(fulfillment)
     try {
-      let artwork: { url: string; path: string; fileName: string; fileSize: number; mimeType: string | null } | null = null
-      if (artworkFile) {
-        const body = new FormData()
-        body.append('file', artworkFile)
-        body.append('slug', slug)
-        const res = await fetch('/api/loja/upload-arte', { method: 'POST', body })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error ?? 'Erro ao enviar arte')
-        artwork = { url: data.url, path: data.path, fileName: data.fileName, fileSize: data.fileSize, mimeType: data.mimeType }
-      }
-
       const res = await fetch('/api/loja/checkout', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           slug,
           items: items.map(i => ({ productId: i.productId, variantId: i.variantId ?? null, quantity: i.quantity, notes: i.notes ?? null })),
           customer,
+          // A arte de cada item já foi enviada/descrita na Etapa 2 — os
+          // arquivos (ownFiles/referenceFiles) já têm url/path do Storage,
+          // só o briefing e as referências são relidos aqui pelo servidor.
+          itemsArt: checkout.itemsArt,
           // O preço do frete NUNCA é enviado — o servidor recota a mesma
           // modalidade escolhida (shippingService) a partir do CEP e dos
           // produtos reais antes de cobrar (ver /api/loja/checkout).
           shippingService: shipping?.service ?? null,
           shippingCep: customer.cep ? customer.cep.replace(/\D/g, '') : null,
-          artwork,
           fulfillment,
         }),
       })
@@ -231,60 +220,25 @@ export default function CheckoutLojaPage() {
               />
             )}
 
-            {checkout.step !== 'cadastro' && (
-          <div className="space-y-5">
-            <div className="card divide-y divide-border dark:divide-border-dark">
-              {items.map(item => {
-                const itemKey = `${item.productId}:${item.variantId ?? ''}`
-                const isEditingNotes = editingNotesKey === itemKey
-                return (
-                <div key={itemKey} className="p-3 space-y-2">
-                  <div className="flex items-center gap-3">
-                    <div className="relative w-12 h-12 rounded-lg bg-surface dark:bg-white/5 overflow-hidden flex-shrink-0">
-                      {item.photo && <Image src={item.photo} alt="" fill sizes="48px" className="object-cover" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{item.name}</p>
-                      {item.variantLabel && <p className="text-[11px] text-text-muted truncate">{item.variantLabel}</p>}
-                      {!isEditingNotes && item.notes && <p className="text-[11px] text-text-muted line-clamp-2">Obs.: {item.notes}</p>}
-                      <p className="text-xs text-text-muted">{formatCurrency(item.price)}</p>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button type="button" onClick={() => updateQty(item.productId, item.variantId, item.quantity - 1)} className="p-1 rounded hover:bg-[var(--store-surface)] dark:hover:bg-white/5"><Minus size={13} /></button>
-                      <span className="text-sm w-5 text-center">{item.quantity}</span>
-                      <button type="button" onClick={() => updateQty(item.productId, item.variantId, item.quantity + 1)} className="p-1 rounded hover:bg-[var(--store-surface)] dark:hover:bg-white/5"><Plus size={13} /></button>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setEditingNotesKey(isEditingNotes ? null : itemKey)}
-                      title="Editar observação"
-                      className="p-1.5 text-text-muted hover:text-[var(--store-primary)]"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button type="button" onClick={() => removeItem(item.productId, item.variantId)} className="p-1.5 text-text-muted hover:text-error"><Trash2 size={14} /></button>
-                  </div>
-                  {isEditingNotes && (
-                    <div className="pl-[60px]">
-                      <textarea
-                        autoFocus
-                        className="input text-xs"
-                        rows={2}
-                        maxLength={OBSERVATION_MAX}
-                        placeholder="Observação sobre este produto..."
-                        defaultValue={item.notes ?? ''}
-                        onBlur={e => { updateNotes(item.productId, item.variantId, cleanObservation(e.target.value)); setEditingNotesKey(null) }}
-                      />
-                    </div>
-                  )}
-                </div>
-                )
-              })}
-            </div>
+            {checkout.step === 'produto_arte' && (
+              <StepProdutoArte
+                slug={slug}
+                items={items}
+                itemsArt={checkout.itemsArt}
+                onChangeItemArt={checkout.patchItemArt}
+                onChangeItemArtBrief={checkout.patchItemArtBrief}
+                onUpdateQty={updateQty}
+                onUpdateNotes={updateNotes}
+                onRemoveItem={removeItem}
+                onNext={checkout.goNext}
+              />
+            )}
 
+            {(checkout.step === 'entrega' || checkout.step === 'pagamento') && (
+          <div className="space-y-5">
             <form onSubmit={e => { e.preventDefault(); submitOrder('online') }} className="space-y-4">
               <div className="card p-4 space-y-3">
-                <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Entrega e arte</h3>
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--store-text)' }}>Entrega</h3>
                 <div className="flex gap-2">
                   <input
                     className="input flex-1" placeholder="CEP" value={customer.cep}
@@ -308,13 +262,6 @@ export default function CheckoutLojaPage() {
                   </div>
                 )}
                 <textarea className="input" rows={2} placeholder="Observações (opcional)" value={customer.notes} onChange={e => checkout.patchCustomer({ notes: e.target.value })} />
-                <div>
-                  <label className="flex items-center gap-2 text-sm text-text-secondary dark:text-stone-400 cursor-pointer">
-                    <Upload size={15} />
-                    {artworkFile ? artworkFile.name : 'Enviar arte (opcional)'}
-                    <input type="file" className="hidden" onChange={e => setArtworkFile(e.target.files?.[0] ?? null)} />
-                  </label>
-                </div>
               </div>
 
               <div className="card p-4 space-y-1.5">
