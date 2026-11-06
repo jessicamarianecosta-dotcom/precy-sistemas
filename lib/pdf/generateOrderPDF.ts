@@ -173,30 +173,108 @@ export async function generateOrderPDF({ order, items, payments, company, artFil
       <td style="padding:9px 14px;border-bottom:1px solid #ede9e3;text-align:right;font-size:12px;font-weight:700;color:#166534;">${R(p.amount)}</td>
     </tr>`).join('')
 
-  /* ── Arte enviada pelo cliente ── */
-  const files = (artFiles ?? []).filter(f => f?.file_url)
-  const artCardsHTML = files.map(f => {
+  /* ── Arte enviada pelo cliente — agrupada por produto (order_item_id),
+     nunca misturando arquivos de itens diferentes do mesmo pedido. Itens
+     anteriores à migration 094 (sem order_item_id) caem no grupo
+     "Arte do pedido", para não perder nada do que já estava anexado. ── */
+  const allArtFiles = (artFiles ?? []).filter(f => f?.file_url)
+  const filesByItemId = new Map<string, OrderFile[]>()
+  const legacyArtFiles: OrderFile[] = []
+  for (const f of allArtFiles) {
+    const itemId = f.order_item_id
+    if (itemId) {
+      if (!filesByItemId.has(itemId)) filesByItemId.set(itemId, [])
+      filesByItemId.get(itemId)!.push(f)
+    } else {
+      legacyArtFiles.push(f)
+    }
+  }
+
+  const FILE_ROLE_LABELS: Record<string, string> = {
+    cliente_arte: 'Arte do cliente',
+    referencia: 'Referência',
+    proposta: 'Proposta',
+    versao_final: 'Versão final',
+  }
+
+  function artFileCardHTML(f: OrderFile): string {
     const kind = getFileKind(f.file_name)
-    const dl   = getDownloadUrl(f.file_url, f.file_name)
+    const dl = getDownloadUrl(f.file_url, f.file_name)
+    const roleLabel = FILE_ROLE_LABELS[f.file_role] ?? ''
+    const proposalNumber = f.proposal_number
+    const tag = roleLabel ? `${roleLabel}${proposalNumber ? ` ${proposalNumber}` : ''}` : ''
+    const tagHTML = tag ? `<div class="art-tag">${X(tag)}</div>` : ''
     if (kind.isImage) {
       return `
       <a href="${f.file_url}" target="_blank" class="art-card" title="Abrir em tamanho original">
-        <img src="${f.file_url}" alt="${X(f.file_name)}">
+        ${tagHTML}
+        <div class="art-img-wrap"><img src="${f.file_url}" alt="${X(f.file_name)}"></div>
         <div class="art-name">${X(f.file_name)}</div>
       </a>`
     }
+    if (kind.isPdf) {
+      // Prévia real da 1ª página — navegadores com visualizador de PDF
+      // nativo renderizam o <embed> (inclusive na impressão/geração do PDF
+      // final). Sem suporte, o link abaixo continua levando ao arquivo
+      // original — nunca fica sem referência nenhuma.
+      return `
+      <div class="art-card art-pdf-card">
+        ${tagHTML}
+        <embed src="${f.file_url}#page=1&view=FitH" type="application/pdf" class="art-pdf-embed">
+        <a href="${dl}" target="_blank" class="art-name">${X(f.file_name)}</a>
+      </div>`
+    }
     return `
       <a href="${dl}" target="_blank" class="art-card art-file">
+        ${tagHTML}
         <div class="art-file-icon">${kind.label}</div>
         <div class="art-name">${X(f.file_name)}</div>
       </a>`
-  }).join('')
+  }
 
-  const artBlockHTML = files.length > 0 ? `
+  function approvalBadge(status: unknown): { label: string; bg: string; fg: string } {
+    return status === 'approved'
+      ? { label: 'Arte aprovada', bg: '#dcfce7', fg: '#15803d' }
+      : { label: 'Aguardando aprovação', bg: '#fef9c3', fg: '#a16207' }
+  }
+
+  const itemArtGroupsHTML = items
+    .filter((it: any) => it.art_origin)
+    .map((it: any) => {
+      const itemFiles = filesByItemId.get(it.id) ?? []
+      const brief = it.art_brief ?? null
+      const hasBrief = it.art_origin === 'lumilife' && brief && (brief.text || brief.colors || brief.style || brief.description)
+      if (itemFiles.length === 0 && !hasBrief) return ''
+      const badge = approvalBadge(it.art_approval_status)
+      const originLabel = it.art_origin === 'lumilife' ? 'Criação pela LumiLife' : 'Arte própria do cliente'
+      const briefHTML = hasBrief ? `
+        <div class="art-brief">
+          ${brief.text ? `<div><b>Texto/nome:</b> ${X(brief.text)}</div>` : ''}
+          ${brief.colors ? `<div><b>Cores:</b> ${X(brief.colors)}</div>` : ''}
+          ${brief.style ? `<div><b>Estilo:</b> ${X(brief.style)}</div>` : ''}
+          ${brief.description ? `<div><b>Descrição:</b> ${X(brief.description)}</div>` : ''}
+        </div>` : ''
+      return `
+      <div class="art-group">
+        <div class="art-group-head">
+          <span class="art-group-title">${X(it.name ?? 'Item')}${it.variant_label ? ` · ${X(it.variant_label)}` : ''}</span>
+          <span class="art-origin-tag">${originLabel}</span>
+          <span class="badge" style="background:${badge.bg};color:${badge.fg};">${badge.label}</span>
+        </div>
+        ${briefHTML}
+        ${itemFiles.length > 0 ? `<div class="art-grid">${itemFiles.map(artFileCardHTML).join('')}</div>` : ''}
+      </div>`
+    }).filter(Boolean).join('')
+
+  const legacyArtHTML = legacyArtFiles.length > 0 ? `
+    <div class="art-group">
+      <div class="art-group-head"><span class="art-group-title">Arte do pedido</span></div>
+      <div class="art-grid">${legacyArtFiles.map(artFileCardHTML).join('')}</div>
+    </div>` : ''
+
+  const artBlockHTML = (itemArtGroupsHTML || legacyArtHTML) ? `
   <div class="slbl">Arte enviada pelo cliente</div>
-  <div class="art-w">
-    <div class="art-grid">${artCardsHTML}</div>
-  </div>` : ''
+  <div class="art-w">${itemArtGroupsHTML}${legacyArtHTML}</div>` : ''
 
   const paymentsBlockHTML = hasPayments ? `
   <div class="slbl">Recebimentos</div>
@@ -346,21 +424,43 @@ export async function generateOrderPDF({ order, items, payments, company, artFil
   .pix-row{display:table;width:100%;padding:3px 0;font-size:11.5px;}
   .pix-row .ck{display:table-cell;color:#aaa;width:108px;vertical-align:top;}
   .pix-row .cv{display:table-cell;color:#333;}
-  .art-w{padding:0 26px 14px;}
-  .art-grid{display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px;}
-  .art-card{display:block;width:auto;max-width:220px;text-decoration:none;
+  .art-w{padding:0 26px 16px;}
+  .art-group{margin-bottom:14px;page-break-inside:avoid;}
+  .art-group:last-child{margin-bottom:0;}
+  .art-group-head{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;}
+  .art-group-title{font-size:12.5px;font-weight:700;color:#1a1208;}
+  .art-origin-tag{font-size:9.5px;color:#9a8a7a;background:#f5f2ee;
+    padding:2px 8px;border-radius:10px;}
+  .art-brief{background:#fffdf7;border:1px solid #e0d8c0;border-left:3px solid #c8b060;
+    border-radius:0 6px 6px 0;padding:10px 14px;margin-bottom:10px;
+    font-size:11px;color:#5c5346;line-height:1.7;}
+  .art-brief b{color:#1a1208;}
+  /* Arte do cliente: cartão de largura livre (até 300px), imagem sem
+     width/height fixos — só max-width/max-height — então o navegador
+     encolhe proporcionalmente sem NUNCA cortar (nada de object-fit:cover
+     numa caixa quadrada fixa). Centralizada dentro do cartão, com margem
+     ao redor — espaço em branco sobrando é aceitável, nunca corta. */
+  .art-grid{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:center;gap:14px;}
+  .art-card{display:block;width:auto;max-width:300px;text-decoration:none;
     border:1px solid #ede9e3;border-radius:8px;overflow:hidden;
-    background:#fff;page-break-inside:avoid;}
+    background:#fff;page-break-inside:avoid;position:relative;}
+  .art-tag{position:absolute;top:6px;left:6px;background:${primary};color:#fff;
+    font-size:8px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;
+    padding:2px 7px;border-radius:10px;z-index:1;}
+  .art-img-wrap{display:flex;align-items:center;justify-content:center;
+    padding:14px;background:#f5f2ee;min-height:140px;}
   .art-card img{display:block;margin:0 auto;
-    max-width:220px;max-height:170px;width:auto;height:auto;object-fit:contain;
-    background:#f5f2ee;cursor:pointer;}
+    max-width:272px;max-height:260px;width:auto;height:auto;object-fit:contain;
+    cursor:pointer;}
   .art-file{display:flex;flex-direction:column;align-items:center;
-    justify-content:center;width:140px;height:140px;background:#f5f2ee;}
+    justify-content:center;width:160px;height:160px;background:#f5f2ee;}
   .art-file-icon{font-size:10px;font-weight:700;letter-spacing:1px;
     color:${primary};text-transform:uppercase;}
-  .art-name{font-size:9.5px;color:#888;padding:6px 8px;
+  .art-pdf-card{display:block;}
+  .art-pdf-embed{display:block;width:280px;height:280px;border:none;background:#f5f2ee;}
+  .art-name{display:block;font-size:9.5px;color:#888;padding:6px 8px;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-    border-top:1px solid #ede9e3;}
+    border-top:1px solid #ede9e3;text-align:center;}
   .footer{border-top:1px solid #ede9e3;padding:12px 26px;
     display:table;width:100%;background:#faf8f5;}
   .fl2{display:table-cell;font-size:9.5px;color:#bbb;vertical-align:middle;}
@@ -432,6 +532,8 @@ export async function generateOrderPDF({ order, items, payments, company, artFil
     </div>
   </div>
 </div>
+
+${artBlockHTML}
 
 <div class="slbl">Itens do Pedido</div>
 <div class="tw">
@@ -515,8 +617,6 @@ ${oNotes ? `
     <div class="obs-txt">${oNotes}</div>
   </div>
 </div>` : ''}
-
-${artBlockHTML}
 
 <div class="footer">
   <div class="fl2">
