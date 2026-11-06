@@ -60,6 +60,7 @@ export function StepPagamento({
   const [startingOnline, setStartingOnline] = useState(false)
   const [submittingWhatsapp, setSubmittingWhatsapp] = useState(false)
   const [paymentResult, setPaymentResult] = useState<PaymentResultState | null>(null)
+  const [processingPayment, setProcessingPayment] = useState(false)
   const [copied, setCopied] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -169,7 +170,14 @@ export function StepPagamento({
         </div>
       )}
 
-      {pendingOrder && !paymentResult && (
+      {pendingOrder && !paymentResult && processingPayment && (
+        <div className="card p-6 flex flex-col items-center justify-center gap-2 text-center">
+          <Loader2 size={22} className="animate-spin" style={{ color: 'var(--store-primary)' }} />
+          <p className="text-sm font-medium" style={{ color: 'var(--store-text)' }}>Gerando seu pagamento...</p>
+        </div>
+      )}
+
+      {pendingOrder && !paymentResult && !processingPayment && (
         <div className="card p-3">
           <Payment
             initialization={{
@@ -180,22 +188,35 @@ export function StepPagamento({
               paymentMethods: paymentMethods as any,
               visual: { style: { theme: 'default' } },
             }}
-            onSubmit={async ({ formData }: IPaymentFormData) => {
-              try {
-                const res = await fetch('/api/loja/pagamento', {
+            onSubmit={({ formData }: IPaymentFormData) => {
+              // Mostra "Gerando seu pagamento..." no lugar do Brick assim que o
+              // cliente confirma — sem isso, o intervalo entre clicar em
+              // "Pagar" e o QR do Pix aparecer não tinha nenhum feedback visual.
+              setProcessingPayment(true)
+              return new Promise<void>((resolve, reject) => {
+                fetch('/api/loja/pagamento', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ slug, checkoutRef: pendingOrder.checkoutRef, formData }),
                 })
-                const data = await res.json()
-                if (!res.ok) {
-                  toast('error', data.error ?? 'Não foi possível processar o pagamento')
-                  return
-                }
-                setPaymentResult({ status: data.status, pix: data.pix ?? null })
-              } catch {
-                toast('error', 'Erro de conexão ao processar o pagamento. Tente novamente.')
-              }
+                  .then(async res => {
+                    const data = await res.json()
+                    if (!res.ok) {
+                      toast('error', data.error ?? 'Não foi possível processar o pagamento')
+                      setProcessingPayment(false)
+                      reject(new Error(data.error ?? 'payment_failed'))
+                      return
+                    }
+                    setPaymentResult({ status: data.status, pix: data.pix ?? null })
+                    setProcessingPayment(false)
+                    resolve()
+                  })
+                  .catch(() => {
+                    toast('error', 'Erro de conexão ao processar o pagamento. Tente novamente.')
+                    setProcessingPayment(false)
+                    reject(new Error('network_error'))
+                  })
+              })
             }}
             onError={() => toast('error', 'Erro ao carregar o formulário de pagamento. Atualize a página.')}
           />
