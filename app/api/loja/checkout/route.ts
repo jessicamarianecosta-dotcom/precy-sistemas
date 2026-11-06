@@ -80,7 +80,7 @@ export async function POST(request: Request) {
   /* ── Revalidar produtos: publicados, ativos e da mesma empresa ── */
   const productIds = items.map(i => i.productId)
   const { data: products, error: productsError } = await (supabaseAdmin.from('products') as any)
-    .select('id, name, catalog_starting_price, catalog_promo_price, final_price')
+    .select('id, name, catalog_starting_price, catalog_promo_price, final_price, catalog_requires_customization')
     .in('id', productIds)
     .eq('company_id', companyId)
     .eq('is_published_catalog', true)
@@ -98,6 +98,11 @@ export async function POST(request: Request) {
     return [p.id, effectivePrice]
   }))
   const nameById = new Map(products.map((p: any) => [p.id, p.name as string]))
+  // Personalização é configurada por produto (nunca globalmente) — produto
+  // marcado como "não personalizado" nunca recebe art_origin/art_brief,
+  // mesmo que o client envie algo em itemsArt para ele (validação também
+  // no backend, não só na Etapa 2 do checkout).
+  const requiresCustomizationById = new Map(products.map((p: any) => [p.id, p.catalog_requires_customization !== false]))
 
   /* ── Revalidar variantes (estoque de variação é conceito separado do estoque
      de matéria-prima/BOM — nunca confiar em preço/label vindos do client) ── */
@@ -159,7 +164,8 @@ export async function POST(request: Request) {
     // revalidadas acima (mesma regra da exibição pública do produto).
     const optionAdjustments = (variant?.product_variant_option_values ?? []).map((ov: any) => ov.product_variation_options)
     const unitPrice = calcOptionsAdjustment(variantBasePrice, optionAdjustments).finalPrice
-    const art = itemsArt[itemKeyOf(i.productId, i.variantId)]
+    const requiresCustomization = requiresCustomizationById.get(i.productId) ?? true
+    const art = requiresCustomization ? itemsArt[itemKeyOf(i.productId, i.variantId)] : undefined
     const artOrigin = art?.origin === 'own' || art?.origin === 'lumilife' ? art.origin : null
     return {
       product_id: i.productId,
@@ -323,7 +329,8 @@ export async function POST(request: Request) {
   let anyArtProvided = false
 
   for (const row of insertedItems ?? []) {
-    const art = itemsArt[itemKeyOf(row.product_id, row.variant_id)]
+    const requiresCustomization = requiresCustomizationById.get(row.product_id) ?? true
+    const art = requiresCustomization ? itemsArt[itemKeyOf(row.product_id, row.variant_id)] : undefined
     if (!art?.origin) continue
 
     if (art.origin === 'own' && Array.isArray(art.ownFiles)) {
