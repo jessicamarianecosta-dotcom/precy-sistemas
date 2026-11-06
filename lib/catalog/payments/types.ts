@@ -19,6 +19,23 @@ export interface ChargeResult {
   status: 'pending' | 'paid'
 }
 
+/** Dados do cartão já tokenizado no frontend (Mercado Pago Payment Brick) —
+ *  nunca o número/CVV em si, só o token de uso único e o resultado da
+ *  seleção de parcelas feita pelo próprio Brick. */
+export interface CardChargeInput {
+  token: string
+  installments: number
+  paymentMethodId: string
+  issuerId?: string | null
+}
+
+export interface PaymentCreationResult {
+  ref: string
+  paymentId: string
+  status: 'pending' | 'paid' | 'failed'
+  statusDetail?: string | null
+}
+
 export interface PaymentWebhookEvent {
   ref: string
   status: 'paid' | 'failed' | 'pending'
@@ -42,7 +59,13 @@ export interface WebhookRequest {
 }
 
 export interface PaymentAdapter {
-  createCharge(order: CatalogOrderForCharge): Promise<ChargeResult>
+  /**
+   * Cria o pagamento via Pix ou cartão de crédito (tokenizado no frontend
+   * pelo Payment Brick do Mercado Pago). Única forma de cobrança do
+   * Catálogo Online — boleto, cartão pré-pago/débito e outros meios não são
+   * oferecidos (ver customization.paymentMethods no checkout da loja).
+   */
+  createPayment(order: CatalogOrderForCharge, method: 'pix' | 'card', card?: CardChargeInput): Promise<PaymentCreationResult>
   verifyWebhookSignature(req: WebhookRequest): boolean
   /**
    * Async porque alguns gateways (Mercado Pago) só mandam uma referência no

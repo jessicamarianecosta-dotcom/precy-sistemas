@@ -1,19 +1,21 @@
 import crypto from 'crypto'
-import type { PaymentAdapter, CatalogOrderForCharge, ChargeResult, PaymentWebhookEvent, WebhookRequest } from './types'
+import type { PaymentAdapter, CatalogOrderForCharge, CardChargeInput, PaymentCreationResult, PaymentWebhookEvent, WebhookRequest } from './types'
 
 /**
- * Integração real com o Mercado Pago via Checkout Pro (API de Preferências):
- * o cliente é redirecionado para uma página hospedada pelo Mercado Pago que
- * já oferece PIX, cartão e boleto automaticamente, sem precisar implementar
- * cada meio de pagamento separadamente. Lê MERCADOPAGO_ACCESS_TOKEN /
- * MERCADOPAGO_WEBHOOK_SECRET / MERCADOPAGO_BASE_URL de env.
+ * Integração real com o Mercado Pago via Payments API (/v1/payments) usada
+ * diretamente pelo Payment Brick do checkout da loja — sem redirecionar o
+ * cliente para fora do site. Só dois meios de pagamento são oferecidos: Pix
+ * e cartão de crédito (ver customization.paymentMethods no Brick, que já
+ * exclui boleto, cartão pré-pago/débito e saldo em conta Mercado Pago).
+ * Lê MERCADOPAGO_ACCESS_TOKEN / MERCADOPAGO_WEBHOOK_SECRET /
+ * MERCADOPAGO_BASE_URL de env.
  *
  * Endpoints e validação de assinatura conferidos contra a documentação
- * oficial (checkout/preferences, v1/payments, validação de x-signature via
- * manifest "id:...;request-id:...;ts:...;" com HMAC-SHA256). Os nomes de
- * campo da resposta de /checkout/preferences (init_point/sandbox_init_point)
- * seguem o contrato documentado publicamente — ainda assim, teste com uma
- * conta de teste do Mercado Pago antes de liberar pagamentos reais.
+ * oficial (v1/payments, validação de x-signature via manifest
+ * "id:...;request-id:...;ts:...;" com HMAC-SHA256, campos point_of_interaction
+ * .transaction_data.qr_code/qr_code_base64 da resposta de pagamento Pix) —
+ * ainda assim, teste com uma conta de teste do Mercado Pago antes de liberar
+ * pagamentos reais.
  */
 export interface MercadoPagoAdapterOptions {
   /** Access token da conexão OAuth da empresa (resolvido por lib/catalog/payments/index.ts). */
@@ -36,48 +38,87 @@ export class MercadoPagoAdapter implements PaymentAdapter {
     this.companyId = opts?.companyId
   }
 
-  async createCharge(order: CatalogOrderForCharge): Promise<ChargeResult> {
+  private statusMap: Record<string, PaymentCreationResult['status']> = {
+    approved: 'paid',
+    pending: 'pending',
+    in_process: 'pending',
+    in_mediation: 'pending',
+    authorized: 'pending',
+    rejected: 'failed',
+    cancelled: 'failed',
+    refunded: 'failed',
+    charged_back: 'failed',
+  }
+
+  /**
+   * Divide nome completo em first_name/last_name (exigidos pela API em
+   * alguns fluxos, ex: Pix) — aproximação razoável, o Mercado Pago não
+   * valida esses campos contra documento oficial.
+   */
+  private splitName(fullName: string): { firstName: string; lastName: string } {
+    const parts = fullName.trim().split(/\s+/)
+    return { firstName: parts[0] ?? fullName, lastName: parts.slice(1).join(' ') || parts[0] || fullName }
+  }
+
+  async createPayment(order: CatalogOrderForCharge, method: 'pix' | 'card', card?: CardChargeInput): Promise<PaymentCreationResult> {
     const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/$/, '')
     const notificationUrl = appUrl
       ? `${appUrl}/api/webhooks/mercadopago${this.companyId ? `?company_id=${encodeURIComponent(this.companyId)}` : ''}`
       : undefined
-    const returnUrl = appUrl && order.returnPath ? `${appUrl}${order.returnPath}` : undefined
 
-    const res = await fetch(`${this.baseUrl}/checkout/preferences`, {
+    const { firstName, lastName } = this.splitName(order.customerName)
+    const document = (order.customerDocument ?? '').replace(/\D/g, '')
+    const payer: Record<string, unknown> = {
+      email: order.customerEmail || undefined,
+      first_name: firstName,
+      last_name: lastName,
+    }
+    if (document) {
+      payer.identification = { type: document.length > 11 ? 'CNPJ' : 'CPF', number: document }
+    }
+
+    const body: Record<string, unknown> = {
+      transaction_amount: Math.round(order.amount * 100) / 100,
+      description: order.description,
+      external_reference: order.ref,
+      notification_url: notificationUrl,
+      payer,
+    }
+
+    if (method === 'pix') {
+      body.payment_method_id = 'pix'
+    } else {
+      if (!card) throw new Error('Dados do cartão ausentes')
+      body.token = card.token
+      body.installments = card.installments
+      body.payment_method_id = card.paymentMethodId
+      if (card.issuerId) body.issuer_id = card.issuerId
+    }
+
+    const res = await fetch(`${this.baseUrl}/v1/payments`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.accessToken}`,
+        // Chave de idempotência — a mesma compra (checkoutRef) nunca gera
+        // dois pagamentos mesmo que a requisição seja reenviada.
+        'X-Idempotency-Key': order.ref,
       },
-      body: JSON.stringify({
-        items: [{
-          title: order.description,
-          quantity: 1,
-          unit_price: Math.round(order.amount * 100) / 100,
-          currency_id: 'BRL',
-        }],
-        payer: (order.customerName || order.customerEmail)
-          ? { name: order.customerName, email: order.customerEmail ?? undefined }
-          : undefined,
-        external_reference: order.ref,
-        notification_url: notificationUrl,
-        ...(returnUrl ? { back_urls: { success: returnUrl, pending: returnUrl, failure: returnUrl }, auto_return: 'approved' } : {}),
-      }),
+      body: JSON.stringify(body),
     })
 
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '')
-      throw new Error(`Mercado Pago: falha ao criar preferência de pagamento (${res.status}) ${errBody}`.trim())
+    const data = await res.json().catch(() => null)
+    if (!res.ok || !data) {
+      const detail = data?.message ?? data?.cause?.[0]?.description ?? (await res.text().catch(() => ''))
+      throw new Error(`Mercado Pago: falha ao criar pagamento (${res.status}) ${detail}`.trim())
     }
 
-    const data = await res.json()
-    const isProd = process.env.VERCEL_ENV === 'production'
-    // Em produção usa init_point (credencial real); fora de produção prefere
-    // sandbox_init_point (credencial de teste), caindo para init_point se o
-    // Mercado Pago não devolver um sandbox (ex: credencial já é de produção).
-    const redirectUrl = isProd ? data.init_point : (data.sandbox_init_point ?? data.init_point)
-
-    return { ref: order.ref, redirectUrl, status: 'pending' }
+    return {
+      ref: order.ref,
+      paymentId: String(data.id),
+      status: this.statusMap[String(data.status ?? '').toLowerCase()] ?? 'pending',
+      statusDetail: data.status_detail ?? null,
+    }
   }
 
   verifyWebhookSignature(req: WebhookRequest): boolean {
@@ -129,20 +170,9 @@ export class MercadoPagoAdapter implements PaymentAdapter {
     }
     const payment = await res.json()
 
-    const statusMap: Record<string, PaymentWebhookEvent['status']> = {
-      approved: 'paid',
-      pending: 'pending',
-      in_process: 'pending',
-      in_mediation: 'pending',
-      rejected: 'failed',
-      cancelled: 'failed',
-      refunded: 'failed',
-      charged_back: 'failed',
-    }
-
     return {
       ref: payment.external_reference ?? '',
-      status: statusMap[String(payment.status ?? '').toLowerCase()] ?? 'pending',
+      status: this.statusMap[String(payment.status ?? '').toLowerCase()] ?? 'pending',
       amount: Number(payment.transaction_amount ?? 0),
       paymentMethod: payment.payment_method_id ?? payment.payment_type_id ?? null,
       raw: payment,

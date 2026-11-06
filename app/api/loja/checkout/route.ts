@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { getPaymentAdapterForCompany } from '@/lib/catalog/payments'
+import { getPaymentAdapterForCompany, isMockAdapter } from '@/lib/catalog/payments'
 import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
 import { cleanObservation } from '@/lib/catalog/observation'
@@ -44,12 +44,31 @@ export async function POST(request: Request) {
   const shippingService: string | null = body?.shippingService ? String(body.shippingService) : null
   const shippingCep: string = String(body?.shippingCep ?? '').replace(/\D/g, '')
   const artwork = body?.artwork ?? null
+  // Único meio de cobrança online do Catálogo: Pix ou cartão de crédito,
+  // cobrados via Payment Brick embutido no checkout da loja (sem boleto,
+  // cartão pré-pago/débito ou outro meio — ver customization.paymentMethods
+  // no frontend). 'card' chega com o token já gerado pelo Brick.
+  const paymentMethod: 'pix' | 'card' | null = fulfillment === 'online'
+    ? (body?.paymentMethod === 'card' ? 'card' : body?.paymentMethod === 'pix' ? 'pix' : null)
+    : null
+  const card = body?.card ?? null
 
   if (!slug || items.length === 0) {
     return NextResponse.json({ error: 'Dados insuficientes para finalizar o pedido' }, { status: 400 })
   }
   if (!customer.name || !customer.phone) {
     return NextResponse.json({ error: 'Nome e telefone são obrigatórios' }, { status: 400 })
+  }
+  if (fulfillment === 'online') {
+    if (!paymentMethod) {
+      return NextResponse.json({ error: 'Escolha Pix ou cartão de crédito para pagar pelo site' }, { status: 400 })
+    }
+    if (!String(customer.cpfCnpj ?? '').replace(/\D/g, '')) {
+      return NextResponse.json({ error: 'Informe seu CPF/CNPJ para pagar pelo site' }, { status: 400 })
+    }
+    if (paymentMethod === 'card' && !card?.token) {
+      return NextResponse.json({ error: 'Dados do cartão inválidos' }, { status: 400 })
+    }
   }
 
   const companyId = await resolveStoreCompanyId(slug)
@@ -308,20 +327,44 @@ export async function POST(request: Request) {
     return NextResponse.json({ orderId: order.id, orderNumber: order.order_number, fulfillment: 'whatsapp' })
   }
 
-  /* ── Criar cobrança no adapter de pagamento (Mercado Pago ou mock) ── */
+  /* ── Criar cobrança no adapter de pagamento (Mercado Pago ou mock) ──
+     'card' sempre chega com token de uso único já gerado pelo Payment Brick
+     no navegador do cliente — nunca número/CVV do cartão em si, e nada disso
+     é persistido no banco. ── */
   try {
     const adapter = await getPaymentAdapterForCompany(companyId)
-    const charge = await adapter.createCharge({
-      ref: checkoutRef,
-      amount: total,
-      customerName: customer.name,
-      customerDocument: customer.cpfCnpj ?? null,
-      customerPhone: phone,
-      customerEmail: customer.email || null,
-      description: `Pedido ${order.order_number} — Catálogo Online`,
-      returnPath: `/loja/${slug}/pedido/${checkoutRef}`,
+
+    if (isMockAdapter(adapter)) {
+      // Sem credenciais reais não há paymentId do Mercado Pago para montar
+      // o Brick de status — o frontend cai na simulação de pagamento.
+      return NextResponse.json({ orderId: order.id, orderNumber: order.order_number, checkoutRef, mock: true })
+    }
+
+    const payment = await adapter.createPayment(
+      {
+        ref: checkoutRef,
+        amount: total,
+        customerName: customer.name,
+        customerDocument: customer.cpfCnpj ?? null,
+        customerPhone: phone,
+        customerEmail: customer.email || null,
+        description: `Pedido ${order.order_number} — Catálogo Online`,
+        returnPath: `/loja/${slug}/pedido/${checkoutRef}`,
+      },
+      paymentMethod!,
+      paymentMethod === 'card'
+        ? { token: card.token, installments: Number(card.installments) || 1, paymentMethodId: card.paymentMethodId, issuerId: card.issuerId ?? null }
+        : undefined
+    )
+
+    return NextResponse.json({
+      orderId: order.id,
+      orderNumber: order.order_number,
+      checkoutRef,
+      paymentId: payment.paymentId,
+      status: payment.status,
+      statusDetail: payment.statusDetail,
     })
-    return NextResponse.json({ orderId: order.id, orderNumber: order.order_number, checkoutRef, ...charge })
   } catch (err: any) {
     return NextResponse.json({ error: err?.message ?? 'Erro ao iniciar pagamento' }, { status: 502 })
   }

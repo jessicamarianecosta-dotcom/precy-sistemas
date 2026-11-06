@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { clsx } from 'clsx'
 import { useParams, useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
@@ -13,6 +14,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { StoreThemeRoot } from '@/components/catalog/storefront/StoreThemeRoot'
 import { StoreHeader } from '@/components/catalog/storefront/StoreHeader'
+import { MercadoPagoPaymentBrick, type BrickPaymentSubmission, type BrickPaymentResult } from '@/components/catalog/storefront/MercadoPagoPaymentBrick'
 import { useProductFavorites } from '@/lib/catalog/useProductFavorites'
 import { resolvePalettes } from '@/lib/catalog/theme/palette'
 import { OBSERVATION_MAX, cleanObservation } from '@/lib/catalog/observation'
@@ -43,15 +45,19 @@ export default function CheckoutLojaPage() {
   // Sem conexão Mercado Pago ativa da empresa, "Finalizar pelo site" não tem
   // como cobrar nada — nem mostramos o botão, igual já acontece hoje para
   // produtos em modo "quote" (ver app/loja/[slug]/produto/[productId]/page.tsx).
-  const { data: onlinePaymentAvailable, isLoading: loadingOnlinePayment } = useQuery<boolean>({
+  // A publicKey (da própria conta MP da empresa) é o que permite montar o
+  // Payment Brick com segurança no navegador do cliente.
+  const { data: onlinePayment, isLoading: loadingOnlinePayment } = useQuery<{ available: boolean; publicKey: string | null }>({
     queryKey: ['loja-checkout-pagamento-online', slug],
     queryFn: async () => {
       const res = await fetch(`/api/loja/pagamento-online?slug=${encodeURIComponent(slug)}`)
-      if (!res.ok) return false
+      if (!res.ok) return { available: false, publicKey: null }
       const data = await res.json()
-      return !!data.available
+      return { available: !!data.available, publicKey: data.publicKey ?? null }
     },
   })
+  const onlinePaymentAvailable = !!(onlinePayment?.available && onlinePayment?.publicKey)
+  const [showPaymentBrick, setShowPaymentBrick] = useState(false)
 
   const [customer, setCustomer] = useState({
     name: '', phone: '', email: '', cpfCnpj: '',
@@ -130,40 +136,32 @@ export default function CheckoutLojaPage() {
     return lines.join('\n')
   }
 
-  async function submitOrder(fulfillment: 'online' | 'whatsapp') {
+  async function uploadArtworkIfAny() {
+    if (!artworkFile) return null
+    const body = new FormData()
+    body.append('file', artworkFile)
+    body.append('slug', slug)
+    const res = await fetch('/api/loja/upload-arte', { method: 'POST', body })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error ?? 'Erro ao enviar arte')
+    return { url: data.url, path: data.path, fileName: data.fileName, fileSize: data.fileSize, mimeType: data.mimeType }
+  }
+
+  async function submitOrder(fulfillment: 'whatsapp') {
     if (items.length === 0) { toast('error', 'Seu carrinho está vazio'); return }
     if (!customer.name || !customer.phone) { toast('error', 'Nome e telefone são obrigatórios'); return }
-    if (fulfillment === 'online' && !onlinePaymentAvailable) {
-      toast('error', 'Pagamento pelo site indisponível nesta loja — finalize pelo WhatsApp.')
-      return
-    }
-    if (fulfillment === 'online' && !customer.email) { toast('error', 'Informe seu e-mail para receber a confirmação do pagamento'); return }
-    if (fulfillment === 'whatsapp' && !storeWhatsapp) { toast('error', 'Esta loja não configurou um WhatsApp para atendimento.'); return }
-    if (fulfillment === 'online' && !shipping) { toast('error', 'Calcule e escolha o frete antes de finalizar'); return }
+    if (!storeWhatsapp) { toast('error', 'Esta loja não configurou um WhatsApp para atendimento.'); return }
 
     setSubmitting(true)
     setSubmittingVia(fulfillment)
     try {
-      let artwork: { url: string; path: string; fileName: string; fileSize: number; mimeType: string | null } | null = null
-      if (artworkFile) {
-        const body = new FormData()
-        body.append('file', artworkFile)
-        body.append('slug', slug)
-        const res = await fetch('/api/loja/upload-arte', { method: 'POST', body })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error ?? 'Erro ao enviar arte')
-        artwork = { url: data.url, path: data.path, fileName: data.fileName, fileSize: data.fileSize, mimeType: data.mimeType }
-      }
-
+      const artwork = await uploadArtworkIfAny()
       const res = await fetch('/api/loja/checkout', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           slug,
           items: items.map(i => ({ productId: i.productId, variantId: i.variantId ?? null, quantity: i.quantity, notes: i.notes ?? null })),
           customer,
-          // O preço do frete NUNCA é enviado — o servidor recota a mesma
-          // modalidade escolhida (shippingService) a partir do CEP e dos
-          // produtos reais antes de cobrar (ver /api/loja/checkout).
           shippingService: shipping?.service ?? null,
           shippingCep: customer.cep ? customer.cep.replace(/\D/g, '') : null,
           artwork,
@@ -171,41 +169,74 @@ export default function CheckoutLojaPage() {
         }),
       })
       const data = await res.json().catch(() => null)
-      if (!res.ok) {
-        throw new Error(
-          data?.error ??
-          (fulfillment === 'online'
-            ? 'Não foi possível iniciar o pagamento. Tente novamente ou finalize pelo WhatsApp.'
-            : 'Erro ao finalizar pedido')
-        )
-      }
+      if (!res.ok) throw new Error(data?.error ?? 'Erro ao finalizar pedido')
       if (!data) throw new Error('Resposta inesperada do servidor. Tente novamente.')
 
-      if (fulfillment === 'whatsapp') {
-        // Abrir o WhatsApp não significa que a mensagem foi enviada nem que o
-        // pedido foi pago — ele continua "pending" até o lojista confirmar
-        // manualmente no painel. Só o carrinho é limpo aqui.
-        const message = buildWhatsappMessage(data.orderNumber)
-        window.open(`https://wa.me/${storeWhatsapp!.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank', 'noreferrer')
-        clear()
-        toast('success', `Pedido ${data.orderNumber} criado! Continue pelo WhatsApp.`)
-        router.push(`/loja/${slug}`)
-        return
-      }
-
+      // Abrir o WhatsApp não significa que a mensagem foi enviada nem que o
+      // pedido foi pago — ele continua "pending" até o lojista confirmar
+      // manualmente no painel. Só o carrinho é limpo aqui.
+      const message = buildWhatsappMessage(data.orderNumber)
+      window.open(`https://wa.me/${storeWhatsapp!.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank', 'noreferrer')
       clear()
-      if (data.redirectUrl) {
-        window.location.href = data.redirectUrl
-      } else {
-        toast('success', `Pedido ${data.orderNumber} criado!`)
-        router.push(`/loja/${slug}/pedido/${data.checkoutRef}`)
-      }
+      toast('success', `Pedido ${data.orderNumber} criado! Continue pelo WhatsApp.`)
+      router.push(`/loja/${slug}`)
     } catch (err: any) {
       toast('error', err.message)
     } finally {
       setSubmitting(false)
       setSubmittingVia(null)
     }
+  }
+
+  function startOnlinePayment() {
+    if (items.length === 0) { toast('error', 'Seu carrinho está vazio'); return }
+    if (!customer.name || !customer.phone) { toast('error', 'Nome e telefone são obrigatórios'); return }
+    if (!customer.email) { toast('error', 'Informe seu e-mail para receber a confirmação do pagamento'); return }
+    if (!shipping) { toast('error', 'Calcule e escolha o frete antes de finalizar'); return }
+    setShowPaymentBrick(true)
+  }
+
+  /** Chamado pelo Payment Brick ao enviar Pix ou cartão (token já gerado por
+   *  ele) — cria o pedido e a cobrança de verdade no Mercado Pago. */
+  async function createOnlineOrder(payment: BrickPaymentSubmission): Promise<BrickPaymentResult> {
+    const artwork = await uploadArtworkIfAny()
+    const res = await fetch('/api/loja/checkout', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        slug,
+        items: items.map(i => ({ productId: i.productId, variantId: i.variantId ?? null, quantity: i.quantity, notes: i.notes ?? null })),
+        customer: { ...customer, email: payment.payerEmail || customer.email, cpfCnpj: payment.docNumber || customer.cpfCnpj },
+        // O preço do frete NUNCA é enviado — o servidor recota a mesma
+        // modalidade escolhida (shippingService) a partir do CEP e dos
+        // produtos reais antes de cobrar (ver /api/loja/checkout).
+        shippingService: shipping?.service ?? null,
+        shippingCep: customer.cep ? customer.cep.replace(/\D/g, '') : null,
+        artwork,
+        fulfillment: 'online',
+        paymentMethod: payment.method,
+        card: payment.method === 'card'
+          ? { token: payment.token, installments: payment.installments, paymentMethodId: payment.paymentMethodId, issuerId: payment.issuerId }
+          : undefined,
+      }),
+    })
+    const data = await res.json().catch(() => null)
+    if (!res.ok || !data) throw new Error(data?.error ?? 'Não foi possível iniciar o pagamento. Tente novamente ou finalize pelo WhatsApp.')
+
+    if (data.mock) {
+      // Sem credenciais reais do Mercado Pago (ambiente de desenvolvimento) —
+      // cai na página de simulação em vez de montar o Status Screen Brick.
+      clear()
+      window.location.href = `/loja/pagamento-mock?ref=${encodeURIComponent(data.checkoutRef)}`
+      return new Promise<BrickPaymentResult>(() => {})
+    }
+
+    return { checkoutRef: data.checkoutRef, orderNumber: data.orderNumber, paymentId: data.paymentId, status: data.status, statusDetail: data.statusDetail }
+  }
+
+  function handlePaymentConfirmed(checkoutRef: string, orderNumber: string) {
+    clear()
+    toast('success', `Pedido ${orderNumber} confirmado!`)
+    router.push(`/loja/${slug}/pedido/${checkoutRef}`)
   }
 
   return (
@@ -272,8 +303,8 @@ export default function CheckoutLojaPage() {
               })}
             </div>
 
-            <form onSubmit={e => { e.preventDefault(); submitOrder('online') }} className="space-y-4">
-              <div className="card p-4 space-y-3">
+            <div className="space-y-4">
+              <div className={clsx('card p-4 space-y-3', showPaymentBrick && 'opacity-60 pointer-events-none')}>
                 <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Seus dados</h3>
                 <input required className="input" placeholder="Nome completo" value={customer.name} onChange={e => setCustomer({ ...customer, name: e.target.value })} />
                 <div className="grid grid-cols-2 gap-2">
@@ -339,36 +370,53 @@ export default function CheckoutLojaPage() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                {!loadingOnlinePayment && onlinePaymentAvailable && (
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold disabled:opacity-50 transition-opacity hover:opacity-90"
-                    style={{ backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }}
-                  >
-                    {submittingVia === 'online' && <Loader2 size={15} className="animate-spin" />}
-                    Finalizar pelo site
-                  </button>
-                )}
-                {storeWhatsapp && (
-                  <button
-                    type="button"
-                    disabled={submitting}
-                    onClick={() => submitOrder('whatsapp')}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold border-2 border-[#25D366] text-[#25D366] hover:bg-[#25D366]/10 transition-colors disabled:opacity-50"
-                  >
-                    {submittingVia === 'whatsapp' ? <Loader2 size={15} className="animate-spin" /> : <MessageCircle size={16} />}
-                    Finalizar pelo WhatsApp
-                  </button>
-                )}
-                {!loadingOnlinePayment && onlinePaymentAvailable && (
-                  <p className="text-[11px] text-text-muted text-center">
-                    Pelo site, o pagamento é confirmado automaticamente. Pelo WhatsApp, você combina o pagamento direto com a loja.
-                  </p>
-                )}
-              </div>
-            </form>
+              {showPaymentBrick && onlinePayment?.publicKey ? (
+                <div className="card p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Pagamento</h3>
+                    <button type="button" onClick={() => setShowPaymentBrick(false)} className="text-xs font-semibold text-text-muted hover:text-[var(--store-primary)]">
+                      Voltar
+                    </button>
+                  </div>
+                  <MercadoPagoPaymentBrick
+                    publicKey={onlinePayment.publicKey}
+                    amount={total + (shipping?.price ?? 0)}
+                    payerEmail={customer.email}
+                    onSubmitPayment={createOnlineOrder}
+                    onConfirmed={handlePaymentConfirmed}
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {!loadingOnlinePayment && onlinePaymentAvailable && (
+                    <button
+                      type="button"
+                      onClick={startOnlinePayment}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold transition-opacity hover:opacity-90"
+                      style={{ backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }}
+                    >
+                      Finalizar pelo site — Pix ou cartão de crédito
+                    </button>
+                  )}
+                  {storeWhatsapp && (
+                    <button
+                      type="button"
+                      disabled={submitting}
+                      onClick={() => submitOrder('whatsapp')}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold border-2 border-[#25D366] text-[#25D366] hover:bg-[#25D366]/10 transition-colors disabled:opacity-50"
+                    >
+                      {submittingVia === 'whatsapp' ? <Loader2 size={15} className="animate-spin" /> : <MessageCircle size={16} />}
+                      Finalizar pelo WhatsApp
+                    </button>
+                  )}
+                </div>
+              )}
+              {!loadingOnlinePayment && onlinePaymentAvailable && !showPaymentBrick && (
+                <p className="text-[11px] text-text-muted text-center">
+                  Pelo site, o pagamento é confirmado automaticamente por Pix ou cartão de crédito. Pelo WhatsApp, você combina o pagamento direto com a loja.
+                </p>
+              )}
+            </div>
           </div>
         )}
       </div>

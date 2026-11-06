@@ -3,7 +3,14 @@ import { MercadoPagoAdapter } from './mercadopago'
 import { getActiveConnectionAccessToken } from './mercadopagoConnection'
 import type { PaymentAdapter } from './types'
 
-export type { PaymentAdapter, CatalogOrderForCharge, ChargeResult, PaymentWebhookEvent, WebhookRequest } from './types'
+export type { PaymentAdapter, CatalogOrderForCharge, CardChargeInput, PaymentCreationResult, PaymentWebhookEvent, WebhookRequest } from './types'
+
+/** Verdadeiro quando o adapter resolvido é o de desenvolvimento (sem
+ *  credenciais reais) — usado pelo checkout da loja para decidir entre
+ *  montar os Bricks reais do Mercado Pago ou cair na página de simulação. */
+export function isMockAdapter(adapter: PaymentAdapter): boolean {
+  return adapter instanceof MockPaymentAdapter
+}
 
 /**
  * Modo mock explícito (MERCADOPAGO_MODE=mock) ou implícito (sem token
@@ -35,7 +42,7 @@ export function getPaymentAdapter(): PaymentAdapter {
  * Modelo Marketplace: cada empresa cobra na PRÓPRIA conta do Mercado Pago,
  * conectada via OAuth em Catálogo > Pagamentos (mercadopago_connections).
  * Usada pelo checkout real e pelo webhook (que roteia por ?company_id= no
- * notification_url — ver MercadoPagoAdapter.createCharge).
+ * notification_url — ver MercadoPagoAdapter.createPayment).
  *
  * Nunca cai silenciosamente no MERCADOPAGO_ACCESS_TOKEN global como
  * fallback: sem conexão própria, falha explicitamente (mesma postura do
