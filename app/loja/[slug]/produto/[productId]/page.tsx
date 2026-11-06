@@ -87,7 +87,13 @@ export default function ProdutoLojaPage() {
   }
 
   const { data: settings, isLoading: loadingSettings } = useQuery<(StorefrontSettings & { checkout_mode: 'buy' | 'quote'; companies: { name: string } | null }) | null>({
-    queryKey: ['loja-settings', slug],
+    // Chave própria (NÃO 'loja-settings', usada por app/loja/[slug]/page.tsx):
+    // aquela página busca um conjunto de colunas menor, sem `checkout_mode`.
+    // Com a mesma chave, navegar da loja para o produto reaproveitava esse
+    // cache incompleto (checkout_mode undefined) até o usuário atualizar a
+    // página manualmente — o botão caía sempre em "Solicitar orçamento"
+    // mesmo com a loja configurada em modo "buy".
+    queryKey: ['loja-product-page-settings', slug],
     queryFn: async () => {
       // Antes isto engolia qualquer erro (sempre devolvia `data ?? null`, nunca
       // olhava `error`) — uma falha de rede silenciosa fazia `settings` ficar
