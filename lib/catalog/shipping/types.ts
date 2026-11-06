@@ -7,7 +7,14 @@ export interface ShippingItem {
 }
 
 export interface ShippingQuote {
+  /** Código do serviço na SuperFrete (ex.: 1 = PAC, 2 = SEDEX). */
+  serviceId?: number
+  /** Nome do serviço/modalidade (ex.: "PAC", "SEDEX", "Mini Envios"). */
   service: string
+  /** Nome da transportadora (ex.: "Correios", "Jadlog", "Loggi"). */
+  carrier?: string | null
+  /** URL do logo da transportadora, quando a API devolve um. */
+  carrierLogo?: string | null
   price: number
   days: number
 }

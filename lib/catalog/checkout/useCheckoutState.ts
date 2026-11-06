@@ -38,8 +38,10 @@ export type FulfillmentMethod = 'shipping' | 'pickup'
 export type PickupChoice = 'self' | 'uber_flash'
 
 export interface CheckoutShippingSelection {
+  serviceId?: number
   service: string
   carrier?: string | null
+  carrierLogo?: string | null
   price: number
   days: number
 }

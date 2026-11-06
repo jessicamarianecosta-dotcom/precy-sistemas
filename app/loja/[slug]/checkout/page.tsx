@@ -17,6 +17,7 @@ import { useCheckoutState, CHECKOUT_STEPS, type CheckoutStep } from '@/lib/catal
 import { StepIndicator } from '@/components/catalog/checkout/StepIndicator'
 import { StepCadastro } from '@/components/catalog/checkout/steps/StepCadastro'
 import { StepProdutoArte } from '@/components/catalog/checkout/steps/StepProdutoArte'
+import { StepEntrega } from '@/components/catalog/checkout/steps/StepEntrega'
 
 /**
  * Checkout da loja — reformulado em 4 etapas (Cadastro / Produto e arte /
@@ -34,11 +35,11 @@ export default function CheckoutLojaPage() {
   const { items, updateQty, updateNotes, removeItem, total, clear } = useCart(slug)
   const checkout = useCheckoutState(slug)
 
-  const { data: storeSettings } = useQuery<{ whatsapp: string | null; logo_url: string | null; theme_color: string; theme_palette: import('@/lib/catalog/theme/palette').StoreThemePalettes | null; companies: { name: string } | null } | null>({
+  const { data: storeSettings } = useQuery<{ whatsapp: string | null; logo_url: string | null; theme_color: string; theme_palette: import('@/lib/catalog/theme/palette').StoreThemePalettes | null; address: string | null; city: string | null; state: string | null; companies: { name: string } | null } | null>({
     queryKey: ['loja-checkout-settings', slug],
     queryFn: async () => {
       const { data, error } = await (supabase.from('catalog_settings') as any)
-        .select('whatsapp, logo_url, theme_color, theme_palette, companies(name)').eq('slug', slug).maybeSingle()
+        .select('whatsapp, logo_url, theme_color, theme_palette, address, city, state, companies(name)').eq('slug', slug).maybeSingle()
       if (error) throw error
       return data ?? null
     },
@@ -63,7 +64,7 @@ export default function CheckoutLojaPage() {
   })
 
   const customer = checkout.customer
-  const [shippingOptions, setShippingOptions] = useState<{ service: string; price: number; days: number }[]>([])
+  const [shippingOptions, setShippingOptions] = useState<import('@/lib/catalog/checkout/useCheckoutState').CheckoutShippingSelection[]>([])
   const [calculatingShipping, setCalculatingShipping] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submittingVia, setSubmittingVia] = useState<'online' | 'whatsapp' | null>(null)
@@ -125,7 +126,8 @@ export default function CheckoutLojaPage() {
     }
     if (fulfillment === 'online' && !customer.email) { toast('error', 'Informe seu e-mail para receber a confirmação do pagamento'); return }
     if (fulfillment === 'whatsapp' && !storeWhatsapp) { toast('error', 'Esta loja não configurou um WhatsApp para atendimento.'); return }
-    if (fulfillment === 'online' && !shipping) { toast('error', 'Calcule e escolha o frete antes de finalizar'); return }
+    if (fulfillment === 'online' && checkout.fulfillmentMethod === 'shipping' && !shipping) { toast('error', 'Calcule e escolha o frete antes de finalizar'); return }
+    if (fulfillment === 'online' && checkout.fulfillmentMethod === 'pickup' && !checkout.pickupChoice) { toast('error', 'Escolha como você vai retirar o pedido'); return }
 
     setSubmitting(true)
     setSubmittingVia(fulfillment)
@@ -140,11 +142,14 @@ export default function CheckoutLojaPage() {
           // arquivos (ownFiles/referenceFiles) já têm url/path do Storage,
           // só o briefing e as referências são relidos aqui pelo servidor.
           itemsArt: checkout.itemsArt,
+          fulfillmentMethod: checkout.fulfillmentMethod,
+          pickupChoice: checkout.pickupChoice,
           // O preço do frete NUNCA é enviado — o servidor recota a mesma
           // modalidade escolhida (shippingService) a partir do CEP e dos
-          // produtos reais antes de cobrar (ver /api/loja/checkout).
-          shippingService: shipping?.service ?? null,
-          shippingCep: customer.cep ? customer.cep.replace(/\D/g, '') : null,
+          // produtos reais antes de cobrar (ver /api/loja/checkout). Sem
+          // efeito quando fulfillmentMethod = pickup (retirada é grátis).
+          shippingService: checkout.fulfillmentMethod === 'shipping' ? (shipping?.service ?? null) : null,
+          shippingCep: checkout.fulfillmentMethod === 'shipping' && customer.cep ? customer.cep.replace(/\D/g, '') : null,
           fulfillment,
         }),
       })
@@ -234,33 +239,37 @@ export default function CheckoutLojaPage() {
               />
             )}
 
-            {(checkout.step === 'entrega' || checkout.step === 'pagamento') && (
+            {checkout.step === 'entrega' && (
+              <StepEntrega
+                customer={customer}
+                onChangeCustomer={checkout.patchCustomer}
+                fulfillmentMethod={checkout.fulfillmentMethod}
+                pickupChoice={checkout.pickupChoice}
+                onSetFulfillment={checkout.setFulfillment}
+                shipping={shipping}
+                shippingOptions={shippingOptions}
+                calculating={calculatingShipping}
+                onCalcShipping={calcShipping}
+                onSelectShipping={checkout.setShipping}
+                storeAddress={{ address: storeSettings?.address ?? null, city: storeSettings?.city ?? null, state: storeSettings?.state ?? null }}
+                onNext={checkout.goNext}
+              />
+            )}
+
+            {checkout.step === 'pagamento' && (
           <div className="space-y-5">
             <form onSubmit={e => { e.preventDefault(); submitOrder('online') }} className="space-y-4">
               <div className="card p-4 space-y-3">
-                <h3 className="text-sm font-semibold" style={{ color: 'var(--store-text)' }}>Entrega</h3>
-                <div className="flex gap-2">
-                  <input
-                    className="input flex-1" placeholder="CEP" value={customer.cep}
-                    onChange={e => checkout.patchCustomer({ cep: e.target.value })}
-                  />
-                  <button type="button" onClick={calcShipping} disabled={calculatingShipping} className="btn-secondary whitespace-nowrap">
-                    {calculatingShipping ? <Loader2 size={15} className="animate-spin" /> : 'Calcular frete'}
-                  </button>
-                </div>
-                {shippingOptions.length > 0 && (
-                  <div className="space-y-1.5">
-                    {shippingOptions.map(opt => (
-                      <label key={opt.service} className="flex items-center justify-between text-sm p-2 rounded-lg border border-border dark:border-border-dark cursor-pointer">
-                        <span className="flex items-center gap-2">
-                          <input type="radio" name="shipping" checked={shipping?.service === opt.service} onChange={() => checkout.setShipping(opt)} />
-                          {opt.service} · {opt.days} dia(s)
-                        </span>
-                        <span className="font-semibold">{formatCurrency(opt.price)}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--store-text)' }}>Resumo da entrega</h3>
+                {checkout.fulfillmentMethod === 'pickup' ? (
+                  <p className="text-sm" style={{ color: 'var(--store-text-secondary)' }}>
+                    Retirada no local — Grátis · {checkout.pickupChoice === 'uber_flash' ? 'Você enviará um entregador' : 'Você retirará pessoalmente'}
+                  </p>
+                ) : shipping ? (
+                  <p className="text-sm" style={{ color: 'var(--store-text-secondary)' }}>
+                    {shipping.carrier ? `${shipping.carrier} · ` : ''}{shipping.service} · {shipping.days} dia(s) · {formatCurrency(shipping.price)}
+                  </p>
+                ) : null}
                 <textarea className="input" rows={2} placeholder="Observações (opcional)" value={customer.notes} onChange={e => checkout.patchCustomer({ notes: e.target.value })} />
               </div>
 
@@ -269,10 +278,10 @@ export default function CheckoutLojaPage() {
                   <span>Subtotal</span><span>{formatCurrency(total)}</span>
                 </div>
                 <div className="flex justify-between text-sm text-text-secondary dark:text-stone-400">
-                  <span>Frete</span><span>{formatCurrency(shipping?.price ?? 0)}</span>
+                  <span>Frete</span><span>{formatCurrency(checkout.fulfillmentMethod === 'pickup' ? 0 : (shipping?.price ?? 0))}</span>
                 </div>
                 <div className="flex justify-between text-base font-bold text-text-primary dark:text-stone-100 pt-1.5 border-t border-border dark:border-border-dark">
-                  <span>Total</span><span>{formatCurrency(total + (shipping?.price ?? 0))}</span>
+                  <span>Total</span><span>{formatCurrency(total + (checkout.fulfillmentMethod === 'pickup' ? 0 : (shipping?.price ?? 0)))}</span>
                 </div>
               </div>
 

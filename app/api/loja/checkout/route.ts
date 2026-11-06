@@ -56,6 +56,10 @@ export async function POST(request: Request) {
   // dimensões reais dos produtos antes de cobrar qualquer coisa.
   const shippingService: string | null = body?.shippingService ? String(body.shippingService) : null
   const shippingCep: string = String(body?.shippingCep ?? '').replace(/\D/g, '')
+  // Entrega por transportadora ou retirada no local (grátis, sem exigir
+  // endereço de entrega nem cotação de frete).
+  const fulfillmentMethod: 'shipping' | 'pickup' = body?.fulfillmentMethod === 'pickup' ? 'pickup' : 'shipping'
+  const pickupChoice: 'self' | 'uber_flash' | null = body?.pickupChoice === 'uber_flash' ? 'uber_flash' : body?.pickupChoice === 'self' ? 'self' : null
   // Arte por item (Etapa 2 do checkout) — nunca um upload único por pedido:
   // cada item do carrinho tem sua própria origem de arte, arquivos e
   // briefing, indexados pela mesma chave do carrinho no client
@@ -191,7 +195,7 @@ export async function POST(request: Request) {
      lojista combina a entrega direto com o cliente). ── */
   let shippingPrice = 0
   let shippingDays: number | null = null
-  if (fulfillment === 'online') {
+  if (fulfillment === 'online' && fulfillmentMethod === 'shipping') {
     if (!shippingService || shippingCep.length !== 8) {
       return NextResponse.json({ error: 'Calcule e escolha uma opção de frete antes de finalizar' }, { status: 400 })
     }
@@ -294,6 +298,8 @@ export async function POST(request: Request) {
       delivery_state: customer.state || null,
       shipping_service: shippingService,
       shipping_days: shippingDays,
+      fulfillment_method: fulfillmentMethod,
+      pickup_choice: fulfillmentMethod === 'pickup' ? pickupChoice : null,
     }])
     .select('id, order_number')
     .single()
