@@ -77,6 +77,42 @@ export function buildOrderReadyMessage(data: WhatsappOrderNotifyData): string {
   return lines.join('\n')
 }
 
+export interface WhatsappArtProposalsData {
+  customerName: string
+  orderNumber: string | null
+  itemName: string
+}
+
+/** Mensagem avisando que as 3 propostas de arte foram enviadas (deixa explícito o limite de alterações). */
+export function buildArtProposalsSentMessage(data: WhatsappArtProposalsData): string {
+  const lines: string[] = []
+  lines.push(`${EMOJI.smile} Olá, ${data.customerName}!`)
+  lines.push('')
+  lines.push(`Preparamos 3 propostas de arte para "${data.itemName}" (pedido #${data.orderNumber || '—'}).`)
+  lines.push('')
+  lines.push('Dá uma olhada e nos diga qual você prefere. Depois de escolhida, você tem direito a até 3 alterações gratuitas nessa proposta escolhida.')
+  lines.push('')
+  lines.push('Aguardamos seu retorno!')
+  return lines.join('\n')
+}
+
+export interface WhatsappArtApprovedData {
+  customerName: string
+  orderNumber: string | null
+  itemName: string
+}
+
+/** Mensagem avisando que a arte foi aprovada e o pedido já foi liberado para produção. */
+export function buildArtApprovedMessage(data: WhatsappArtApprovedData): string {
+  const lines: string[] = []
+  lines.push(`${EMOJI.smile} Olá, ${data.customerName}!`)
+  lines.push('')
+  lines.push(`A arte de "${data.itemName}" (pedido #${data.orderNumber || '—'}) foi aprovada e seu pedido já está liberado para produção.`)
+  lines.push('')
+  lines.push('Em breve avisamos sobre o andamento!')
+  return lines.join('\n')
+}
+
 /**
  * No celular, o wa.me faz o deep-link direto pro app e preserva os emojis
  * sem problema. No computador, o mesmo wa.me passa por um redirecionamento

@@ -33,7 +33,7 @@ export async function applyCatalogPaymentConfirmed(
   gatewayLabel: string,
 ): Promise<CatalogPaymentCascadeResult> {
   const { data: order, error: orderError } = await (supabaseAdmin.from('orders') as any)
-    .select('id, company_id, customer_id, total, paid_at, order_number, customers(name)')
+    .select('id, company_id, customer_id, total, paid_at, order_number, source, art_status, customers(name)')
     .eq('catalog_checkout_ref', event.ref)
     .single()
 
@@ -69,6 +69,22 @@ export async function applyCatalogPaymentConfirmed(
     }
   } catch (err: any) {
     return { ok: false, status: 'error', error: err?.message ?? 'Erro ao processar pagamento' }
+  }
+
+  /* Pagamento confirmado ≠ autorização para produzir: pedidos do Catálogo
+     Online entram em "aguardando análise da arte" assim que o pagamento
+     cai, nunca direto em produção — quem libera para produção é a equipe,
+     manualmente, só depois da arte aprovada (orders.status continua
+     'pending' aqui; isso é só o art_status). Best-effort: se falhar, o
+     pagamento já foi registrado com sucesso acima. */
+  if (order.source === 'catalog' && (order.art_status === 'nao_enviada' || order.art_status === 'recebida')) {
+    try {
+      await (supabaseAdmin.from('orders') as any)
+        .update({ art_status: 'em_analise', updated_at: new Date().toISOString() })
+        .eq('id', order.id)
+    } catch (err: any) {
+      console.error(`[catalog-payment/${gatewayLabel}] atualização de art_status falhou (pagamento já registrado):`, err?.message ?? err)
+    }
   }
 
   const { data: items } = await (supabaseAdmin.from('order_items') as any)
