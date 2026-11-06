@@ -241,3 +241,57 @@ html, body {
 .legal-content strong { color:#d4c4b4; font-weight:600; }
 .legal-content .highlight { background:rgba(139,108,79,.08); border-left:3px solid #8B6C4F; border-radius:0 8px 8px 0; padding:12px 16px; margin:1rem 0; }
 .legal-content .highlight p { margin-bottom:0; }
+
+/* ── Loja pública: a paleta da loja (--store-*, ver lib/catalog/theme) é a
+   única fonte de cor dentro de [data-store-theme] — inclusive claro/escuro
+   do próprio visitante, independente do tema do painel admin. Muitos
+   componentes do catálogo usam as classes utilitárias do painel (ex:
+   text-text-primary, com a variante dark:text-stone-100 amarrada à classe
+   Tailwind ".dark" que o painel usa), e essa variante nunca ativa aqui —
+   resultado: texto escuro sobre fundo escuro no tema escuro da loja. Em vez
+   de reescrever cada ocorrência, essas classes são remapeadas para as
+   variáveis da loja sempre que aparecem dentro dela, nos dois temas. */
+[data-store-theme] .text-text-primary,
+[data-store-theme] .dark\:text-stone-100 {
+  color: var(--store-text) !important;
+}
+[data-store-theme] .text-text-secondary,
+[data-store-theme] .dark\:text-stone-300,
+[data-store-theme] .dark\:text-stone-400 {
+  color: var(--store-text-secondary) !important;
+}
+[data-store-theme] .text-text-muted,
+[data-store-theme] .dark\:text-stone-500,
+[data-store-theme] .dark\:text-stone-600 {
+  color: var(--store-text-secondary) !important;
+  opacity: 0.85;
+}
+[data-store-theme] .bg-surface,
+[data-store-theme] .dark\:bg-white\/5 {
+  background-color: var(--store-surface) !important;
+}
+[data-store-theme] .bg-background {
+  background-color: var(--store-bg) !important;
+}
+[data-store-theme] .border-border,
+[data-store-theme] .dark\:border-border-dark {
+  border-color: var(--store-border) !important;
+}
+[data-store-theme] .card {
+  background-color: var(--store-surface);
+  border-color: var(--store-border);
+}
+[data-store-theme] .input {
+  background-color: var(--store-surface);
+  border-color: var(--store-border);
+  color: var(--store-text);
+}
+[data-store-theme] .input::placeholder {
+  color: var(--store-text-secondary);
+  opacity: 0.7;
+}
+[data-store-theme] .btn-secondary,
+[data-store-theme] .btn-ghost {
+  color: var(--store-primary) !important;
+  border-color: var(--store-primary) !important;
+}
