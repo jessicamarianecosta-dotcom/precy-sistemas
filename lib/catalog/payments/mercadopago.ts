@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import type { PaymentAdapter, CatalogOrderForCharge, ChargeResult, PaymentWebhookEvent, WebhookRequest } from './types'
+import type { PaymentAdapter, CatalogOrderForCharge, ChargeResult, PaymentWebhookEvent, WebhookRequest, DirectPaymentFormData, DirectPaymentResult } from './types'
 
 /**
  * Integração real com o Mercado Pago via Checkout Pro (API de Preferências):
@@ -78,6 +78,59 @@ export class MercadoPagoAdapter implements PaymentAdapter {
     const redirectUrl = isProd ? data.init_point : (data.sandbox_init_point ?? data.init_point)
 
     return { ref: order.ref, redirectUrl, status: 'pending' }
+  }
+
+  /**
+   * Pagamento inline via Payment Brick (Checkout API) — conferido contra a
+   * documentação oficial (https://www.mercadopago.com/developers/pt/docs/checkout-bricks/payment-brick,
+   * https://www.mercadopago.com/developers/pt/docs/checkout-api/payment-methods/pix).
+   * O valor cobrado é SEMPRE `order.amount` (lido do pedido no banco pelo
+   * chamador) — o formData do Brick nunca inclui o valor.
+   */
+  async createDirectPayment(order: CatalogOrderForCharge, formData: DirectPaymentFormData): Promise<DirectPaymentResult> {
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/$/, '')
+    const notificationUrl = appUrl
+      ? `${appUrl}/api/webhooks/mercadopago${this.companyId ? `?company_id=${encodeURIComponent(this.companyId)}` : ''}`
+      : undefined
+
+    const res = await fetch(`${this.baseUrl}/v1/payments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.accessToken}`,
+        // Uma chave por tentativa de pagamento (gerada por quem chama este
+        // adapter) — evita cobrança duplicada se a mesma requisição for
+        // reenviada por falha de rede, sem travar uma nova tentativa depois
+        // de um cartão recusado.
+        'X-Idempotency-Key': crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        transaction_amount: Math.round(order.amount * 100) / 100,
+        description: order.description,
+        payment_method_id: formData.payment_method_id,
+        token: formData.token,
+        installments: formData.installments,
+        issuer_id: formData.issuer_id,
+        payer: formData.payer ?? (order.customerEmail ? { email: order.customerEmail } : undefined),
+        external_reference: order.ref,
+        notification_url: notificationUrl,
+      }),
+    })
+
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      throw new Error(data?.message ?? `Mercado Pago: falha ao processar pagamento (${res.status})`)
+    }
+
+    const txData = data.point_of_interaction?.transaction_data
+    return {
+      id: String(data.id),
+      status: String(data.status ?? 'pending'),
+      statusDetail: data.status_detail ?? null,
+      pix: txData?.qr_code
+        ? { qrCode: txData.qr_code, qrCodeBase64: txData.qr_code_base64, ticketUrl: txData.ticket_url ?? null }
+        : null,
+    }
   }
 
   verifyWebhookSignature(req: WebhookRequest): boolean {

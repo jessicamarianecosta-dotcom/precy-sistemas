@@ -1,4 +1,4 @@
-import type { PaymentAdapter, CatalogOrderForCharge, ChargeResult, PaymentWebhookEvent, WebhookRequest } from './types'
+import type { PaymentAdapter, CatalogOrderForCharge, ChargeResult, PaymentWebhookEvent, WebhookRequest, DirectPaymentFormData, DirectPaymentResult } from './types'
 
 /**
  * Adapter de desenvolvimento — simula aprovação imediata sem chamar nenhuma
@@ -9,6 +9,21 @@ import type { PaymentAdapter, CatalogOrderForCharge, ChargeResult, PaymentWebhoo
 export class MockPaymentAdapter implements PaymentAdapter {
   async createCharge(order: CatalogOrderForCharge): Promise<ChargeResult> {
     return { ref: order.ref, status: 'pending', redirectUrl: `/loja/pagamento-mock?ref=${encodeURIComponent(order.ref)}` }
+  }
+
+  async createDirectPayment(order: CatalogOrderForCharge, formData: DirectPaymentFormData): Promise<DirectPaymentResult> {
+    if (formData.payment_method_id === 'pix') {
+      return {
+        id: `mock-${order.ref}`,
+        status: 'pending',
+        pix: {
+          qrCode: '00020126330014BR.GOV.BCB.PIX0111mock-simulado5204000053039865802BR5913Loja (mock)6008Brasilia62070503***6304MOCK',
+          qrCodeBase64: '',
+          ticketUrl: null,
+        },
+      }
+    }
+    return { id: `mock-${order.ref}`, status: 'approved' }
   }
 
   verifyWebhookSignature(): boolean {

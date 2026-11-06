@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useCart } from '@/lib/catalog/useCart'
 import { useToast } from '@/components/ui/Toaster'
 import { formatCurrency } from '@/lib/utils/format'
-import { ArrowLeft, Loader2, MessageCircle } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import { StoreThemeRoot } from '@/components/catalog/storefront/StoreThemeRoot'
 import { StoreHeader } from '@/components/catalog/storefront/StoreHeader'
@@ -18,14 +18,13 @@ import { StepIndicator } from '@/components/catalog/checkout/StepIndicator'
 import { StepCadastro } from '@/components/catalog/checkout/steps/StepCadastro'
 import { StepProdutoArte } from '@/components/catalog/checkout/steps/StepProdutoArte'
 import { StepEntrega } from '@/components/catalog/checkout/steps/StepEntrega'
+import { StepPagamento, type PendingOrder, type OnlinePaymentInfo } from '@/components/catalog/checkout/steps/StepPagamento'
 
 /**
  * Checkout da loja — reformulado em 4 etapas (Cadastro / Produto e arte /
- * Entrega / Pagamento). Etapas 1 e 2 já são passos isolados e reais
- * (StepCadastro, StepProdutoArte). As etapas 3 e 4 ainda estão
- * consolidadas numa única tela (mesmos campos e integrações de antes —
- * frete via SuperFrete, Mercado Pago/WhatsApp) enquanto são divididas em
- * etapas próprias nas próximas fases desta reformulação; nada aqui é mock.
+ * Entrega / Pagamento), todas isoladas e reais: StepCadastro, StepProdutoArte,
+ * StepEntrega e StepPagamento (Pix/cartão inline via Payment Brick do
+ * Mercado Pago, ou WhatsApp).
  */
 export default function CheckoutLojaPage() {
   const { slug } = useParams<{ slug: string }>()
@@ -50,25 +49,23 @@ export default function CheckoutLojaPage() {
   const { favoriteIds } = useProductFavorites(slug)
   const cartCount = items.reduce((s, i) => s + i.quantity, 0)
 
-  // Sem conexão Mercado Pago ativa da empresa, "Finalizar pelo site" não tem
-  // como cobrar nada — nem mostramos o botão, igual já acontece hoje para
-  // produtos em modo "quote" (ver app/loja/[slug]/produto/[productId]/page.tsx).
-  const { data: onlinePaymentAvailable, isLoading: loadingOnlinePayment } = useQuery<boolean>({
+  // Sem conexão Mercado Pago ativa (ou sem Pix/cartão habilitado) da
+  // empresa, "Pagar com Pix ou cartão" não aparece — só "Finalizar pelo
+  // WhatsApp", igual já acontece hoje para produtos em modo "quote".
+  const { data: onlinePayment, isLoading: loadingOnlinePayment } = useQuery<OnlinePaymentInfo>({
     queryKey: ['loja-checkout-pagamento-online', slug],
     queryFn: async () => {
       const res = await fetch(`/api/loja/pagamento-online?slug=${encodeURIComponent(slug)}`)
-      if (!res.ok) return false
-      const data = await res.json()
-      return !!data.available
+      if (!res.ok) return { available: false }
+      return res.json()
     },
   })
 
   const customer = checkout.customer
   const [shippingOptions, setShippingOptions] = useState<import('@/lib/catalog/checkout/useCheckoutState').CheckoutShippingSelection[]>([])
   const [calculatingShipping, setCalculatingShipping] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [submittingVia, setSubmittingVia] = useState<'online' | 'whatsapp' | null>(null)
   const shipping = checkout.shipping
+  const shippingPrice = checkout.fulfillmentMethod === 'pickup' ? 0 : (shipping?.price ?? 0)
 
   // Etapas já concluídas: tudo antes da etapa atual. Permite clicar para
   // voltar e editar sem perder os dados preenchidos.
@@ -100,7 +97,6 @@ export default function CheckoutLojaPage() {
   }
 
   function buildWhatsappMessage(orderNumber: string) {
-    const shippingPrice = shipping?.price ?? 0
     const lines = [
       `Olá! Quero finalizar meu pedido na loja ${slug}.`,
       `Pedido: ${orderNumber}`,
@@ -110,27 +106,30 @@ export default function CheckoutLojaPage() {
       '',
       `Subtotal: ${formatCurrency(total)}`,
     ]
-    if (shipping) lines.push(`Frete: ${formatCurrency(shippingPrice)} (${shipping.service})`)
+    if (checkout.fulfillmentMethod === 'pickup') {
+      lines.push('Entrega: Retirada no local')
+    } else if (shipping) {
+      lines.push(`Frete: ${formatCurrency(shippingPrice)} (${shipping.service})`)
+    }
     lines.push(`Total: ${formatCurrency(total + shippingPrice)}`)
-    if (customer.cep) lines.push(`Meu CEP: ${customer.cep}`)
+    if (checkout.fulfillmentMethod === 'shipping' && customer.cep) lines.push(`Meu CEP: ${customer.cep}`)
     lines.push('', 'Podem me orientar sobre a finalização do pagamento?')
     return lines.join('\n')
   }
 
-  async function submitOrder(fulfillment: 'online' | 'whatsapp') {
-    if (items.length === 0) { toast('error', 'Seu carrinho está vazio'); return }
-    if (!customer.name || !customer.phone) { toast('error', 'Nome e telefone são obrigatórios'); return }
-    if (fulfillment === 'online' && !onlinePaymentAvailable) {
-      toast('error', 'Pagamento pelo site indisponível nesta loja — finalize pelo WhatsApp.')
-      return
-    }
-    if (fulfillment === 'online' && !customer.email) { toast('error', 'Informe seu e-mail para receber a confirmação do pagamento'); return }
-    if (fulfillment === 'whatsapp' && !storeWhatsapp) { toast('error', 'Esta loja não configurou um WhatsApp para atendimento.'); return }
-    if (fulfillment === 'online' && checkout.fulfillmentMethod === 'shipping' && !shipping) { toast('error', 'Calcule e escolha o frete antes de finalizar'); return }
-    if (fulfillment === 'online' && checkout.fulfillmentMethod === 'pickup' && !checkout.pickupChoice) { toast('error', 'Escolha como você vai retirar o pedido'); return }
+  function validateBeforeSubmit(fulfillment: 'online' | 'whatsapp'): boolean {
+    if (items.length === 0) { toast('error', 'Seu carrinho está vazio'); return false }
+    if (!customer.name || !customer.phone) { toast('error', 'Nome e telefone são obrigatórios'); return false }
+    if (fulfillment === 'online' && !customer.email) { toast('error', 'Informe seu e-mail para receber a confirmação do pagamento'); return false }
+    if (fulfillment === 'whatsapp' && !storeWhatsapp) { toast('error', 'Esta loja não configurou um WhatsApp para atendimento.'); return false }
+    if (checkout.fulfillmentMethod === 'shipping' && !shipping) { toast('error', 'Volte à etapa de entrega e calcule o frete'); return false }
+    if (checkout.fulfillmentMethod === 'pickup' && !checkout.pickupChoice) { toast('error', 'Volte à etapa de entrega e escolha como retirar o pedido'); return false }
+    return true
+  }
 
-    setSubmitting(true)
-    setSubmittingVia(fulfillment)
+  /** Cria o pedido pendente no banco — a cobrança (Pix/cartão) só acontece depois, na própria Etapa 4. */
+  async function createPendingOrder(fulfillment: 'online' | 'whatsapp'): Promise<{ orderNumber: string; checkoutRef: string; total: number } | null> {
+    if (!validateBeforeSubmit(fulfillment)) return null
     try {
       const res = await fetch('/api/loja/checkout', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -154,43 +153,40 @@ export default function CheckoutLojaPage() {
         }),
       })
       const data = await res.json().catch(() => null)
-      if (!res.ok) {
-        throw new Error(
-          data?.error ??
-          (fulfillment === 'online'
-            ? 'Não foi possível iniciar o pagamento. Tente novamente ou finalize pelo WhatsApp.'
-            : 'Erro ao finalizar pedido')
-        )
-      }
+      if (!res.ok) throw new Error(data?.error ?? 'Erro ao criar o pedido. Tente novamente.')
       if (!data) throw new Error('Resposta inesperada do servidor. Tente novamente.')
-
-      if (fulfillment === 'whatsapp') {
-        // Abrir o WhatsApp não significa que a mensagem foi enviada nem que o
-        // pedido foi pago — ele continua "pending" até o lojista confirmar
-        // manualmente no painel. Só o carrinho é limpo aqui.
-        const message = buildWhatsappMessage(data.orderNumber)
-        window.open(`https://wa.me/${storeWhatsapp!.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank', 'noreferrer')
-        clear()
-        checkout.reset()
-        toast('success', `Pedido ${data.orderNumber} criado! Continue pelo WhatsApp.`)
-        router.push(`/loja/${slug}`)
-        return
-      }
-
-      clear()
-      checkout.reset()
-      if (data.redirectUrl) {
-        window.location.href = data.redirectUrl
-      } else {
-        toast('success', `Pedido ${data.orderNumber} criado!`)
-        router.push(`/loja/${slug}/pedido/${data.checkoutRef}`)
-      }
+      return data
     } catch (err: any) {
       toast('error', err.message)
-    } finally {
-      setSubmitting(false)
-      setSubmittingVia(null)
+      return null
     }
+  }
+
+  async function handleCreateOnlineOrder(): Promise<PendingOrder | null> {
+    const data = await createPendingOrder('online')
+    if (!data) return null
+    return { orderId: '', orderNumber: data.orderNumber, checkoutRef: data.checkoutRef, total: data.total }
+  }
+
+  async function handleFinalizeWhatsapp() {
+    const data = await createPendingOrder('whatsapp')
+    if (!data) return
+    // Abrir o WhatsApp não significa que a mensagem foi enviada nem que o
+    // pedido foi pago — ele continua "pending" até o lojista confirmar
+    // manualmente no painel. Só o carrinho é limpo aqui.
+    const message = buildWhatsappMessage(data.orderNumber)
+    window.open(`https://wa.me/${storeWhatsapp!.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank', 'noreferrer')
+    clear()
+    checkout.reset()
+    toast('success', `Pedido ${data.orderNumber} criado! Continue pelo WhatsApp.`)
+    router.push(`/loja/${slug}`)
+  }
+
+  function handlePaid(checkoutRef: string) {
+    clear()
+    checkout.reset()
+    toast('success', 'Pagamento confirmado!')
+    router.push(`/loja/${slug}/pedido/${checkoutRef}`)
   }
 
   return (
@@ -257,65 +253,25 @@ export default function CheckoutLojaPage() {
             )}
 
             {checkout.step === 'pagamento' && (
-          <div className="space-y-5">
-            <form onSubmit={e => { e.preventDefault(); submitOrder('online') }} className="space-y-4">
-              <div className="card p-4 space-y-3">
-                <h3 className="text-sm font-semibold" style={{ color: 'var(--store-text)' }}>Resumo da entrega</h3>
-                {checkout.fulfillmentMethod === 'pickup' ? (
-                  <p className="text-sm" style={{ color: 'var(--store-text-secondary)' }}>
-                    Retirada no local — Grátis · {checkout.pickupChoice === 'uber_flash' ? 'Você enviará um entregador' : 'Você retirará pessoalmente'}
-                  </p>
-                ) : shipping ? (
-                  <p className="text-sm" style={{ color: 'var(--store-text-secondary)' }}>
-                    {shipping.carrier ? `${shipping.carrier} · ` : ''}{shipping.service} · {shipping.days} dia(s) · {formatCurrency(shipping.price)}
-                  </p>
-                ) : null}
-                <textarea className="input" rows={2} placeholder="Observações (opcional)" value={customer.notes} onChange={e => checkout.patchCustomer({ notes: e.target.value })} />
-              </div>
-
-              <div className="card p-4 space-y-1.5">
-                <div className="flex justify-between text-sm text-text-secondary dark:text-stone-400">
-                  <span>Subtotal</span><span>{formatCurrency(total)}</span>
-                </div>
-                <div className="flex justify-between text-sm text-text-secondary dark:text-stone-400">
-                  <span>Frete</span><span>{formatCurrency(checkout.fulfillmentMethod === 'pickup' ? 0 : (shipping?.price ?? 0))}</span>
-                </div>
-                <div className="flex justify-between text-base font-bold text-text-primary dark:text-stone-100 pt-1.5 border-t border-border dark:border-border-dark">
-                  <span>Total</span><span>{formatCurrency(total + (checkout.fulfillmentMethod === 'pickup' ? 0 : (shipping?.price ?? 0)))}</span>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                {!loadingOnlinePayment && onlinePaymentAvailable && (
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold disabled:opacity-50 transition-opacity hover:opacity-90"
-                    style={{ backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }}
-                  >
-                    {submittingVia === 'online' && <Loader2 size={15} className="animate-spin" />}
-                    Finalizar pelo site
-                  </button>
-                )}
-                {storeWhatsapp && (
-                  <button
-                    type="button"
-                    disabled={submitting}
-                    onClick={() => submitOrder('whatsapp')}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold border-2 border-[#25D366] text-[#25D366] hover:bg-[#25D366]/10 transition-colors disabled:opacity-50"
-                  >
-                    {submittingVia === 'whatsapp' ? <Loader2 size={15} className="animate-spin" /> : <MessageCircle size={16} />}
-                    Finalizar pelo WhatsApp
-                  </button>
-                )}
-                {!loadingOnlinePayment && onlinePaymentAvailable && (
-                  <p className="text-[11px] text-text-muted text-center">
-                    Pelo site, o pagamento é confirmado automaticamente. Pelo WhatsApp, você combina o pagamento direto com a loja.
-                  </p>
-                )}
-              </div>
-            </form>
-          </div>
+              <StepPagamento
+                slug={slug}
+                customerEmail={customer.email}
+                subtotal={total}
+                shippingPrice={shippingPrice}
+                deliverySummary={
+                  checkout.fulfillmentMethod === 'pickup'
+                    ? `Retirada no local — Grátis · ${checkout.pickupChoice === 'uber_flash' ? 'você enviará um entregador' : 'você retirará pessoalmente'}`
+                    : shipping
+                      ? `${shipping.carrier ? `${shipping.carrier} · ` : ''}${shipping.service} · ${shipping.days} dia(s)`
+                      : ''
+                }
+                onlinePayment={onlinePayment}
+                loadingOnlinePayment={loadingOnlinePayment}
+                storeWhatsapp={storeWhatsapp}
+                onCreateOnlineOrder={handleCreateOnlineOrder}
+                onFinalizeWhatsapp={handleFinalizeWhatsapp}
+                onPaid={handlePaid}
+              />
             )}
           </>
         )}

@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { getPaymentAdapterForCompany } from '@/lib/catalog/payments'
 import { resolveStoreCompanyId } from '@/lib/catalog/server-auth'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
 import { cleanObservation } from '@/lib/catalog/observation'
@@ -381,21 +380,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ orderId: order.id, orderNumber: order.order_number, fulfillment: 'whatsapp' })
   }
 
-  /* ── Criar cobrança no adapter de pagamento (Mercado Pago ou mock) ── */
-  try {
-    const adapter = await getPaymentAdapterForCompany(companyId)
-    const charge = await adapter.createCharge({
-      ref: checkoutRef,
-      amount: total,
-      customerName: customer.name,
-      customerDocument: customer.cpfCnpj ?? null,
-      customerPhone: phone,
-      customerEmail: customer.email || null,
-      description: `Pedido ${order.order_number} — Catálogo Online`,
-      returnPath: `/loja/${slug}/pedido/${checkoutRef}`,
-    })
-    return NextResponse.json({ orderId: order.id, orderNumber: order.order_number, checkoutRef, ...charge })
-  } catch (err: any) {
-    return NextResponse.json({ error: err?.message ?? 'Erro ao iniciar pagamento' }, { status: 502 })
-  }
+  /* ── Pagamento pelo site: o pedido fica criado e pendente; a cobrança em
+     si (Pix/cartão, inline via Payment Brick) só acontece na Etapa 4, numa
+     chamada separada (/api/loja/pagamento) depois que o cliente escolhe e
+     confirma a forma de pagamento. Aqui só devolvemos o total REAL (nunca
+     o que o client calculou) para inicializar o Brick com o valor certo. ── */
+  return NextResponse.json({ orderId: order.id, orderNumber: order.order_number, checkoutRef, total })
 }
