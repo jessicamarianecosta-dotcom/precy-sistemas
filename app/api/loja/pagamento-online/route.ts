@@ -18,10 +18,22 @@ export async function GET(req: NextRequest) {
   if (!companyId) return NextResponse.json({ available: false })
 
   const { data } = await (supabaseAdmin.from('mercadopago_connections') as any)
-    .select('id')
+    .select('mp_public_key, pix_enabled, card_enabled, installments_default')
     .eq('company_id', companyId)
     .eq('status', 'connected')
     .maybeSingle()
 
-  return NextResponse.json({ available: !!data })
+  const pixEnabled = data?.pix_enabled !== false
+  const cardEnabled = data?.card_enabled !== false
+  if (!data?.mp_public_key || (!pixEnabled && !cardEnabled)) return NextResponse.json({ available: false })
+
+  return NextResponse.json({
+    available: true,
+    // mp_public_key é seguro no client: é a chave feita para isso (nunca o
+    // access_token), usada só para o Payment Brick tokenizar o cartão.
+    publicKey: data.mp_public_key,
+    pixEnabled,
+    cardEnabled,
+    maxInstallments: data.installments_default || 12,
+  })
 }

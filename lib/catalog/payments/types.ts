@@ -41,8 +41,40 @@ export interface WebhookRequest {
   searchParams: URLSearchParams
 }
 
+/** Dados devolvidos pelo Payment Brick (onSubmit) — já no formato aceito pela API de Pagamentos. */
+export interface DirectPaymentFormData {
+  payment_method_id: string
+  token?: string
+  installments?: number
+  issuer_id?: string | number
+  payer?: { email?: string; identification?: { type?: string; number?: string } }
+}
+
+export interface DirectPaymentPixData {
+  /** Código "copia e cola". */
+  qrCode: string
+  /** Imagem do QR Code em base64 (sem o prefixo data:image). */
+  qrCodeBase64: string
+  ticketUrl?: string | null
+}
+
+export interface DirectPaymentResult {
+  id: string
+  status: string
+  statusDetail?: string | null
+  pix?: DirectPaymentPixData | null
+}
+
 export interface PaymentAdapter {
   createCharge(order: CatalogOrderForCharge): Promise<ChargeResult>
+  /**
+   * Pagamento inline (Pix/cartão via Payment Brick) — o valor SEMPRE vem de
+   * `order.amount` (lido do pedido já criado no banco, nunca do client).
+   * Devolve o status real que o gateway respondeu na hora; a confirmação
+   * definitiva do pedido continua vindo só pelo webhook (verifyWebhookSignature
+   * + parseWebhookEvent), nunca por esta resposta síncrona.
+   */
+  createDirectPayment(order: CatalogOrderForCharge, formData: DirectPaymentFormData): Promise<DirectPaymentResult>
   verifyWebhookSignature(req: WebhookRequest): boolean
   /**
    * Async porque alguns gateways (Mercado Pago) só mandam uma referência no

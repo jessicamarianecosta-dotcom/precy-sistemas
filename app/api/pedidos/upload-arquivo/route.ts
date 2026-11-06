@@ -31,6 +31,14 @@ export async function POST(request: Request) {
     const formData = await request.formData()
     const file = formData.get('file') as File | null
     const orderId = String(formData.get('orderId') ?? '')
+    // Opcionais — upload de arte por item do Catálogo Online (Etapa 2 do
+    // checkout reaproveitada aqui no painel admin). Sem eles, comportamento
+    // de sempre: arquivo vinculado só ao pedido inteiro.
+    const orderItemId = formData.get('orderItemId') ? String(formData.get('orderItemId')) : null
+    const fileRoleRaw = String(formData.get('fileRole') ?? 'cliente_arte')
+    const fileRole = ['cliente_arte', 'referencia', 'proposta', 'versao_final'].includes(fileRoleRaw) ? fileRoleRaw : 'cliente_arte'
+    const proposalNumberRaw = formData.get('proposalNumber')
+    const proposalNumber = proposalNumberRaw ? Number(proposalNumberRaw) : null
 
     if (!file) return NextResponse.json({ error: 'Arquivo não enviado' }, { status: 400 })
     if (!orderId) return NextResponse.json({ error: 'Pedido não informado' }, { status: 400 })
@@ -47,6 +55,11 @@ export async function POST(request: Request) {
     if (orderErr) throw orderErr
     if (!orderRow) {
       return NextResponse.json({ error: 'Pedido não encontrado' }, { status: 404 })
+    }
+
+    if (orderItemId) {
+      const { data: itemRow } = await db.from('order_items').select('id').eq('id', orderItemId).eq('order_id', orderId).maybeSingle()
+      if (!itemRow) return NextResponse.json({ error: 'Item do pedido não encontrado' }, { status: 404 })
     }
 
     const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
@@ -75,6 +88,7 @@ export async function POST(request: Request) {
       .from('order_files')
       .insert({
         order_id: orderId,
+        order_item_id: orderItemId,
         company_id: companyId,
         file_name: file.name,
         file_url: urlData.publicUrl,
@@ -82,6 +96,8 @@ export async function POST(request: Request) {
         file_size: file.size,
         mime_type: file.type || null,
         uploaded_by: 'equipe',
+        file_role: fileRole,
+        proposal_number: proposalNumber,
       })
       .select()
       .single()

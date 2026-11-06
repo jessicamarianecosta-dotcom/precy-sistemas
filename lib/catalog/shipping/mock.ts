@@ -10,8 +10,8 @@ export class MockShippingAdapter implements ShippingAdapter {
     const totalWeight = items.reduce((s, i) => s + i.weightKg * i.quantity, 0)
     const base = 18 + totalWeight * 4
     return [
-      { service: 'PAC (simulado)',      price: Number(base.toFixed(2)),        days: 7 },
-      { service: 'SEDEX (simulado)',    price: Number((base * 1.8).toFixed(2)), days: 3 },
+      { service: 'PAC (simulado)',   carrier: 'Correios (simulado)', price: Number(base.toFixed(2)),        days: 7 },
+      { service: 'SEDEX (simulado)', carrier: 'Correios (simulado)', price: Number((base * 1.8).toFixed(2)), days: 3 },
     ]
   }
 }

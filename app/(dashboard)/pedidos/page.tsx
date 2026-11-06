@@ -86,6 +86,11 @@ import { extractPixSnapshot } from '@/lib/company/pix'
 import { VariantPickerModal, type VariantSelection } from '@/components/produtos/VariantPickerModal'
 import { useProductsWithVariants } from '@/hooks/useProductsWithVariants'
 
+const OrderItemArtPanel = dynamic(
+  () => import('@/components/orders/OrderItemArtPanel').then(m => m.OrderItemArtPanel),
+  { ssr: false }
+)
+
 const OrderFilesSection = dynamic(
   () => import('@/components/orders/OrderFilesSection').then(m => m.OrderFilesSection),
   { ssr: false }
@@ -184,6 +189,17 @@ interface OrderItem {
   variant_id?: string
   variant_label?: string
   unit_cost?: number
+  // Arte do Catálogo Online (só leitura aqui — nunca reescrita por
+  // persistOrderItems; as ações de arte usam suas próprias mutations
+  // direto em order_items, ver OrderItemArtPanel).
+  art_origin?: 'own' | 'lumilife' | null
+  art_brief?: { text?: string; colors?: string; style?: string; description?: string } | null
+  art_approval_status?: string
+  chosen_proposal_file_id?: string | null
+  art_free_revisions_used?: number
+  art_free_revisions_limit?: number
+  art_extra_change_price?: number | null
+  art_extra_change_authorized?: boolean | null
 }
 
 function uid() {
@@ -884,31 +900,63 @@ function PedidosPage() {
     }
   }
 
-  /** Grava (delete + insert) as linhas de order_items a partir do carrinho atual. */
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+  /**
+   * Grava as linhas de order_items a partir do carrinho atual —
+   * UPDATE para itens já existentes (mantendo o mesmo id), INSERT só para
+   * itens novos, DELETE só para os removidos do carrinho. Antes era um
+   * delete+insert incondicional: como order_files.order_item_id tem
+   * ON DELETE CASCADE, isso apagava arquivos/propostas de arte do Catálogo
+   * Online (e resetava art_origin/art_brief/art_approval_status, que não
+   * são campos deste formulário) todas as vezes que o pedido era salvo.
+   * UPDATE preserva qualquer coluna não incluída aqui, então os campos de
+   * arte nunca são tocados por este fluxo.
+   */
   async function persistOrderItems(orderId: string) {
-    await (supabase.from('order_items') as any).delete().eq('order_id', orderId)
+    const { data: existingRows } = await (supabase.from('order_items') as any).select('id').eq('order_id', orderId)
+    const existingIds: Set<string> = new Set(((existingRows ?? []) as any[]).map((r: any): string => r.id))
+    const keptIds: Set<string> = new Set(items.filter(i => UUID_RE.test(i.id) && existingIds.has(i.id)).map(i => i.id))
+
+    const idsToDelete: string[] = [...existingIds].filter((id: string) => !keptIds.has(id))
+    if (idsToDelete.length > 0) {
+      await (supabase.from('order_items') as any).delete().in('id', idsToDelete)
+    }
     if (items.length === 0) return
-    const rows = items.map(i => ({
-      order_id: orderId,
-      product_id: i.product_id || null,
-      name: i.name,
-      description: i.description || null,
-      quantity: i.quantity,
-      unit_price: i.unit_price,
-      discount: i.discount,
-      discount_type: i.discount_type,
-      subtotal: i.subtotal,
-      width: i.width ?? null,
-      height: i.height ?? null,
-      area: i.area ?? null,
-      measurement_unit: i.measurement_unit ?? null,
-      finishings: i.finishings ?? [],
-      finishing_type: i.finishing_type ?? null,
-      technical_notes: i.technical_notes ?? null,
-      ...(i.variant_id ? { variant_id: i.variant_id, variant_label: i.variant_label ?? null, unit_cost: i.unit_cost ?? null } : {}),
-    }))
-    const { error } = await (supabase.from('order_items') as any).insert(rows)
-    if (error) throw new Error(`Erro ao salvar itens do pedido: ${error.message}`)
+
+    function toRow(i: OrderItem) {
+      return {
+        order_id: orderId,
+        product_id: i.product_id || null,
+        name: i.name,
+        description: i.description || null,
+        quantity: i.quantity,
+        unit_price: i.unit_price,
+        discount: i.discount,
+        discount_type: i.discount_type,
+        subtotal: i.subtotal,
+        width: i.width ?? null,
+        height: i.height ?? null,
+        area: i.area ?? null,
+        measurement_unit: i.measurement_unit ?? null,
+        finishings: i.finishings ?? [],
+        finishing_type: i.finishing_type ?? null,
+        technical_notes: i.technical_notes ?? null,
+        ...(i.variant_id ? { variant_id: i.variant_id, variant_label: i.variant_label ?? null, unit_cost: i.unit_cost ?? null } : {}),
+      }
+    }
+
+    for (const i of items) {
+      if (keptIds.has(i.id)) {
+        const { error } = await (supabase.from('order_items') as any).update(toRow(i)).eq('id', i.id)
+        if (error) throw new Error(`Erro ao salvar itens do pedido: ${error.message}`)
+      }
+    }
+    const newRows = items.filter(i => !keptIds.has(i.id)).map(toRow)
+    if (newRows.length > 0) {
+      const { error } = await (supabase.from('order_items') as any).insert(newRows)
+      if (error) throw new Error(`Erro ao salvar itens do pedido: ${error.message}`)
+    }
   }
 
   const saveMutation = useMutation({
@@ -917,6 +965,11 @@ function PedidosPage() {
 
       const wasCreate = !editingId
       const payload = buildOrderPayload(data)
+
+      if (editingId && payload.status === 'production') {
+        const blocked = artApprovalBlockingProduction(editingId)
+        if (blocked) throw new Error(blocked)
+      }
 
       if (!editingId && companyId && sub && !sub.isPro) {
         const limit = sub.limits.orders
@@ -1503,6 +1556,14 @@ function PedidosPage() {
         variant_id: i.variant_id ?? undefined,
         variant_label: i.variant_label ?? undefined,
         unit_cost: i.unit_cost != null ? Number(i.unit_cost) : undefined,
+        art_origin: i.art_origin ?? null,
+        art_brief: i.art_brief ?? null,
+        art_approval_status: i.art_approval_status ?? 'pending',
+        chosen_proposal_file_id: i.chosen_proposal_file_id ?? null,
+        art_free_revisions_used: Number(i.art_free_revisions_used) || 0,
+        art_free_revisions_limit: Number(i.art_free_revisions_limit) || 3,
+        art_extra_change_price: i.art_extra_change_price != null ? Number(i.art_extra_change_price) : null,
+        art_extra_change_authorized: i.art_extra_change_authorized ?? null,
       })))
     } else {
       /* Pedido legado (anterior ao carrinho) — sintetiza 1 item a partir dos campos antigos */
@@ -1602,10 +1663,33 @@ function PedidosPage() {
     }
   }
 
+  /**
+   * Pagamento confirmado ≠ autorização para produzir: um pedido do Catálogo
+   * Online com arte ainda pendente de aprovação não pode ser movido para
+   * "Produção" — nem no Kanban (aqui) nem pelo botão dedicado no modal.
+   * art_status reflete o agregado dos itens (ver lib/orders/artApproval.ts).
+   */
+  function artApprovalBlockingProduction(orderId: string): string | null {
+    const o: any = (orders ?? []).find((x: any) => x.id === orderId)
+    if (!o || o.source !== 'catalog') return null
+    if (o.art_status && !['nao_enviada', 'aprovada', 'em_producao'].includes(o.art_status)) {
+      return 'A arte deste pedido ainda não foi aprovada pelo cliente — libere para produção só depois da aprovação.'
+    }
+    return null
+  }
+
+  function moveOrderToStatus(orderId: string, newStatus: string) {
+    if (newStatus === 'production') {
+      const blocked = artApprovalBlockingProduction(orderId)
+      if (blocked) { toast('error', blocked); return }
+    }
+    updateStatus.mutate({ id: orderId, status: newStatus })
+  }
+
   function handleDrop(e: React.DragEvent, newStatus: string) {
     e.preventDefault()
     if (dragging) {
-      updateStatus.mutate({ id: dragging, status: newStatus })
+      moveOrderToStatus(dragging, newStatus)
       setDragging(null)
     }
   }
@@ -1699,7 +1783,9 @@ function PedidosPage() {
 
   const filteredListRows = listStatusFilter === 'all'
     ? listRows
-    : listRows.filter((o: any) => o.status === listStatusFilter)
+    : listStatusFilter === 'awaiting_art_approval'
+      ? listRows.filter((o: any) => o.source === 'catalog' && o.art_status && !['nao_enviada', 'aprovada', 'em_producao'].includes(o.art_status))
+      : listRows.filter((o: any) => o.status === listStatusFilter)
 
   const sortedListRows = [...filteredListRows].sort((a, b) => {
     const dir = listSort.dir === 'asc' ? 1 : -1
@@ -1979,7 +2065,7 @@ function PedidosPage() {
                                 const targetCol = el?.closest('[data-status-col]') as HTMLElement | null
                                 const newStatus = targetCol?.dataset.statusCol
                                 if (newStatus && newStatus !== order.status) {
-                                  updateStatus.mutate({ id: draggingId, status: newStatus })
+                                  moveOrderToStatus(draggingId, newStatus)
                                 }
                               }}
                               className={clsx(
@@ -2233,7 +2319,11 @@ function PedidosPage() {
               <div className="hidden sm:block space-y-3">
                 {/* Filtros rápidos por status de produção */}
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  {[{ id: 'all', label: 'Todos' }, ...STATUS_COLUMNS_MOBILE.map(c => ({ id: c.id, label: c.label }))].map(f => (
+                  {[
+                    { id: 'all', label: 'Todos' },
+                    ...STATUS_COLUMNS_MOBILE.map(c => ({ id: c.id, label: c.label })),
+                    { id: 'awaiting_art_approval', label: 'Aguardando aprovação de arte' },
+                  ].map(f => (
                     <button
                       key={f.id}
                       type="button"
@@ -2688,8 +2778,12 @@ function PedidosPage() {
                         </h3>
                         <div className="rounded-xl border border-border dark:border-border-dark p-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
                           <div><span className="text-text-muted">E-mail: </span><b className="text-text-primary dark:text-stone-100">{o.delivery_email || '—'}</b></div>
-                          <div><span className="text-text-muted">Frete: </span><b className="text-text-primary dark:text-stone-100">{o.shipping_service || '—'}{o.shipping_days ? ` (${o.shipping_days}d)` : ''}</b></div>
-                          <div className="sm:col-span-2"><span className="text-text-muted">Endereço de entrega: </span><b className="text-text-primary dark:text-stone-100">{addressParts.join(' — ') || 'Não informado'}</b></div>
+                          {o.fulfillment_method === 'pickup' ? (
+                            <div><span className="text-text-muted">Entrega: </span><b className="text-text-primary dark:text-stone-100">Retirada no local{o.pickup_choice === 'uber_flash' ? ' — cliente envia entregador' : ' — cliente retira pessoalmente'}</b></div>
+                          ) : (
+                            <div><span className="text-text-muted">Frete: </span><b className="text-text-primary dark:text-stone-100">{o.shipping_service || '—'}{o.shipping_days ? ` (${o.shipping_days}d)` : ''}</b></div>
+                          )}
+                          <div className="sm:col-span-2"><span className="text-text-muted">Endereço de entrega: </span><b className="text-text-primary dark:text-stone-100">{o.fulfillment_method === 'pickup' ? 'Retirada no local — sem entrega' : (addressParts.join(' — ') || 'Não informado')}</b></div>
                           <div><span className="text-text-muted">Rastreamento: </span><b className="text-text-primary dark:text-stone-100">{o.tracking_code || 'Não gerado'}</b></div>
                           <div><span className="text-text-muted">Link do cliente: </span>
                             {o.catalog_checkout_ref && catalogSlug ? (
@@ -2847,6 +2941,23 @@ function PedidosPage() {
                               </button>
                             </div>
                           </div>
+                          {editingId && companyId && item.art_origin && (
+                            <OrderItemArtPanel
+                              orderId={editingId}
+                              orderNumber={(orders ?? []).find((o: any) => o.id === editingId)?.order_number ?? null}
+                              companyId={companyId}
+                              itemId={item.id}
+                              itemName={item.name}
+                              artOrigin={item.art_origin}
+                              artBrief={item.art_brief}
+                              approvalStatus={(item.art_approval_status as any) ?? 'pending'}
+                              freeRevisionsUsed={item.art_free_revisions_used ?? 0}
+                              freeRevisionsLimit={item.art_free_revisions_limit ?? 3}
+                              customerName={selectedCustomer?.name}
+                              customerPhone={selectedCustomer?.phone}
+                              onChanged={() => queryClient.invalidateQueries({ queryKey: ['orders', companyId] })}
+                            />
+                          )}
                         </div>
                       ))}
                     </div>
