@@ -218,19 +218,29 @@ interface StepProdutoArteProps {
   onUpdateQty: (productId: string, variantId: string | null | undefined, quantity: number) => void
   onUpdateNotes: (productId: string, variantId: string | null | undefined, notes: string | null) => void
   onRemoveItem: (productId: string, variantId?: string | null) => void
+  /**
+   * Personalização é configurada por produto (nunca globalmente). Mapa
+   * productId → exige arte. Ausente/indefinido é tratado como true (valor
+   * seguro) até a consulta carregar — nunca presume "não personalizado".
+   */
+  customizationByProduct: Record<string, boolean> | undefined
   onNext: () => void
 }
 
 /**
- * Etapa 2 — Produto e informações da arte. Cada item do carrinho tem seu
- * próprio formulário de arte, totalmente isolado dos demais (arquivos,
- * textos e solicitações nunca se misturam entre produtos diferentes).
+ * Etapa 2 — Produto e informações da arte. Mostra só os itens cujo produto
+ * exige personalização (carrinho misto: produtos prontos não aparecem
+ * aqui). Cada item mantém seu próprio formulário de arte, totalmente
+ * isolado dos demais (arquivos, textos e solicitações nunca se misturam
+ * entre produtos diferentes).
  */
-export function StepProdutoArte({ slug, items, itemsArt, onChangeItemArt, onChangeItemArtBrief, onUpdateQty, onUpdateNotes, onRemoveItem, onNext }: StepProdutoArteProps) {
+export function StepProdutoArte({ slug, items, customizationByProduct, itemsArt, onChangeItemArt, onChangeItemArtBrief, onUpdateQty, onUpdateNotes, onRemoveItem, onNext }: StepProdutoArteProps) {
   const { toast } = useToast()
 
+  const customizableItems = items.filter(item => (customizationByProduct?.[item.productId] ?? true) !== false)
+
   function handleNext() {
-    const missing = items.find(item => !isItemArtComplete(itemsArt[itemKeyOf(item)]))
+    const missing = customizableItems.find(item => !isItemArtComplete(itemsArt[itemKeyOf(item)]))
     if (missing) {
       toast('error', `Finalize a arte de "${missing.name}" antes de continuar`)
       return
@@ -238,10 +248,28 @@ export function StepProdutoArte({ slug, items, itemsArt, onChangeItemArt, onChan
     onNext()
   }
 
+  if (customizableItems.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="card p-4 text-sm text-center" style={{ color: 'var(--store-text-secondary)' }}>
+          Nenhum produto deste pedido precisa de personalização ou envio de arte.
+        </div>
+        <button
+          type="button"
+          onClick={onNext}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold transition-opacity hover:opacity-90"
+          style={{ backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }}
+        >
+          Continuar
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       <div className="space-y-3">
-        {items.map(item => {
+        {customizableItems.map(item => {
           const key = itemKeyOf(item)
           const art = itemsArt[key] ?? EMPTY_ITEM_ART
           return (

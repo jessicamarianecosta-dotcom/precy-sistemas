@@ -34,6 +34,26 @@ export default function CheckoutLojaPage() {
   const { items, updateQty, updateNotes, removeItem, total, clear } = useCart(slug)
   const checkout = useCheckoutState(slug)
 
+  // Personalização é configurada por produto (nunca globalmente) — produtos
+  // "não personalizados" não entram na Etapa 2 (arte). Buscado pelo client
+  // só para montar a UI; o servidor valida de novo em /api/loja/checkout,
+  // nunca confiando nesse dado vindo do client.
+  const productIds = [...new Set(items.map(i => i.productId))]
+  const { data: customizationByProduct } = useQuery<Record<string, boolean>>({
+    queryKey: ['loja-checkout-customization', slug, productIds.join(',')],
+    queryFn: async () => {
+      if (productIds.length === 0) return {}
+      const { data, error } = await (supabase.from('products') as any)
+        .select('id, catalog_requires_customization')
+        .in('id', productIds)
+      if (error) throw error
+      const map: Record<string, boolean> = {}
+      for (const p of data ?? []) map[p.id] = p.catalog_requires_customization !== false
+      return map
+    },
+    enabled: productIds.length > 0,
+  })
+
   const { data: storeSettings } = useQuery<{ whatsapp: string | null; logo_url: string | null; theme_color: string; theme_palette: import('@/lib/catalog/theme/palette').StoreThemePalettes | null; address: string | null; city: string | null; state: string | null; companies: { name: string } | null } | null>({
     queryKey: ['loja-checkout-settings', slug],
     queryFn: async () => {
@@ -225,6 +245,7 @@ export default function CheckoutLojaPage() {
               <StepProdutoArte
                 slug={slug}
                 items={items}
+                customizationByProduct={customizationByProduct}
                 itemsArt={checkout.itemsArt}
                 onChangeItemArt={checkout.patchItemArt}
                 onChangeItemArtBrief={checkout.patchItemArtBrief}

@@ -89,6 +89,7 @@ interface Product {
   technical_notes?:  string | null
   // Catálogo Online
   is_published_catalog?:   boolean | null
+  catalog_requires_customization?: boolean | null
   catalog_category_id?:    string | null
   catalog_lead_time_days?: number | null
   catalog_starting_price?: number | null
@@ -132,6 +133,10 @@ const schema = z.object({
   // null e a validação falhava em silêncio quando o produto não estava
   // publicado — o seletor de categoria do catálogo nem está na tela nesse caso.
   is_published_catalog:  z.boolean().nullish(),
+  // Individual por produto — nunca presume "não personalizado"; default
+  // seguro é true (exige arte), igual ao que já acontecia antes desta
+  // configuração existir, até o lojista revisar cada produto.
+  catalog_requires_customization: z.boolean().default(true),
   catalog_category_id:   z.string().nullish(),
   catalog_lead_time_days: optionalNumber,
   catalog_starting_price: optionalNumber,
@@ -294,7 +299,7 @@ export default function ProdutosPage() {
   /* ── Form ── */
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { unit: 'un', markup_percentage: 100, production_time_hours: 1, material_cost: 0, final_price: 0 },
+    defaultValues: { unit: 'un', markup_percentage: 100, production_time_hours: 1, material_cost: 0, final_price: 0, catalog_requires_customization: true },
   })
   const categoryValue = watch('category') ?? ''
 
@@ -414,6 +419,9 @@ export default function ProdutosPage() {
        'is_published_catalog','catalog_category_id','catalog_lead_time_days','catalog_starting_price',
        'weight_kg','length_cm','width_cm','height_cm'] as Array<keyof FormData>)
       .forEach(k => setValue(k, (p as unknown as Record<string, unknown>)[k] as string))
+    // Produto já cadastrado sem o campo preenchido (null/undefined) ainda não
+    // passou pela migration de backfill — trata como true (valor seguro).
+    setValue('catalog_requires_customization', p.catalog_requires_customization !== false)
     setShowForm(true)
   }
 
@@ -1228,6 +1236,43 @@ export default function ProdutosPage() {
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Descrição</label>
                   <textarea rows={2} className="input resize-none" placeholder="Descrição opcional" {...register('description')} />
+                </div>
+              </div>
+
+              {/* ── Personalização do produto ── */}
+              <div className="border-t border-border dark:border-border-dark pt-4">
+                <h3 className="text-sm font-medium text-text-primary dark:text-stone-200 mb-2.5">Personalização do produto</h3>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setValue('catalog_requires_customization', true)}
+                    className={clsx(
+                      'text-left p-3 rounded-xl border-2 transition-colors',
+                      watch('catalog_requires_customization')
+                        ? 'border-primary bg-primary-50 dark:bg-primary/10'
+                        : 'border-border dark:border-border-dark hover:border-primary/40'
+                    )}
+                  >
+                    <p className="text-sm font-semibold text-text-primary dark:text-stone-100">Produto personalizado</p>
+                    <p className="text-xs text-text-muted dark:text-stone-500 mt-0.5">
+                      Este produto exige personalização, envio de arte ou criação de arte pela LumiLife.
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setValue('catalog_requires_customization', false)}
+                    className={clsx(
+                      'text-left p-3 rounded-xl border-2 transition-colors',
+                      watch('catalog_requires_customization') === false
+                        ? 'border-primary bg-primary-50 dark:bg-primary/10'
+                        : 'border-border dark:border-border-dark hover:border-primary/40'
+                    )}
+                  >
+                    <p className="text-sm font-semibold text-text-primary dark:text-stone-100">Produto não personalizado</p>
+                    <p className="text-xs text-text-muted dark:text-stone-500 mt-0.5">
+                      Este produto é vendido pronto, sem necessidade de envio de arquivos ou criação de arte.
+                    </p>
+                  </button>
                 </div>
               </div>
 
