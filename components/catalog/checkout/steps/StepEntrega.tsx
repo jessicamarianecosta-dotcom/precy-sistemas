@@ -172,7 +172,7 @@ export function StepEntrega({
                 ? { borderColor: 'var(--store-primary)', backgroundColor: 'var(--store-surface)' }
                 : { borderColor: 'var(--store-border)' }}
             >
-              <span className="font-medium" style={{ color: 'var(--store-text)' }}>Vou enviar um Uber Flash / entregador</span>
+              <span className="font-medium" style={{ color: 'var(--store-text)' }}>Solicitar Uber Flash para retirar</span>
             </button>
           </div>
         </div>
