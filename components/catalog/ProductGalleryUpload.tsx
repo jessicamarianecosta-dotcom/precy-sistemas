@@ -23,7 +23,7 @@ interface Props {
   companyId: string
 }
 
-const MAX_PHOTOS = 10
+const MAX_PHOTOS = 20
 const MAX_VIDEO_SECONDS = 20
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const ALLOWED_VIDEO_TYPES = ['video/mp4']
@@ -51,7 +51,7 @@ async function deleteStorageFile(path: string | null) {
 }
 
 /**
- * Galeria de mídia de um produto (product_images): até 10 fotos + 1 vídeo
+ * Galeria de mídia de um produto (product_images): até 20 fotos + 1 vídeo
  * de até 20s. A primeira foto marcada como `is_primary` é a capa do
  * catálogo/miniatura/carrinho/página do produto. Suporta arrastar para
  * reordenar as fotos, remover, substituir e definir a capa. O vídeo é um
