@@ -17,6 +17,8 @@ import { StoreThemeRoot } from '@/components/catalog/storefront/StoreThemeRoot'
 import { resolvePalettes } from '@/lib/catalog/theme/palette'
 import { ProductDescription } from '@/components/catalog/storefront/ProductDescription'
 import { calcOptionsAdjustment } from '@/lib/produtos/variantPricing'
+import { isCapaGroup } from '@/lib/catalog/variationCombos'
+import { CoverPickerModal } from '@/components/catalog/storefront/CoverPickerModal'
 import type { StorefrontSettings } from '@/components/catalog/storefront/types'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -28,11 +30,12 @@ interface ProductDetail {
   catalog_category_id: string | null
   finishings: string[] | null; finishing_type: string | null; technical_notes: string | null
 }
-interface ProductImageRow { id: string; url: string; sort_order: number; media_type: 'image' | 'video'; is_primary: boolean }
+interface ProductImageRow { id: string; url: string; sort_order: number; media_type: 'image' | 'video'; is_primary: boolean; gallery_visible?: boolean }
 interface OptionRow {
   id: string; group_id: string; value: string; sort_order: number
   price_adjustment_type?: 'fixed' | 'percent' | null
   price_adjustment_value?: number | null
+  default_image_id?: string | null
 }
 interface GroupRow { id: string; name: string; sort_order: number; options: OptionRow[] }
 interface VariantRow {
@@ -64,6 +67,7 @@ export default function ProdutoLojaPage() {
   const [activePhoto, setActivePhoto] = useState(0)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({})
+  const [coverModalGroupId, setCoverModalGroupId] = useState<string | null>(null)
   const [showQuoteForm, setShowQuoteForm] = useState(false)
   const [quoteData, setQuoteData] = useState({ name: '', phone: '', message: '' })
   const [sending, setSending] = useState(false)
@@ -122,7 +126,7 @@ export default function ProdutoLojaPage() {
     queryKey: ['loja-product-images', productId],
     queryFn: async () => {
       const { data } = await (supabase.from('product_images') as any)
-        .select('id, url, sort_order, media_type, is_primary').eq('product_id', productId).order('sort_order')
+        .select('id, url, sort_order, media_type, is_primary, gallery_visible').eq('product_id', productId).order('sort_order')
       return data ?? []
     },
   })
@@ -131,7 +135,7 @@ export default function ProdutoLojaPage() {
     queryKey: ['loja-product-groups', productId],
     queryFn: async () => {
       const { data } = await (supabase.from('product_variation_groups') as any)
-        .select('id, name, sort_order, product_variation_options(id, group_id, value, sort_order, price_adjustment_type, price_adjustment_value)')
+        .select('id, name, sort_order, product_variation_options(id, group_id, value, sort_order, price_adjustment_type, price_adjustment_value, default_image_id)')
         .eq('product_id', productId)
         .order('sort_order')
         .order('sort_order', { foreignTable: 'product_variation_options' })
@@ -167,14 +171,19 @@ export default function ProdutoLojaPage() {
 
   const groups = useMemo(() => groupRows ?? [], [groupRows])
   // Vídeo nunca entra na lista de fotos — é um item de galeria separado,
-  // sempre exibido por último, com player próprio.
+  // sempre exibido por último, com player próprio. Imagens enviadas direto
+  // para uma opção de variação (ex: cada capa de um grupo "Capa") têm
+  // gallery_visible = false — não aparecem no carrossel principal, só são
+  // usadas para resolver a foto da combinação/capa selecionada (via
+  // imageById, que usa a lista completa, sem este filtro).
   const images = useMemo(
     () => (imageRows ?? [])
-      .filter(i => i.media_type !== 'video')
+      .filter(i => i.media_type !== 'video' && i.gallery_visible !== false)
       .sort((a, b) => (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0) || a.sort_order - b.sort_order),
     [imageRows]
   )
   const videoRow = (imageRows ?? []).find(i => i.media_type === 'video') ?? null
+  const imageById = useMemo(() => new Map((imageRows ?? []).map(i => [i.id, i])), [imageRows])
 
   const parentsByOption = useMemo(() => {
     const map = new Map<string, Set<string>>()
@@ -272,7 +281,7 @@ export default function ProdutoLojaPage() {
   const variantHasPromo = selectedVariant?.price == null && hasPromo
 
   const photos = images.length ? images.map(i => i.url) : (product.catalog_photos?.length ? product.catalog_photos : [])
-  const variantImage = selectedVariant?.image_id ? images.find(i => i.id === selectedVariant.image_id)?.url : null
+  const variantImage = selectedVariant?.image_id ? imageById.get(selectedVariant.image_id)?.url ?? null : null
   const displayPhotos = variantImage ? [variantImage, ...photos.filter(p => p !== variantImage)] : photos
 
   // Galeria exibida: fotos + (quando houver) o vídeo como último item —
@@ -460,35 +469,77 @@ export default function ProdutoLojaPage() {
             )}
             {groups.length > 0 && (
               <div className="space-y-3 mb-5">
-                {groups.map(g => (
-                  <div key={g.id}>
-                    <p className="text-xs font-semibold text-text-primary dark:text-stone-100 mb-1.5">{g.name}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {g.options.map(opt => {
-                        const active = selectedOptions[g.id] === opt.id
-                        const allowed = isOptionAllowed(opt.id)
-                        return (
+                {groups.map(g => {
+                  if (isCapaGroup(g.name)) {
+                    const selectedOpt = g.options.find(o => o.id === selectedOptions[g.id])
+                    const selectedImageUrl = selectedOpt?.default_image_id ? imageById.get(selectedOpt.default_image_id)?.url ?? null : null
+                    return (
+                      <div key={g.id}>
+                        <p className="text-xs font-semibold text-text-primary dark:text-stone-100 mb-1.5">Escolha sua {g.name.toLowerCase()}</p>
+                        {selectedOpt ? (
+                          <div className="flex items-center gap-3">
+                            {selectedImageUrl && (
+                              <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 border border-border dark:border-border-dark">
+                                <img src={selectedImageUrl} alt="" className="w-full h-full object-cover" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">
+                                {g.name} selecionada: {selectedOpt.value}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => setCoverModalGroupId(g.id)}
+                                className="text-xs font-semibold underline underline-offset-2"
+                                style={{ color: 'var(--store-primary)' }}
+                              >
+                                Alterar {g.name.toLowerCase()}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
                           <button
-                            key={opt.id}
                             type="button"
-                            disabled={!allowed}
-                            title={!allowed ? 'Combinação indisponível' : undefined}
-                            onClick={() => setSelectedOptions(prev => computeSelection({ ...prev, [g.id]: opt.id }))}
-                            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                              !allowed
-                                ? 'bg-surface dark:bg-white/5 text-text-muted/40 dark:text-stone-600 border-border dark:border-border-dark cursor-not-allowed opacity-50'
-                                : active
-                                ? 'text-[var(--store-button-text)] border-[var(--store-primary)] bg-[var(--store-primary)]'
-                                : 'bg-surface dark:bg-white/5 text-text-secondary dark:text-stone-400 border-border dark:border-border-dark hover:border-[var(--store-primary)]'
-                            }`}
+                            onClick={() => setCoverModalGroupId(g.id)}
+                            className="px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-colors hover:opacity-90"
+                            style={{ borderColor: 'var(--store-primary)', color: 'var(--store-primary)' }}
                           >
-                            {opt.value}
+                            Selecionar {g.name.toLowerCase()}
                           </button>
-                        )
-                      })}
+                        )}
+                      </div>
+                    )
+                  }
+                  return (
+                    <div key={g.id}>
+                      <p className="text-xs font-semibold text-text-primary dark:text-stone-100 mb-1.5">{g.name}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {g.options.map(opt => {
+                          const active = selectedOptions[g.id] === opt.id
+                          const allowed = isOptionAllowed(opt.id)
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              disabled={!allowed}
+                              title={!allowed ? 'Combinação indisponível' : undefined}
+                              onClick={() => setSelectedOptions(prev => computeSelection({ ...prev, [g.id]: opt.id }))}
+                              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                                !allowed
+                                  ? 'bg-surface dark:bg-white/5 text-text-muted/40 dark:text-stone-600 border-border dark:border-border-dark cursor-not-allowed opacity-50'
+                                  : active
+                                  ? 'text-[var(--store-button-text)] border-[var(--store-primary)] bg-[var(--store-primary)]'
+                                  : 'bg-surface dark:bg-white/5 text-text-secondary dark:text-stone-400 border-border dark:border-border-dark hover:border-[var(--store-primary)]'
+                              }`}
+                            >
+                              {opt.value}
+                            </button>
+                          )
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
                 {selectedVariant?.sku && (
                   <p className="text-[11px] text-text-muted">SKU: {selectedVariant.sku}</p>
                 )}
@@ -611,6 +662,28 @@ export default function ProdutoLojaPage() {
       </AnimatePresence>
 
       {settings && <StoreFooter settings={settings as any} storeName={storeName} />}
+
+      {coverModalGroupId && (() => {
+        const group = groups.find(g => g.id === coverModalGroupId)
+        if (!group) return null
+        return (
+          <CoverPickerModal
+            title={`Escolha sua ${group.name.toLowerCase()}`}
+            options={group.options.map(opt => ({
+              id: opt.id,
+              value: opt.value,
+              imageUrl: opt.default_image_id ? imageById.get(opt.default_image_id)?.url ?? null : null,
+              allowed: isOptionAllowed(opt.id),
+            }))}
+            selectedId={selectedOptions[group.id] ?? null}
+            onSelect={optionId => {
+              setSelectedOptions(prev => computeSelection({ ...prev, [group.id]: optionId }))
+              setCoverModalGroupId(null)
+            }}
+            onClose={() => setCoverModalGroupId(null)}
+          />
+        )
+      })()}
     </div>
     </StoreThemeRoot>
   )

@@ -47,6 +47,8 @@ function adjustmentBadge(opt: OptionRow): string | null {
 }
 
 const IMAGE_MAX_PHOTOS = 10
+/** Imagens enviadas direto para uma opção de variação (ex: cada capa de um grupo "Capa") não entram na galeria principal — limite bem mais generoso (migration 096), pra caber qualquer quantidade razoável de opções. */
+const OPTION_IMAGE_MAX = 60
 const IMAGE_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 interface VariantRow {
@@ -65,7 +67,7 @@ interface VariantRow {
   markup_percentage: number | null
   pricing_data: unknown
 }
-interface ProductImage { id: string; url: string; sort_order: number; media_type?: 'image' | 'video' }
+interface ProductImage { id: string; url: string; sort_order: number; media_type?: 'image' | 'video'; gallery_visible?: boolean }
 
 /** Campos da tabela de combinações editáveis em lote (não incluem grupos/opções). */
 type EditableField = 'price' | 'stock_quantity' | 'sku' | 'lead_time_days' | 'weight_kg' | 'image_id'
@@ -122,6 +124,9 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   const [imageUploadError, setImageUploadError] = useState<string | null>(null)
   const [confirmDuplicate, setConfirmDuplicate] = useState(false)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const [optionImageUploadProgress, setOptionImageUploadProgress] = useState<number | null>(null)
+  const [optionImageUploadError, setOptionImageUploadError] = useState<string | null>(null)
+  const optionImageInputRef = useRef<HTMLInputElement>(null)
 
   /** Alterações de campos da tabela de combinações ainda não salvas, por combinação. */
   const [pendingChanges, setPendingChanges] = useState<Record<string, Partial<Record<EditableField, unknown>>>>({})
@@ -160,7 +165,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     enabled: !!productId,
     queryFn: async () => {
       const { data } = await (supabase.from('product_images') as any)
-        .select('id, url, sort_order, media_type, is_primary, storage_path, duration_seconds').eq('product_id', productId).order('sort_order')
+        .select('id, url, sort_order, media_type, is_primary, storage_path, duration_seconds, gallery_visible').eq('product_id', productId).order('sort_order')
       return data ?? []
     },
   })
@@ -300,6 +305,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     setEditOptionValue(opt.value)
     setEditOptionAdj(adjustmentKindFromOption(opt))
     setEditOptionDefaultImage(opt.default_image_id ?? '')
+    setOptionImageUploadError(null)
   }
 
   /** Salva em lote apenas os campos alterados de cada combinação (um update por combinação, só com o patch dela). */
@@ -459,6 +465,45 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
       return
     }
     uploadVariantImageMutation.mutate(file)
+  }
+
+  /** Envia uma imagem nova direto para a opção em edição (ex: a foto de uma capa) — não entra na galeria principal do produto (gallery_visible = false) e já fica selecionada como imagem padrão desta opção. */
+  const uploadOptionImageMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const compressed = await compressImage(file)
+      const url = await uploadImageXhr(compressed, { context: 'product', productId }, setOptionImageUploadProgress)
+      const nextOrder = productImages.length > 0 ? Math.max(...productImages.map(i => i.sort_order)) + 1 : 0
+      const { data, error: err } = await (supabase.from('product_images') as any)
+        .insert({ product_id: productId, company_id: companyId, url, sort_order: nextOrder, gallery_visible: false })
+        .select('id').single()
+      if (err) throw err
+      return data.id as string
+    },
+    onSuccess: (newImageId) => {
+      qc.invalidateQueries({ queryKey: ['product-images', productId] })
+      setOptionImageUploadProgress(null)
+      setOptionImageUploadError(null)
+      setEditOptionDefaultImage(newImageId)
+    },
+    onError: (err: Error) => { setOptionImageUploadProgress(null); setOptionImageUploadError(err.message) },
+  })
+
+  function handleOptionImageFilePicked(file: File | undefined) {
+    if (!file) return
+    setOptionImageUploadError(null)
+    if (!IMAGE_ALLOWED_TYPES.includes(file.type)) {
+      setOptionImageUploadError('Formato não permitido. Use JPG, PNG ou WEBP.')
+      return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setOptionImageUploadError('Arquivo muito grande. Máximo 10MB.')
+      return
+    }
+    if (productImages.length >= OPTION_IMAGE_MAX) {
+      setOptionImageUploadError(`Limite de ${OPTION_IMAGE_MAX} imagens de opções atingido.`)
+      return
+    }
+    uploadOptionImageMutation.mutate(file)
   }
 
   function numOrNull(v: string): number | null {
@@ -644,9 +689,32 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                       >
                         <option value="">Sem imagem padrão</option>
                         {productImages.map((img, i) => (
-                          <option key={img.id} value={img.id}>Foto {i + 1} como padrão</option>
+                          <option key={img.id} value={img.id}>{img.gallery_visible === false ? `Imagem de opção ${i + 1}` : `Foto ${i + 1}`} como padrão</option>
                         ))}
                       </select>
+                      {editOptionDefaultImage && productImages.find(img => img.id === editOptionDefaultImage) && (
+                        <img
+                          src={productImages.find(img => img.id === editOptionDefaultImage)!.url}
+                          alt=""
+                          className="w-7 h-7 rounded-lg object-cover border border-border dark:border-border-dark"
+                        />
+                      )}
+                      <input
+                        ref={optionImageInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={e => { handleOptionImageFilePicked(e.target.files?.[0]); e.target.value = '' }}
+                      />
+                      <button
+                        type="button"
+                        disabled={productImages.length >= OPTION_IMAGE_MAX || uploadOptionImageMutation.isPending}
+                        onClick={() => optionImageInputRef.current?.click()}
+                        title={productImages.length >= OPTION_IMAGE_MAX ? `Limite de ${OPTION_IMAGE_MAX} imagens de opções atingido` : 'Enviar uma imagem nova para esta opção'}
+                        className="btn-secondary text-[11px] h-7 px-2 flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {uploadOptionImageMutation.isPending ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />} Enviar imagem
+                      </button>
                       <button type="button"
                         onClick={() => {
                           const value = editOptionValue.trim()
@@ -660,6 +728,16 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                       <button type="button" onClick={() => setEditingOptionId(null)} className="btn-secondary text-[11px] h-7 px-2">
                         Cancelar
                       </button>
+                      {optionImageUploadProgress !== null && (
+                        <p className="flex items-center gap-1.5 text-[11px] text-text-muted w-full">
+                          <Loader2 size={11} className="animate-spin" /> Enviando... {optionImageUploadProgress}%
+                        </p>
+                      )}
+                      {optionImageUploadError && (
+                        <p className="flex items-center gap-1 text-[11px] text-error dark:text-red-400 w-full">
+                          <AlertCircle size={11} /> {optionImageUploadError}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
