@@ -66,6 +66,8 @@ export function ProductGalleryUpload({ productId, companyId }: Props) {
   const [progress, setProgress] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [dragOverGrid, setDragOverGrid] = useState(false)
+  const [batch, setBatch] = useState<{ index: number; total: number } | null>(null)
 
   const { data: media } = useQuery<ProductMedia[]>({
     queryKey: ['product-images', productId],
@@ -86,14 +88,19 @@ export function ProductGalleryUpload({ productId, companyId }: Props) {
   }
 
   const addPhotoMutation = useMutation({
-    mutationFn: async (file: File) => {
+    // sortOrder/isPrimary vêm explícitos de quem chama (em vez de calculados
+    // aqui a partir de `photos`) porque, num envio em lote, vários uploads
+    // rodam em sequência antes do cache de `product-images` ser invalidado e
+    // recarregado — calcular a partir de `photos.length` em cada um deles
+    // repetiria sempre o mesmo sort_order/is_primary (valor "congelado" do
+    // início do lote), em vez de um valor por arquivo.
+    mutationFn: async ({ file, sortOrder, isPrimary }: { file: File; sortOrder: number; isPrimary: boolean }) => {
       const compressed = await compressImage(file)
       const uploaded = await uploadFileXhr(compressed, { productId, mediaType: 'image' }, setProgress)
-      const nextOrder = photos.length > 0 ? Math.max(...photos.map(i => i.sort_order)) + 1 : 0
       const { error } = await (supabase.from('product_images') as any)
         .insert({
-          product_id: productId, company_id: companyId, url: uploaded.url, sort_order: nextOrder,
-          media_type: 'image', is_primary: photos.length === 0,
+          product_id: productId, company_id: companyId, url: uploaded.url, sort_order: sortOrder,
+          media_type: 'image', is_primary: isPrimary,
           storage_path: uploaded.path, mime_type: uploaded.mimeType, file_size: uploaded.fileSize,
         })
       if (error) throw error
@@ -212,9 +219,74 @@ export function ProductGalleryUpload({ productId, companyId }: Props) {
       replaceTargetId.current = null
     } else {
       if (photos.length >= MAX_PHOTOS) { setError(`Limite de ${MAX_PHOTOS} fotos atingido.`); return }
-      addPhotoMutation.mutate(file)
+      addPhotoMutation.mutate({
+        file,
+        sortOrder: photos.length > 0 ? Math.max(...photos.map(i => i.sort_order)) + 1 : 0,
+        isPrimary: photos.length === 0,
+      })
     }
   }, [addPhotoMutation, replacePhotoMutation, photos])
+
+  /**
+   * Upload de várias fotos de uma vez (seleção múltipla no picker ou
+   * arrastar-e-soltar vários arquivos juntos). Sempre adiciona (nunca troca
+   * uma foto existente) e respeita o limite de MAX_PHOTOS — o que não
+   * couber fica de fora, com aviso, em vez de travar ou sobrescrever.
+   */
+  const handleFilesBatch = useCallback(async (fileList: FileList | File[]) => {
+    setError(null)
+    const files = Array.from(fileList)
+    const invalid = files.filter(f => !ALLOWED_IMAGE_TYPES.includes(f.type) || f.size > 10 * 1024 * 1024)
+    const valid = files.filter(f => ALLOWED_IMAGE_TYPES.includes(f.type) && f.size <= 10 * 1024 * 1024)
+
+    const availableSlots = Math.max(0, MAX_PHOTOS - photos.length)
+    const toUpload = valid.slice(0, availableSlots)
+    const skipped = valid.length - toUpload.length
+
+    if (toUpload.length === 0) {
+      setError(
+        invalid.length > 0
+          ? 'Nenhuma imagem válida — use JPG, PNG ou WEBP, até 10MB cada.'
+          : `Limite de ${MAX_PHOTOS} fotos atingido.`
+      )
+      return
+    }
+
+    const baseOrder = photos.length > 0 ? Math.max(...photos.map(i => i.sort_order)) + 1 : 0
+    const wasEmpty = photos.length === 0
+
+    setBatch({ index: 0, total: toUpload.length })
+    for (let i = 0; i < toUpload.length; i++) {
+      setBatch({ index: i + 1, total: toUpload.length })
+      try {
+        await addPhotoMutation.mutateAsync({ file: toUpload[i], sortOrder: baseOrder + i, isPrimary: wasEmpty && i === 0 })
+      } catch {
+        // addPhotoMutation.onError já registrou a mensagem — segue para o
+        // próximo arquivo do lote em vez de abortar os demais.
+      }
+    }
+    setBatch(null)
+
+    if (invalid.length > 0 || skipped > 0) {
+      const parts = []
+      if (invalid.length > 0) parts.push(`${invalid.length} arquivo(s) em formato/tamanho inválido`)
+      if (skipped > 0) parts.push(`${skipped} imagem(ns) além do limite de ${MAX_PHOTOS}`)
+      setError(`${parts.join(' · ')} não foram enviados.`)
+    }
+  }, [addPhotoMutation, photos])
+
+  function handleGridDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDragOverGrid(false)
+    if (!e.dataTransfer.types.includes('Files')) return // reordenação interna, não um arquivo do sistema
+    if (e.dataTransfer.files.length > 0) handleFilesBatch(e.dataTransfer.files)
+  }
+
+  function handleGridDragOver(e: React.DragEvent) {
+    if (!e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    setDragOverGrid(true)
+  }
 
   const handlePickVideo = useCallback((file: File) => {
     setError(null)
@@ -252,7 +324,15 @@ export function ProductGalleryUpload({ productId, companyId }: Props) {
           <p className="text-xs font-semibold text-text-primary dark:text-stone-100">Fotos</p>
           <span className="text-[11px] text-text-muted">{photos.length} de {MAX_PHOTOS} fotos</span>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div
+          onDragOver={handleGridDragOver}
+          onDragLeave={e => { if (!e.dataTransfer.types.includes('Files')) return; setDragOverGrid(false) }}
+          onDrop={handleGridDrop}
+          className={clsx(
+            'grid grid-cols-2 sm:grid-cols-5 gap-3 rounded-xl transition-colors',
+            dragOverGrid && 'ring-2 ring-primary ring-offset-2 ring-offset-white dark:ring-offset-surface-dark'
+          )}
+        >
           {Array.from({ length: MAX_PHOTOS }).map((_, idx) => {
             const img = photos[idx]
             if (!img) {
@@ -271,10 +351,15 @@ export function ProductGalleryUpload({ productId, companyId }: Props) {
                   )}
                 >
                   {isNextEmpty && (
-                    photoBusy ? <Loader2 size={18} className="animate-spin" /> : (
+                    batch ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" />
+                        <span className="text-[10px] font-medium">{batch.index}/{batch.total}</span>
+                      </>
+                    ) : photoBusy ? <Loader2 size={18} className="animate-spin" /> : (
                       <>
                         <Plus size={18} />
-                        <span className="text-[10px] font-medium">Adicionar</span>
+                        <span className="text-[10px] font-medium text-center px-1">Adicionar ou arrastar</span>
                       </>
                     )
                   )}
@@ -321,12 +406,21 @@ export function ProductGalleryUpload({ productId, companyId }: Props) {
           ref={photoInputRef}
           type="file"
           accept="image/jpeg,image/png,image/webp"
+          multiple
           className="hidden"
-          onChange={e => { const f = e.target.files?.[0]; if (f) handlePickPhoto(f); e.target.value = '' }}
+          onChange={e => {
+            const fileList = e.target.files
+            if (!fileList || fileList.length === 0) { e.target.value = ''; return }
+            // Substituir uma foto específica sempre usa só o primeiro arquivo
+            // escolhido, mesmo que o seletor do sistema permita mais de um.
+            if (replaceTargetId.current || fileList.length === 1) handlePickPhoto(fileList[0])
+            else handleFilesBatch(fileList)
+            e.target.value = ''
+          }}
         />
 
         <p className="text-[11px] text-text-muted dark:text-stone-500 mt-2">
-          Até {MAX_PHOTOS} fotos · JPG, PNG ou WEBP · Máximo 10MB cada. A foto marcada como capa é a
+          Até {MAX_PHOTOS} fotos · JPG, PNG ou WEBP · Máximo 10MB cada · arraste uma ou várias de uma vez. A foto marcada como capa é a
           miniatura do catálogo, do carrinho e a imagem principal da página do produto.
         </p>
       </div>
@@ -394,7 +488,8 @@ export function ProductGalleryUpload({ productId, companyId }: Props) {
 
       {progress !== null && (
         <div className="flex items-center gap-2 text-xs text-text-muted">
-          <Loader2 size={12} className="animate-spin" /> Enviando... {progress}%
+          <Loader2 size={12} className="animate-spin" />
+          {batch ? `Enviando foto ${batch.index} de ${batch.total}... ${progress}%` : `Enviando... ${progress}%`}
         </div>
       )}
 
