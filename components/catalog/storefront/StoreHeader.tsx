@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { Store, Search, Heart, ShoppingBag, Menu, X } from 'lucide-react'
+import { StoreThemeToggle } from './StoreThemeRoot'
 
 interface Props {
   slug:            string
@@ -67,6 +68,9 @@ export function StoreHeader({ slug, storeName, logoUrl, cartCount, favoriteCount
         </nav>
 
         <div className="flex items-center gap-1.5 ml-auto">
+          <StoreThemeToggle
+            className="w-9 h-9 rounded-full flex items-center justify-center hover:opacity-70 transition-opacity text-[var(--store-text)]"
+          />
           <button
             type="button"
             onClick={() => setSearchOpen(o => !o)}
