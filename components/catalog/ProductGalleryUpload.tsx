@@ -75,7 +75,12 @@ export function ProductGalleryUpload({ productId, companyId }: Props) {
     queryFn: async () => {
       const { data } = await (supabase.from('product_images') as any)
         .select('id, url, sort_order, media_type, is_primary, storage_path, duration_seconds')
-        .eq('product_id', productId).order('sort_order')
+        .eq('product_id', productId)
+        // Imagens enviadas especificamente para uma opção de variação (ex:
+        // cada capa de um grupo "Capa") não contam como foto geral do
+        // produto — ficam fora desta galeria (migration 096).
+        .or('gallery_visible.eq.true,media_type.eq.video')
+        .order('sort_order')
       return data ?? []
     },
   })

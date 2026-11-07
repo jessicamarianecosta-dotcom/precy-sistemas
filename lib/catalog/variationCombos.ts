@@ -14,6 +14,18 @@ export function comboKey(optionIds: string[]) {
 }
 
 /**
+ * Identifica, por nome, se um grupo de variação é o grupo "Capa" — critério
+ * dinâmico (qualquer produto que tenha cadastrado um grupo com esse nome
+ * exato, não um produto ou coleção específica). Comparação exata (sem
+ * acento, trim, case-insensitive) pra não confundir com grupos parecidos
+ * como "Acabamento capa" ou "Capa dura", que devem continuar com a seleção
+ * tradicional em pills.
+ */
+export function isCapaGroup(name: string): boolean {
+  return name.trim().toLowerCase() === 'capa'
+}
+
+/**
  * Resolve a imagem padrão de uma combinação a partir das opções selecionadas
  * (uma por grupo, na mesma ordem de `groups`). Quando mais de um grupo
  * selecionado tem `default_image_id` configurado, o grupo que vem DEPOIS na
