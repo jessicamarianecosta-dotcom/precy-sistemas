@@ -46,7 +46,7 @@ function adjustmentBadge(opt: OptionRow): string | null {
   return opt.price_adjustment_type === 'percent' ? `${sign}${v}%` : `${sign}${formatCurrency(v)}`
 }
 
-const IMAGE_MAX_PHOTOS = 10
+const IMAGE_MAX_PHOTOS = 20
 /** Imagens enviadas direto para uma opção de variação (ex: cada capa de um grupo "Capa") não entram na galeria principal — limite bem mais generoso (migration 096), pra caber qualquer quantidade razoável de opções. */
 const OPTION_IMAGE_MAX = 60
 const IMAGE_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
@@ -1251,7 +1251,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                         type="button"
                         disabled={productImages.length >= IMAGE_MAX_PHOTOS || uploadVariantImageMutation.isPending}
                         onClick={() => imageInputRef.current?.click()}
-                        title={productImages.length >= IMAGE_MAX_PHOTOS ? 'Limite de 4 fotos do produto atingido' : 'Enviar imagem'}
+                        title={productImages.length >= IMAGE_MAX_PHOTOS ? `Limite de ${IMAGE_MAX_PHOTOS} fotos do produto atingido` : 'Enviar imagem'}
                         className="flex flex-col items-center justify-center gap-1 w-16 h-16 rounded-xl border-2 border-dashed border-border dark:border-border-dark text-text-muted hover:border-primary hover:text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
                       >
                         {uploadVariantImageMutation.isPending
