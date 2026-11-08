@@ -467,9 +467,20 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     uploadVariantImageMutation.mutate(file)
   }
 
-  /** Envia uma imagem nova direto para a opção em edição (ex: a foto de uma capa) — não entra na galeria principal do produto (gallery_visible = false) e já fica selecionada como imagem padrão desta opção. */
+  /**
+   * Envia uma imagem nova direto para a opção em edição (ex: a foto de uma
+   * capa) — não entra na galeria principal do produto (gallery_visible =
+   * false). A associação com a opção (default_image_id) é gravada aqui
+   * mesmo, no momento do upload, e não só quando o botão "Salvar" do card de
+   * edição é clicado: a imagem já aparece persistida na galeria assim que
+   * sobe, então se a pessoa fechar/cancelar o card antes de clicar em
+   * "Salvar" (ou trocar de opção enquanto o upload ainda está em
+   * andamento), a foto não deve ficar "órfã" — enviada, mas sem nenhuma
+   * opção apontando para ela. Mesma lógica de preencher combinações
+   * existentes sem imagem própria que updateOptionMutation já faz.
+   */
   const uploadOptionImageMutation = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async ({ file, optionId }: { file: File; optionId: string }) => {
       const compressed = await compressImage(file)
       const url = await uploadImageXhr(compressed, { context: 'product', productId }, setOptionImageUploadProgress)
       const nextOrder = productImages.length > 0 ? Math.max(...productImages.map(i => i.sort_order)) + 1 : 0
@@ -477,10 +488,31 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
         .insert({ product_id: productId, company_id: companyId, url, sort_order: nextOrder, gallery_visible: false })
         .select('id').single()
       if (err) throw err
-      return data.id as string
+      const newImageId = data.id as string
+
+      const { error: optErr } = await (supabase.from('product_variation_options') as any)
+        .update({ default_image_id: newImageId })
+        .eq('id', optionId)
+      if (optErr) throw optErr
+
+      const groupsWithUpdate = groupsSorted.map(g => ({
+        ...g,
+        options: g.options.map(o => (o.id === optionId ? { ...o, default_image_id: newImageId } : o)),
+      }))
+      const targets = variantsNormalized.filter(v => v.image_id == null && v.optionIds.includes(optionId))
+      for (const v of targets) {
+        const resolved = resolveDefaultImageId(groupsWithUpdate, v.optionIds)
+        if (resolved) {
+          await (supabase.from('product_variants') as any).update({ image_id: resolved }).eq('id', v.id)
+        }
+      }
+
+      return newImageId
     },
     onSuccess: (newImageId) => {
       qc.invalidateQueries({ queryKey: ['product-images', productId] })
+      invalidateGroups()
+      invalidateVariants()
       setOptionImageUploadProgress(null)
       setOptionImageUploadError(null)
       setEditOptionDefaultImage(newImageId)
@@ -489,7 +521,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   })
 
   function handleOptionImageFilePicked(file: File | undefined) {
-    if (!file) return
+    if (!file || !editingOptionId) return
     setOptionImageUploadError(null)
     if (!IMAGE_ALLOWED_TYPES.includes(file.type)) {
       setOptionImageUploadError('Formato não permitido. Use JPG, PNG ou WEBP.')
@@ -503,7 +535,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
       setOptionImageUploadError(`Limite de ${OPTION_IMAGE_MAX} imagens de opções atingido.`)
       return
     }
-    uploadOptionImageMutation.mutate(file)
+    uploadOptionImageMutation.mutate({ file, optionId: editingOptionId })
   }
 
   function numOrNull(v: string): number | null {

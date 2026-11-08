@@ -143,9 +143,15 @@ export function ProductGalleryUpload({ productId, companyId }: Props) {
   })
 
   const reorderMutation = useMutation({
-    mutationFn: async (updates: { id: string; sort_order: number }[]) => {
+    // `is_primary` sempre acompanha quem fica na posição 0 — a primeira foto
+    // da galeria É a capa, sem exigir um passo manual extra (trigger
+    // enforce_single_primary_product_image, migration 086, desmarca a capa
+    // anterior quando a nova é marcada).
+    mutationFn: async (updates: { id: string; sort_order: number; is_primary?: true }[]) => {
       await Promise.all(updates.map(u =>
-        (supabase.from('product_images') as any).update({ sort_order: u.sort_order }).eq('id', u.id)
+        (supabase.from('product_images') as any)
+          .update(u.is_primary ? { sort_order: u.sort_order, is_primary: true } : { sort_order: u.sort_order })
+          .eq('id', u.id)
       ))
     },
     onSuccess: invalidate,
@@ -315,7 +321,9 @@ export function ProductGalleryUpload({ productId, companyId }: Props) {
     const reordered = [...photos]
     const [moved] = reordered.splice(dragIndex, 1)
     reordered.splice(targetIdx, 0, moved)
-    reorderMutation.mutate(reordered.map((img, idx) => ({ id: img.id, sort_order: idx })))
+    reorderMutation.mutate(reordered.map((img, idx) => (
+      idx === 0 ? { id: img.id, sort_order: idx, is_primary: true } : { id: img.id, sort_order: idx }
+    )))
     setDragIndex(null)
   }
 

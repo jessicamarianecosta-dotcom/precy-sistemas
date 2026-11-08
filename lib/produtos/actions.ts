@@ -42,13 +42,26 @@ export async function duplicateProduct(
     await supabase.from('product_materials').insert(rows)
   }
 
-  // Fotos do catálogo
+  // Fotos do catálogo — preserva capa (is_primary), visibilidade na galeria
+  // (gallery_visible) e tipo (media_type), e guarda o mapeamento id antigo →
+  // id novo pra poder remapear default_image_id/image_id abaixo. A linha
+  // nova aponta pra mesma URL (sem storage_path), igual já acontecia antes:
+  // é só uma referência, não um novo upload do arquivo.
   const { data: images } = await supabase
-    .from('product_images').select('url, sort_order').eq('product_id', sourceId).order('sort_order')
+    .from('product_images').select('id, url, sort_order, media_type, is_primary, gallery_visible')
+    .eq('product_id', sourceId).order('sort_order')
+  const imageIdMap = new Map<string, string>()
   if (images && images.length > 0) {
-    await supabase.from('product_images').insert(
-      images.map((img: { url: string; sort_order: number }) => ({ ...img, company_id: companyId, product_id: newProd.id }))
-    )
+    for (const img of images as { id: string; url: string; sort_order: number; media_type: string; is_primary: boolean; gallery_visible: boolean }[]) {
+      const { data: newImage } = await supabase
+        .from('product_images')
+        .insert({
+          company_id: companyId, product_id: newProd.id, url: img.url, sort_order: img.sort_order,
+          media_type: img.media_type, is_primary: img.is_primary, gallery_visible: img.gallery_visible,
+        })
+        .select('id').single()
+      if (newImage) imageIdMap.set(img.id, newImage.id)
+    }
   }
 
   // Grupos/opções/variantes de variação
@@ -65,13 +78,16 @@ export async function duplicateProduct(
     }
 
     const { data: options } = await supabase
-      .from('product_variation_options').select('id, group_id, value, sort_order')
+      .from('product_variation_options').select('id, group_id, value, sort_order, default_image_id')
       .in('group_id', groups.map((g: { id: string }) => g.id))
     const optionIdMap = new Map<string, string>()
-    for (const o of (options ?? []) as { id: string; group_id: string; value: string; sort_order: number }[]) {
+    for (const o of (options ?? []) as { id: string; group_id: string; value: string; sort_order: number; default_image_id: string | null }[]) {
       const { data: newOption } = await supabase
         .from('product_variation_options')
-        .insert({ group_id: groupIdMap.get(o.group_id), company_id: companyId, value: o.value, sort_order: o.sort_order })
+        .insert({
+          group_id: groupIdMap.get(o.group_id), company_id: companyId, value: o.value, sort_order: o.sort_order,
+          default_image_id: o.default_image_id ? (imageIdMap.get(o.default_image_id) ?? null) : null,
+        })
         .select('id').single()
       if (newOption) optionIdMap.set(o.id, newOption.id)
     }
@@ -92,7 +108,7 @@ export async function duplicateProduct(
 
     const { data: variants } = await supabase
       .from('product_variants')
-      .select('id, sku, price, stock_quantity, lead_time_days, weight_kg, sort_order, material_cost, labor_cost, extra_cost, total_cost, markup_percentage, pricing_data, product_variant_option_values(option_id, group_id)')
+      .select('id, sku, price, stock_quantity, lead_time_days, weight_kg, image_id, sort_order, material_cost, labor_cost, extra_cost, total_cost, markup_percentage, pricing_data, product_variant_option_values(option_id, group_id)')
       .eq('product_id', sourceId)
     for (const v of (variants ?? []) as any[]) {
       const { data: newVariant } = await supabase
@@ -100,6 +116,7 @@ export async function duplicateProduct(
         .insert({
           product_id: newProd.id, company_id: companyId, sku: v.sku, price: v.price,
           stock_quantity: v.stock_quantity, lead_time_days: v.lead_time_days, weight_kg: v.weight_kg,
+          image_id: v.image_id ? (imageIdMap.get(v.image_id) ?? null) : null,
           sort_order: v.sort_order,
           // precificação própria da combinação acompanha a duplicação
           material_cost: v.material_cost, labor_cost: v.labor_cost, extra_cost: v.extra_cost,
