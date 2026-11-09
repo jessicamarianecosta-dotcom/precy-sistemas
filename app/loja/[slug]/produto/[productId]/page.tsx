@@ -37,7 +37,7 @@ interface OptionRow {
   price_adjustment_value?: number | null
   default_image_id?: string | null
 }
-interface GroupRow { id: string; name: string; sort_order: number; options: OptionRow[] }
+interface GroupRow { id: string; name: string; sort_order: number; is_required: boolean; options: OptionRow[] }
 interface VariantRow {
   id: string
   sku: string | null
@@ -45,7 +45,8 @@ interface VariantRow {
   stock_quantity: number | null
   lead_time_days: number | null
   image_id: string | null
-  optionIds: string[]
+  /** Posição = índice do grupo em `groups`; undefined = grupo opcional sem opção nesta combinação. Nunca compactar. */
+  optionIds: (string | undefined)[]
 }
 
 const SETTINGS_COLUMNS = `
@@ -135,11 +136,14 @@ export default function ProdutoLojaPage() {
     queryKey: ['loja-product-groups', productId],
     queryFn: async () => {
       const { data } = await (supabase.from('product_variation_groups') as any)
-        .select('id, name, sort_order, product_variation_options(id, group_id, value, sort_order, price_adjustment_type, price_adjustment_value, default_image_id)')
+        .select('id, name, sort_order, is_required, product_variation_options(id, group_id, value, sort_order, price_adjustment_type, price_adjustment_value, default_image_id)')
         .eq('product_id', productId)
         .order('sort_order')
         .order('sort_order', { foreignTable: 'product_variation_options' })
-      return (data ?? []).map((g: any) => ({ id: g.id, name: g.name, sort_order: g.sort_order, options: g.product_variation_options ?? [] }))
+      return (data ?? []).map((g: any) => ({
+        id: g.id, name: g.name, sort_order: g.sort_order, is_required: g.is_required ?? true,
+        options: g.product_variation_options ?? [],
+      }))
     },
   })
 
@@ -198,7 +202,7 @@ export default function ProdutoLojaPage() {
   const variantsNormalized = useMemo<VariantRow[]>(() => {
     return (variantRows ?? []).map((v: any) => {
       const byGroup = new Map<string, string>((v.optionIds ?? []).map((ov: any) => [ov.group_id, ov.option_id]))
-      return { ...v, optionIds: groups.map(g => byGroup.get(g.id)).filter((x): x is string => !!x) }
+      return { ...v, optionIds: groups.map(g => byGroup.get(g.id)) }
     })
   }, [variantRows, groups])
 
@@ -226,6 +230,12 @@ export default function ProdutoLojaPage() {
   function computeSelection(base: Record<string, string>): Record<string, string> {
     const next: Record<string, string> = {}
     for (const g of groups) {
+      // '' = grupo opcional desmarcado de propósito (ver pills abaixo) — ao
+      // contrário de "ainda não escolhido" (chave ausente), não deve ser
+      // reatribuído automaticamente à primeira opção. Preserva a marcação
+      // (em vez de simplesmente omitir a chave) pra não ser desfeita no
+      // próximo recálculo (useEffect abaixo, que roda de novo a cada render).
+      if (g.is_required === false && base[g.id] === '') { next[g.id] = ''; continue }
       const current = g.options.find(o => o.id === base[g.id])
       if (current && isAllowedGiven(current.id, next)) {
         next[g.id] = current.id
@@ -252,7 +262,10 @@ export default function ProdutoLojaPage() {
 
   const selectedVariant = useMemo(() => {
     if (groups.length === 0) return null
-    if (groups.some(g => !selectedOptions[g.id])) return null
+    // Só bloqueia por falta de seleção em grupo obrigatório — grupo opcional
+    // sem opção (selectedOptions[g.id] === '' ou ausente) é uma combinação
+    // válida, desde que exista cadastrada (ver nota em comboKey).
+    if (groups.some(g => g.is_required !== false && !selectedOptions[g.id])) return null
     const key = comboKey(groups.map(g => selectedOptions[g.id]))
     return variantsNormalized.find(v => comboKey(v.optionIds) === key) ?? null
   }, [groups, selectedOptions, variantsNormalized])
@@ -302,7 +315,10 @@ export default function ProdutoLojaPage() {
   const palettes = resolvePalettes(settings ?? { theme_color: '#8B6C4F', theme_palette: null })
 
   const variantLabel = groups.length > 0 && selectedVariant
-    ? groups.map(g => `${g.name}: ${g.options.find(o => o.id === selectedOptions[g.id])?.value ?? ''}`).join(' · ')
+    ? groups
+        .filter(g => !!selectedOptions[g.id])
+        .map(g => `${g.name}: ${g.options.find(o => o.id === selectedOptions[g.id])?.value ?? ''}`)
+        .join(' · ')
     : null
 
   function goToPhoto(delta: number) {
@@ -504,7 +520,9 @@ export default function ProdutoLojaPage() {
                   }
                   return (
                     <div key={g.id}>
-                      <p className="text-xs font-semibold text-text-primary dark:text-stone-100 mb-1.5">{g.name}</p>
+                      <p className="text-xs font-semibold text-text-primary dark:text-stone-100 mb-1.5">
+                        {g.name} {g.is_required === false && <span className="font-normal text-text-muted">(opcional — clique de novo para remover)</span>}
+                      </p>
                       <div className="flex flex-wrap gap-1.5">
                         {g.options.map(opt => {
                           const active = selectedOptions[g.id] === opt.id
@@ -514,8 +532,11 @@ export default function ProdutoLojaPage() {
                               key={opt.id}
                               type="button"
                               disabled={!allowed}
-                              title={!allowed ? 'Combinação indisponível' : undefined}
-                              onClick={() => setSelectedOptions(prev => computeSelection({ ...prev, [g.id]: opt.id }))}
+                              title={!allowed ? 'Combinação indisponível' : g.is_required === false && active ? 'Clique para remover' : undefined}
+                              onClick={() => setSelectedOptions(prev => {
+                                const willDeselect = g.is_required === false && active
+                                return computeSelection({ ...prev, [g.id]: willDeselect ? '' : opt.id })
+                              })}
                               className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                                 !allowed
                                   ? 'bg-surface dark:bg-white/5 text-text-muted/40 dark:text-stone-600 border-border dark:border-border-dark cursor-not-allowed opacity-50'
