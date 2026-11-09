@@ -9,13 +9,19 @@ import type { GroupRow } from '@/lib/catalog/variationCombos'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 
+export interface ImportFieldChange {
+  field: 'price' | 'status' | 'sku' | 'stock_quantity' | 'lead_time_days' | 'weight_kg'
+  label: string
+  current: string
+  next: string
+}
 export interface ImportPreviewUpdate {
   id: string
   label: string
-  currentBase: number
-  newBase: number
-  currentFinal: number
-  finalPrice: number
+  changes: ImportFieldChange[]
+  /** Preenchido só quando o preço muda — preço final já recalculado com os acréscimos da combinação. */
+  currentFinal?: number
+  finalPrice?: number
 }
 export interface ImportPreviewInvalidRow {
   row: number
@@ -78,14 +84,19 @@ export async function POST(request: Request) {
     }))
 
     // Sempre a partir do banco, nunca confiando nas colunas informativas da planilha
-    // (nome das opções, acréscimos etc.) — só o ID e o novo preço-base são lidos do arquivo.
+    // (nome das opções, acréscimos etc.) — só o ID e os campos editáveis são lidos do arquivo.
     const { data: variantRows } = await db
       .from('product_variants')
-      .select('id, price, product_variant_option_values(option_id, group_id)')
+      .select('id, price, sku, stock_quantity, lead_time_days, weight_kg, is_active, product_variant_option_values(option_id, group_id)')
       .eq('product_id', productId)
       .eq('company_id', companyId)
 
-    const variantById = new Map<string, { price: number | null; optionIdsByGroup: (string | undefined)[]; label: string }>()
+    interface VariantInfo {
+      price: number | null; sku: string | null; stock_quantity: number | null
+      lead_time_days: number | null; weight_kg: number | null; is_active: boolean
+      optionIdsByGroup: (string | undefined)[]; label: string
+    }
+    const variantById = new Map<string, VariantInfo>()
     for (const v of (variantRows ?? []) as any[]) {
       const byGroup = new Map<string, string>((v.product_variant_option_values ?? []).map((ov: any) => [ov.group_id, ov.option_id]))
       const optionIdsByGroup = groups.map(g => byGroup.get(g.id))
@@ -93,7 +104,11 @@ export async function POST(request: Request) {
         .map((g, idx) => g.options.find(o => o.id === optionIdsByGroup[idx])?.value)
         .filter(Boolean)
         .join(' · ') || '—'
-      variantById.set(v.id, { price: v.price != null ? Number(v.price) : null, optionIdsByGroup, label })
+      variantById.set(v.id, {
+        price: v.price != null ? Number(v.price) : null, sku: v.sku, stock_quantity: v.stock_quantity,
+        lead_time_days: v.lead_time_days, weight_kg: v.weight_kg != null ? Number(v.weight_kg) : null,
+        is_active: v.is_active, optionIdsByGroup, label,
+      })
     }
 
     const productPrice = Number(product.final_price ?? 0)
@@ -115,14 +130,35 @@ export async function POST(request: Request) {
       }
       seenIds.add(r.id)
 
-      if (!r.hasNewPrice) { unchangedCount++; continue }
+      const changes: ImportFieldChange[] = []
+      let currentFinal: number | undefined
+      let finalPrice: number | undefined
 
-      const currentBase = variant.price ?? productPrice
-      const options = groups.map((g, idx) => g.options.find(o => o.id === variant.optionIdsByGroup[idx]))
-      const currentFinal = calcOptionsAdjustment(currentBase, options).finalPrice
-      const finalPrice = calcOptionsAdjustment(r.newPrice as number, options).finalPrice
+      if (r.hasNewPrice && r.newPrice !== variant.price) {
+        const currentBase = variant.price ?? productPrice
+        const options = groups.map((g, idx) => g.options.find(o => o.id === variant.optionIdsByGroup[idx]))
+        currentFinal = calcOptionsAdjustment(currentBase, options).finalPrice
+        finalPrice = calcOptionsAdjustment(r.newPrice as number, options).finalPrice
+        changes.push({ field: 'price', label: 'Preço-base', current: currentBase.toFixed(2), next: (r.newPrice as number).toFixed(2) })
+      }
+      if (r.hasStatus && r.status !== variant.is_active) {
+        changes.push({ field: 'status', label: 'Status', current: variant.is_active ? 'Ativa' : 'Inativa', next: r.status ? 'Ativa' : 'Inativa' })
+      }
+      if (r.hasSku && r.sku !== variant.sku) {
+        changes.push({ field: 'sku', label: 'SKU', current: variant.sku ?? '—', next: r.sku ?? '—' })
+      }
+      if (r.hasStock && r.stock !== variant.stock_quantity) {
+        changes.push({ field: 'stock_quantity', label: 'Estoque', current: variant.stock_quantity?.toString() ?? '—', next: r.stock?.toString() ?? '—' })
+      }
+      if (r.hasLeadTime && r.leadTime !== variant.lead_time_days) {
+        changes.push({ field: 'lead_time_days', label: 'Prazo (dias)', current: variant.lead_time_days?.toString() ?? '—', next: r.leadTime?.toString() ?? '—' })
+      }
+      if (r.hasWeight && r.weight !== variant.weight_kg) {
+        changes.push({ field: 'weight_kg', label: 'Peso (kg)', current: variant.weight_kg?.toString() ?? '—', next: r.weight?.toString() ?? '—' })
+      }
 
-      updates.push({ id: r.id, label: variant.label, currentBase, newBase: r.newPrice as number, currentFinal, finalPrice })
+      if (changes.length === 0) { unchangedCount++; continue }
+      updates.push({ id: r.id, label: variant.label, changes, currentFinal, finalPrice })
     }
 
     return NextResponse.json({
