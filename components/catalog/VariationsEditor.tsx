@@ -127,6 +127,11 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   const [optionImageUploadProgress, setOptionImageUploadProgress] = useState<number | null>(null)
   const [optionImageUploadError, setOptionImageUploadError] = useState<string | null>(null)
   const optionImageInputRef = useRef<HTMLInputElement>(null)
+  /** Envio em lote: várias imagens de uma vez para um grupo inteiro (ex: as 20 capas), uma por opção sem imagem, sem abrir/salvar opção por opção. */
+  const bulkOptionImageInputRef = useRef<HTMLInputElement>(null)
+  const bulkOptionImageTargetGroupId = useRef<string | null>(null)
+  const [bulkOptionImageBatch, setBulkOptionImageBatch] = useState<{ groupId: string; index: number; total: number } | null>(null)
+  const [bulkOptionImageError, setBulkOptionImageError] = useState<Record<string, string>>({})
 
   /** Alterações de campos da tabela de combinações ainda não salvas, por combinação. */
   const [pendingChanges, setPendingChanges] = useState<Record<string, Partial<Record<EditableField, unknown>>>>({})
@@ -538,6 +543,93 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     uploadOptionImageMutation.mutate({ file, optionId: editingOptionId })
   }
 
+  /**
+   * Envia várias imagens de uma vez para um grupo inteiro: a 1ª imagem
+   * escolhida vai para a 1ª opção do grupo ainda sem imagem própria, a 2ª
+   * para a 2ª, e assim por diante (ordem das opções = sort_order, a mesma
+   * ordem exibida na tela) — não mexe em opções que já têm imagem, pra não
+   * sobrescrever por engano algo que a pessoa já tinha escolhido à mão.
+   * Evita ter que abrir, enviar e clicar em "Salvar" opção por opção.
+   */
+  const bulkUploadOptionImagesMutation = useMutation({
+    mutationFn: async ({ groupId, files }: { groupId: string; files: File[] }) => {
+      const group = groupsSorted.find(g => g.id === groupId)
+      if (!group) return { assigned: 0, total: files.length }
+      const targets = group.options.filter(o => !o.default_image_id)
+      const pairs = files.slice(0, targets.length).map((file, i) => ({ file, option: targets[i] }))
+
+      let groupsWithUpdate = groupsSorted
+      for (let i = 0; i < pairs.length; i++) {
+        setBulkOptionImageBatch({ groupId, index: i + 1, total: pairs.length })
+        const { file, option } = pairs[i]
+        const compressed = await compressImage(file)
+        const url = await uploadImageXhr(compressed, { context: 'product', productId }, () => {})
+        const nextOrder = productImages.length > 0 ? Math.max(...productImages.map(im => im.sort_order)) + 1 + i : i
+        const { data, error: err } = await (supabase.from('product_images') as any)
+          .insert({ product_id: productId, company_id: companyId, url, sort_order: nextOrder, gallery_visible: false })
+          .select('id').single()
+        if (err) throw err
+        const newImageId = data.id as string
+
+        const { error: optErr } = await (supabase.from('product_variation_options') as any)
+          .update({ default_image_id: newImageId })
+          .eq('id', option.id)
+        if (optErr) throw optErr
+
+        groupsWithUpdate = groupsWithUpdate.map(g => ({
+          ...g,
+          options: g.options.map(o => (o.id === option.id ? { ...o, default_image_id: newImageId } : o)),
+        }))
+        const variantTargets = variantsNormalized.filter(v => v.image_id == null && v.optionIds.includes(option.id))
+        for (const v of variantTargets) {
+          const resolved = resolveDefaultImageId(groupsWithUpdate, v.optionIds)
+          if (resolved) await (supabase.from('product_variants') as any).update({ image_id: resolved }).eq('id', v.id)
+        }
+      }
+      return { assigned: pairs.length, total: files.length }
+    },
+    onSuccess: ({ assigned, total }, { groupId }) => {
+      qc.invalidateQueries({ queryKey: ['product-images', productId] })
+      invalidateGroups()
+      invalidateVariants()
+      setBulkOptionImageBatch(null)
+      setBulkOptionImageError(prev => {
+        const next = { ...prev }
+        delete next[groupId]
+        return next
+      })
+      if (assigned < total) {
+        toast('success', `${assigned} imagem(ns) associada(s). ${total - assigned} não couberam — todas as opções deste grupo já têm imagem.`)
+      } else {
+        toast('success', `${assigned} imagem(ns) associada(s) às opções.`)
+      }
+    },
+    onError: (err: Error, { groupId }) => {
+      setBulkOptionImageBatch(null)
+      setBulkOptionImageError(prev => ({ ...prev, [groupId]: err.message }))
+    },
+  })
+
+  function handleBulkOptionImagesPicked(groupId: string, fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return
+    setBulkOptionImageError(prev => { const next = { ...prev }; delete next[groupId]; return next })
+    const files = Array.from(fileList)
+    const invalid = files.filter(f => !IMAGE_ALLOWED_TYPES.includes(f.type) || f.size > 10 * 1024 * 1024)
+    const valid = files.filter(f => IMAGE_ALLOWED_TYPES.includes(f.type) && f.size <= 10 * 1024 * 1024)
+    if (valid.length === 0) {
+      setBulkOptionImageError(prev => ({ ...prev, [groupId]: 'Nenhuma imagem válida — use JPG, PNG ou WEBP, até 10MB cada.' }))
+      return
+    }
+    if (productImages.length + valid.length > OPTION_IMAGE_MAX) {
+      setBulkOptionImageError(prev => ({ ...prev, [groupId]: `Isso passaria do limite de ${OPTION_IMAGE_MAX} imagens de opções.` }))
+      return
+    }
+    if (invalid.length > 0) {
+      setBulkOptionImageError(prev => ({ ...prev, [groupId]: `${invalid.length} arquivo(s) em formato/tamanho inválido foram ignorados.` }))
+    }
+    bulkUploadOptionImagesMutation.mutate({ groupId, files: valid })
+  }
+
   function numOrNull(v: string): number | null {
     return v === '' ? null : Number(v)
   }
@@ -775,6 +867,38 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                 </div>
               ))}
             </div>
+
+            {group.options.length > 1 && (() => {
+              const pending = group.options.filter(o => !o.default_image_id).length
+              const batch = bulkOptionImageBatch?.groupId === group.id ? bulkOptionImageBatch : null
+              const bulkErr = bulkOptionImageError[group.id]
+              return (
+                <div className="flex flex-wrap items-center gap-2 mb-2 p-2 rounded-lg bg-surface dark:bg-white/5">
+                  <button
+                    type="button"
+                    disabled={pending === 0 || !!batch}
+                    onClick={() => {
+                      bulkOptionImageTargetGroupId.current = group.id
+                      bulkOptionImageInputRef.current?.click()
+                    }}
+                    title={pending === 0 ? 'Todas as opções deste grupo já têm imagem' : `Enviar várias imagens de uma vez — a 1ª vai pra 1ª opção sem imagem (${pending} nesse caso), a 2ª pra próxima, e assim por diante`}
+                    className="btn-secondary text-[11px] h-7 px-2 flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {batch ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
+                    {batch ? `Enviando ${batch.index}/${batch.total}...` : 'Enviar várias imagens para as opções'}
+                  </button>
+                  {pending > 0 && !batch && (
+                    <span className="text-[11px] text-text-muted">{pending} opção(ões) ainda sem imagem</span>
+                  )}
+                  {bulkErr && (
+                    <p className="flex items-center gap-1 text-[11px] text-error dark:text-red-400 w-full">
+                      <AlertCircle size={11} /> {bulkErr}
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
+
             <form
               onSubmit={e => {
                 e.preventDefault()
@@ -817,6 +941,19 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
             </form>
           </div>
         ))}
+
+        <input
+          type="file"
+          multiple
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          ref={bulkOptionImageInputRef}
+          onChange={e => {
+            const groupId = bulkOptionImageTargetGroupId.current
+            if (groupId) handleBulkOptionImagesPicked(groupId, e.target.files)
+            e.target.value = ''
+          }}
+        />
 
         <form
           onSubmit={e => { e.preventDefault(); const name = newGroupName.trim(); if (name) addGroupMutation.mutate(name) }}
