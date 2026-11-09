@@ -66,13 +66,13 @@ export async function duplicateProduct(
 
   // Grupos/opções/variantes de variação
   const { data: groups } = await supabase
-    .from('product_variation_groups').select('id, name, sort_order').eq('product_id', sourceId).order('sort_order')
+    .from('product_variation_groups').select('id, name, sort_order, is_required').eq('product_id', sourceId).order('sort_order')
   if (groups && groups.length > 0) {
     const groupIdMap = new Map<string, string>()
-    for (const g of groups as { id: string; name: string; sort_order: number }[]) {
+    for (const g of groups as { id: string; name: string; sort_order: number; is_required: boolean }[]) {
       const { data: newGroup } = await supabase
         .from('product_variation_groups')
-        .insert({ product_id: newProd.id, company_id: companyId, name: g.name, sort_order: g.sort_order })
+        .insert({ product_id: newProd.id, company_id: companyId, name: g.name, sort_order: g.sort_order, is_required: g.is_required })
         .select('id').single()
       if (newGroup) groupIdMap.set(g.id, newGroup.id)
     }

@@ -59,7 +59,8 @@ interface VariantRow {
   lead_time_days: number | null
   weight_kg: number | null
   image_id: string | null
-  optionIds: string[]
+  /** Posição = índice do grupo em groupsSorted; undefined = grupo opcional sem opção nesta combinação. NUNCA compactar (filtrar os undefined) — quebraria a correspondência de posição com groupsSorted usada em toda a tela. */
+  optionIds: (string | undefined)[]
   material_cost: number | null
   labor_cost: number | null
   extra_cost: number | null
@@ -142,12 +143,12 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     enabled: !!productId,
     queryFn: async () => {
       const { data } = await (supabase.from('product_variation_groups') as any)
-        .select('id, name, sort_order, product_variation_options(id, group_id, value, sort_order, price_adjustment_type, price_adjustment_value, default_image_id)')
+        .select('id, name, sort_order, is_required, product_variation_options(id, group_id, value, sort_order, price_adjustment_type, price_adjustment_value, default_image_id)')
         .eq('product_id', productId)
         .order('sort_order')
         .order('sort_order', { foreignTable: 'product_variation_options' })
       return (data ?? []).map((g: any) => ({
-        id: g.id, name: g.name, sort_order: g.sort_order,
+        id: g.id, name: g.name, sort_order: g.sort_order, is_required: g.is_required ?? true,
         options: g.product_variation_options ?? [],
       }))
     },
@@ -183,7 +184,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   const variantsNormalized = useMemo<VariantRow[]>(() => {
     return (variantsQuery.data ?? []).map(v => {
       const byGroup = new Map<string, string>((v.product_variant_option_values ?? []).map((ov: any) => [ov.group_id, ov.option_id]))
-      const optionIds = groupsSorted.map(g => byGroup.get(g.id)).filter((x): x is string => !!x)
+      const optionIds = groupsSorted.map(g => byGroup.get(g.id))
       return {
         id: v.id, sku: v.sku, price: v.price, stock_quantity: v.stock_quantity,
         lead_time_days: v.lead_time_days, weight_kg: v.weight_kg, image_id: v.image_id,
@@ -241,6 +242,15 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
     },
     onSuccess: () => { invalidateGroups(); setEditingGroupId(null); setError(null) },
     onError: (err: Error) => setError(err.message),
+  })
+
+  /** Obrigatório (padrão) vs opcional: grupo opcional pode ficar sem nenhuma opção selecionada, tanto nas combinações quanto na loja (ex: um "Extra" que o cliente pode não querer). */
+  const toggleGroupRequiredMutation = useMutation({
+    mutationFn: async ({ id, isRequired }: { id: string; isRequired: boolean }) => {
+      const { error: err } = await (supabase.from('product_variation_groups') as any).update({ is_required: isRequired }).eq('id', id)
+      if (err) throw err
+    },
+    onSuccess: invalidateGroups,
   })
 
   function startEditGroup(group: GroupRow) {
@@ -399,9 +409,16 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
         .select('id').single()
       if (insErr) throw insErr
 
-      const rows = groupsSorted.map(g => ({ variant_id: newVariant.id, option_id: selection[g.id], group_id: g.id }))
-      const { error: valErr } = await (supabase.from('product_variant_option_values') as any).insert(rows)
-      if (valErr) throw valErr
+      // Grupo opcional sem seleção (ex: "Extra" deixado em branco de propósito)
+      // não entra em product_variant_option_values — ausência de linha é como
+      // a loja (e esta própria tela) já reconhecem "sem opção neste grupo".
+      const rows = groupsSorted
+        .filter(g => !!selection[g.id])
+        .map(g => ({ variant_id: newVariant.id, option_id: selection[g.id], group_id: g.id }))
+      if (rows.length > 0) {
+        const { error: valErr } = await (supabase.from('product_variant_option_values') as any).insert(rows)
+        if (valErr) throw valErr
+      }
     },
     onSuccess: () => { invalidateVariants(); setVariantForm(null); setConfirmDuplicate(false); setError(null) },
     onError: (err: Error) => setError(err.message),
@@ -678,7 +695,9 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   function openNewVariantForm() {
     setConfirmDuplicate(false)
     setVariantForm({
-      selection: Object.fromEntries(groupsSorted.map(g => [g.id, g.options[0]?.id ?? ''])),
+      // Grupo opcional começa sem seleção ("— nenhum —") — quem cadastra
+      // escolhe explicitamente se esta combinação inclui aquele grupo ou não.
+      selection: Object.fromEntries(groupsSorted.map(g => [g.id, g.is_required === false ? '' : (g.options[0]?.id ?? '')])),
       settings: { price: '', stock_quantity: '', sku: '', lead_time_days: '', weight_kg: '', image_id: '' },
     })
   }
@@ -697,8 +716,8 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
 
   function submitVariantForm() {
     if (!variantForm) return
-    if (groupsSorted.some(g => !variantForm.selection[g.id])) {
-      setError('Selecione uma opção para cada grupo.')
+    if (groupsSorted.some(g => g.is_required !== false && !variantForm.selection[g.id])) {
+      setError('Selecione uma opção para cada grupo obrigatório.')
       return
     }
     const optionIds = groupsSorted.map(g => variantForm.selection[g.id])
@@ -756,8 +775,20 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                   </button>
                 </span>
               )}
-              <button type="button" onClick={() => confirmRemoveGroup(group.id)}
-                className="text-[11px] text-error hover:underline flex-shrink-0">Remover grupo</button>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <label className="flex items-center gap-1 text-[11px] text-text-muted dark:text-stone-500 cursor-pointer" title="Desmarcado: o cliente pode deixar este grupo sem nenhuma opção escolhida (ex: um 'Extra' opcional)">
+                  <input
+                    type="checkbox"
+                    checked={group.is_required !== false}
+                    disabled={toggleGroupRequiredMutation.isPending}
+                    onChange={e => toggleGroupRequiredMutation.mutate({ id: group.id, isRequired: e.target.checked })}
+                    className="accent-primary"
+                  />
+                  Obrigatório
+                </label>
+                <button type="button" onClick={() => confirmRemoveGroup(group.id)}
+                  className="text-[11px] text-error hover:underline">Remover grupo</button>
+              </div>
             </div>
             <div className="flex flex-col gap-1.5 mb-2">
               {group.options.map(opt => (
@@ -1319,12 +1350,15 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   {groupsSorted.map(g => (
                     <div key={g.id}>
-                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">{g.name}</label>
+                      <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
+                        {g.name} {g.is_required === false && <span className="text-text-muted font-normal">(opcional)</span>}
+                      </label>
                       <select
                         value={variantForm.selection[g.id] ?? ''}
                         onChange={e => setVariantForm(f => f && ({ ...f, selection: { ...f.selection, [g.id]: e.target.value } }))}
                         className="input w-full"
                       >
+                        {g.is_required === false && <option value="">— Nenhum —</option>}
                         {g.options.map(o => <option key={o.id} value={o.id}>{o.value}</option>)}
                       </select>
                     </div>

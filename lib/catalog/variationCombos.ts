@@ -6,10 +6,19 @@ export interface OptionRow {
   /** Imagem padrão aplicada a combinações com esta opção sem imagem própria (migration 092). */
   default_image_id?: string | null
 }
-export interface GroupRow { id: string; name: string; sort_order: number; options: OptionRow[] }
+export interface GroupRow {
+  id: string; name: string; sort_order: number; options: OptionRow[]
+  /** false = grupo opcional — a pessoa pode deixar sem nenhuma opção selecionada (ex: um "Extra" opcional). Ausente/true = obrigatório (comportamento padrão, igual a sempre antes desta migration). */
+  is_required?: boolean
+}
 export interface DependencyRow { id?: string; option_id: string; depends_on_option_id: string }
 
-export function comboKey(optionIds: string[]) {
+export function comboKey(optionIds: (string | null | undefined)[]) {
+  // join() já trata null/undefined como string vazia — uma posição sem
+  // opção (grupo opcional) fica igual a uma string vazia explícita, então
+  // as duas formas de "sem seleção" neste arquivo sempre geram a mesma
+  // chave, desde que a ORDEM dos grupos usada para montar o array seja
+  // sempre a mesma (sort_order) nos dois lados da comparação.
   return optionIds.join('|')
 }
 
