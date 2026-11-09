@@ -99,6 +99,7 @@ interface Product {
   length_cm?: number | null
   width_cm?:  number | null
   height_cm?: number | null
+  package_format?: 'box' | 'tube' | 'envelope' | null
 }
 
 interface ProductMaterial {
@@ -157,6 +158,7 @@ const schema = z.object({
   length_cm: optionalNumber,
   width_cm:  optionalNumber,
   height_cm: optionalNumber,
+  package_format: z.enum(['box', 'tube', 'envelope']).default('box'),
 })
 type FormData = z.infer<typeof schema>
 
@@ -312,7 +314,7 @@ export default function ProdutosPage() {
   /* ── Form ── */
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { unit: 'un', markup_percentage: 100, production_time_hours: 1, material_cost: 0, final_price: 0, catalog_requires_customization: true },
+    defaultValues: { unit: 'un', markup_percentage: 100, production_time_hours: 1, material_cost: 0, final_price: 0, catalog_requires_customization: true, package_format: 'box' },
   })
   const categoryValue = watch('category') ?? ''
 
@@ -458,7 +460,7 @@ export default function ProdutosPage() {
     resetPriceAdj()
     ;(['name','description','category','unit','production_time_hours','material_cost','markup_percentage','final_price',
        'is_published_catalog','catalog_category_id','catalog_lead_time_days','catalog_starting_price','catalog_promo_price',
-       'weight_kg','length_cm','width_cm','height_cm'] as Array<keyof FormData>)
+       'weight_kg','length_cm','width_cm','height_cm','package_format'] as Array<keyof FormData>)
       .forEach(k => setValue(k, (p as unknown as Record<string, unknown>)[k] as string))
     // Produto já cadastrado sem o campo preenchido (null/undefined) ainda não
     // passou pela migration de backfill — trata como true (valor seguro).
@@ -1386,12 +1388,63 @@ export default function ProdutosPage() {
                     </div>
                     <div className="sm:col-span-2">
                       <p className="text-xs font-medium text-text-secondary dark:text-stone-400 mb-1.5">Peso e dimensões da embalagem (para calcular o frete)</p>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        <input type="number" step="0.001" className="input" placeholder="Peso (kg)" {...register('weight_kg')} />
-                        <input type="number" step="0.1" className="input" placeholder="Compr. (cm)" {...register('length_cm')} />
-                        <input type="number" step="0.1" className="input" placeholder="Larg. (cm)" {...register('width_cm')} />
-                        <input type="number" step="0.1" className="input" placeholder="Alt. (cm)" {...register('height_cm')} />
+                      <div className="flex gap-1.5 mb-2">
+                        {([
+                          { value: 'box', label: 'Caixa' },
+                          { value: 'tube', label: 'Tubo' },
+                          { value: 'envelope', label: 'Envelope' },
+                        ] as const).map(opt => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setValue('package_format', opt.value)}
+                            className={clsx(
+                              'px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                              watch('package_format') === opt.value
+                                ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary'
+                                : 'border-border dark:border-border-dark text-text-secondary dark:text-stone-400 hover:border-primary/40'
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
                       </div>
+                      {watch('package_format') === 'tube' ? (
+                        <div className="grid grid-cols-3 gap-2">
+                          <input type="number" step="0.001" className="input" placeholder="Peso (kg)" {...register('weight_kg')} />
+                          <input type="number" step="0.1" className="input" placeholder="Compr. (cm)" {...register('length_cm')} />
+                          <input
+                            type="number" step="0.1" className="input" placeholder="Diâmetro (cm)"
+                            value={(watch('width_cm') as number | string | undefined) ?? ''}
+                            onChange={e => {
+                              const v = e.target.value
+                              setValue('width_cm', v === '' ? undefined : Number(v))
+                              setValue('height_cm', v === '' ? undefined : Number(v))
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <input type="number" step="0.001" className="input" placeholder="Peso (kg)" {...register('weight_kg')} />
+                          <input type="number" step="0.1" className="input" placeholder="Compr. (cm)" {...register('length_cm')} />
+                          <input type="number" step="0.1" className="input" placeholder="Larg. (cm)" {...register('width_cm')} />
+                          <input
+                            type="number" step="0.1" className="input"
+                            placeholder={watch('package_format') === 'envelope' ? 'Alt. (cm) — ex: 1 a 5' : 'Alt. (cm)'}
+                            {...register('height_cm')}
+                          />
+                        </div>
+                      )}
+                      {watch('package_format') === 'envelope' && (
+                        <p className="text-[11px] text-text-muted dark:text-stone-500 mt-1">
+                          Um envelope fino e real (altura baixa) resulta em frete mais barato — a SuperFrete calcula a partir das medidas informadas, não existe uma tarifa fixa de &ldquo;envelope&rdquo;.
+                        </p>
+                      )}
+                      {watch('package_format') === 'tube' && (
+                        <p className="text-[11px] text-text-muted dark:text-stone-500 mt-1">
+                          Diâmetro é usado como largura e altura da embalagem no cálculo do frete.
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
