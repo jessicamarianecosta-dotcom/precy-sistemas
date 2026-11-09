@@ -453,14 +453,6 @@ export default function ProdutoLojaPage() {
             ) : (
               <p className="text-2xl font-bold text-[var(--store-primary)] mb-3">{formatCurrency(effectivePrice)}</p>
             )}
-            {priceAdjustment.adjustmentAmount !== 0 && (
-              <p className="text-xs text-text-muted dark:text-stone-500 -mt-2 mb-3">
-                Preço base {formatCurrency(priceAdjustment.basePrice)}
-                {priceAdjustment.adjustmentAmount > 0
-                  ? ` + ${formatCurrency(priceAdjustment.adjustmentAmount)} de personalização`
-                  : ` − ${formatCurrency(Math.abs(priceAdjustment.adjustmentAmount))} de desconto`}
-              </p>
-            )}
 
             {effectiveLeadTime && (
               <p className="flex items-center gap-1.5 text-sm text-text-secondary dark:text-stone-400 mb-3">
