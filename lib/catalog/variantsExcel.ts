@@ -93,6 +93,11 @@ export function buildVariantsWorkbook(opts: {
   const currentFinalColIndex = columns.findIndex(c => c.key === 'currentFinal') + 1
   const adjFixedColIndex = columns.findIndex(c => c.key === 'adjFixed') + 1
   const idColIndex = columns.findIndex(c => c.key === 'id') + 1
+  // Editáveis diretamente na própria célula (ao contrário do preço, que usa
+  // uma coluna "Novo X" separada por já ser o padrão conhecido) — qualquer
+  // uma pode ser alterada e será comparada com o valor atual na importação.
+  const editableColIndexes = ['status', 'sku', 'stock', 'lead', 'weight']
+    .map(key => columns.findIndex(c => c.key === key) + 1)
 
   rows.forEach((v, i) => {
     const optionsForAdj: (OptionPriceAdjustment | null | undefined)[] = groups.map((g, idx) =>
@@ -126,8 +131,11 @@ export function buildVariantsWorkbook(opts: {
     row.getCell(currentFinalColIndex).numFmt = '#,##0.00'
     row.getCell(adjFixedColIndex).numFmt = '#,##0.00'
     row.getCell(newPriceColIndex).numFmt = '#,##0.00'
-    // Destaca visualmente a única coluna editável.
+    // Destaca visualmente as colunas editáveis.
     row.getCell(newPriceColIndex).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3D6' } }
+    for (const colIdx of editableColIndexes) {
+      row.getCell(colIdx).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3D6' } }
+    }
     // "ID combinação" não deve ser editado — fonte levemente apagada deixa isso visualmente claro.
     row.getCell(idColIndex).font = { color: { argb: 'FFA8A29E' }, size: 9 }
   })
@@ -138,13 +146,15 @@ export function buildVariantsWorkbook(opts: {
     [`Produto: ${productName}`],
     [''],
     ['Como preencher esta planilha'],
-    ['1. Preencha apenas a coluna "Novo preço-base" (última coluna, destacada em amarelo) com o novo valor para cada combinação.'],
-    ['2. Deixe em branco as combinações que não devem mudar de preço — elas não serão alteradas.'],
-    ['3. Não altere a coluna "ID combinação (não alterar)" — é ela que identifica cada combinação ao importar de volta, não o nome.'],
-    ['4. Não adicione nem remova linhas, e não altere os dados das outras colunas — elas são só para conferência.'],
-    ['5. Os acréscimos/descontos fixos e percentuais já configurados em cada opção continuam sendo aplicados automaticamente sobre o novo preço-base — não é preciso recalculá-los aqui.'],
-    ['6. Salve o arquivo em formato .xlsx e volte ao Precy+ para importar pelo botão "Importar Excel".'],
-    ['7. Antes de confirmar, o sistema mostra uma prévia de tudo que será alterado — nada é salvo automaticamente.'],
+    ['1. As colunas destacadas em amarelo são editáveis: Status, SKU, Estoque, Prazo (dias), Peso (kg) e Novo preço-base. Altere o que quiser mudar.'],
+    ['2. Status, SKU, Estoque, Prazo e Peso: edite o valor diretamente na própria célula (ex: troque "4" por "6" em Prazo). O preço é a exceção — preencha a coluna separada "Novo preço-base"; "Preço-base atual" é só para conferência.'],
+    ['3. Status aceita apenas "Ativa" ou "Inativa".'],
+    ['4. Deixe uma célula em branco para NÃO alterar aquele campo — célula vazia nunca apaga uma informação já cadastrada.'],
+    ['5. Não altere a coluna "ID combinação (não alterar)" — é ela que identifica cada combinação ao importar de volta, não o nome nem a posição da linha.'],
+    ['6. Não adicione nem remova linhas, e não altere os nomes das colunas de variação (Capa, Papel etc.) — elas são só para conferência; para renomear uma opção, use a tela de variações do produto.'],
+    ['7. Os acréscimos/descontos fixos e percentuais já configurados em cada opção continuam sendo aplicados automaticamente sobre o novo preço-base — não é preciso recalculá-los aqui.'],
+    ['8. Salve o arquivo em formato .xlsx e volte ao Precy+ para importar pelo botão "Importar Excel".'],
+    ['9. Antes de confirmar, o sistema mostra uma prévia campo a campo de tudo que será alterado — nada é salvo automaticamente.'],
   ])
   info.getRow(1).font = { bold: true, size: 13 }
   info.getRow(3).font = { bold: true }
@@ -159,6 +169,17 @@ export interface ParsedImportRow {
   hasNewPrice: boolean
   /** Preço já validado e arredondado; null se a célula estava vazia ou inválida. */
   newPrice: number | null
+  /** Campos extras editados diretamente na célula — chave ausente = célula vazia, não altera. */
+  hasStatus: boolean
+  status: boolean | null // is_active
+  hasSku: boolean
+  sku: string | null
+  hasStock: boolean
+  stock: number | null
+  hasLeadTime: boolean
+  leadTime: number | null
+  hasWeight: boolean
+  weight: number | null
   /** Erro de leitura desta linha (valor não numérico, negativo, id ausente) — nulo se ok. */
   error: string | null
 }
@@ -190,18 +211,31 @@ export async function parseVariantsWorkbook(buffer: ArrayBuffer | Buffer): Promi
   const headerRow = sheet.getRow(1)
   let idCol = -1
   let priceCol = -1
+  let statusCol = -1
+  let skuCol = -1
+  let stockCol = -1
+  let leadCol = -1
+  let weightCol = -1
   headerRow.eachCell((cell, colNumber) => {
     const label = String(cell.value ?? '').trim()
     if (label === COL_ID) idCol = colNumber
     if (label === COL_NEW_PRICE) priceCol = colNumber
+    if (label === COL_STATUS) statusCol = colNumber
+    if (label === COL_SKU) skuCol = colNumber
+    if (label === COL_STOCK) stockCol = colNumber
+    if (label === COL_LEAD_TIME) leadCol = colNumber
+    if (label === COL_WEIGHT) weightCol = colNumber
   })
   if (idCol === -1 || priceCol === -1) {
     return {
       ok: false,
-      error: 'Esta planilha não tem a estrutura esperada pelo Precy+. Baixe uma nova planilha pelo botão "Exportar Excel" e preencha só a coluna "Novo preço-base".',
+      error: 'Esta planilha não tem a estrutura esperada pelo Precy+. Baixe uma nova planilha pelo botão "Exportar Excel".',
       rows: [],
     }
   }
+  // statusCol/skuCol/etc. podem estar ausentes numa planilha exportada antes
+  // dessa versão — segue funcionando, só sem ler esses campos (equivalente a
+  // deixá-los sempre em branco: nenhum é alterado).
 
   const rows: ParsedImportRow[] = []
   const lastRow = sheet.rowCount
@@ -211,18 +245,80 @@ export async function parseVariantsWorkbook(buffer: ArrayBuffer | Buffer): Promi
     const idStr = idCellValue != null ? String(idCellValue).trim() : ''
     if (!idStr) continue // linha em branco — ignora
 
-    const priceCellValue = row.getCell(priceCol).value
-    const rawStr = priceCellValue != null ? String(priceCellValue).trim() : ''
-    const hasNewPrice = rawStr !== ''
-    let newPrice: number | null = null
     let error: string | null = null
+
+    const priceCellValue = row.getCell(priceCol).value
+    const priceRaw = priceCellValue != null ? String(priceCellValue).trim() : ''
+    const hasNewPrice = priceRaw !== ''
+    let newPrice: number | null = null
     if (hasNewPrice) {
-      const n = typeof priceCellValue === 'number' ? priceCellValue : Number(rawStr.replace(',', '.'))
-      if (!Number.isFinite(n)) error = `Valor "${rawStr}" não é um número válido na coluna "${COL_NEW_PRICE}".`
-      else if (n < 0) error = 'Preço negativo não é permitido.'
+      const n = typeof priceCellValue === 'number' ? priceCellValue : Number(priceRaw.replace(',', '.'))
+      if (!Number.isFinite(n)) error = error ?? `Valor "${priceRaw}" não é um número válido na coluna "${COL_NEW_PRICE}".`
+      else if (n < 0) error = error ?? 'Preço negativo não é permitido.'
       else newPrice = Math.round(n * 100) / 100
     }
-    rows.push({ rowNumber: r, id: idStr, hasNewPrice, newPrice, error })
+
+    let hasStatus = false
+    let status: boolean | null = null
+    if (statusCol !== -1) {
+      const raw = String(row.getCell(statusCol).value ?? '').trim()
+      if (raw !== '') {
+        hasStatus = true
+        const norm = raw.toLowerCase()
+        if (norm === 'ativa') status = true
+        else if (norm === 'inativa') status = false
+        else error = error ?? `Valor "${raw}" inválido na coluna "${COL_STATUS}" — use "Ativa" ou "Inativa".`
+      }
+    }
+
+    let hasSku = false
+    let sku: string | null = null
+    if (skuCol !== -1) {
+      const raw = String(row.getCell(skuCol).value ?? '').trim()
+      if (raw !== '') { hasSku = true; sku = raw }
+    }
+
+    let hasStock = false
+    let stock: number | null = null
+    if (stockCol !== -1) {
+      const raw = String(row.getCell(stockCol).value ?? '').trim()
+      if (raw !== '') {
+        hasStock = true
+        const n = Number(raw.replace(',', '.'))
+        if (!Number.isInteger(n) || n < 0) error = error ?? `Valor "${raw}" inválido na coluna "${COL_STOCK}" — use um número inteiro igual ou maior que 0.`
+        else stock = n
+      }
+    }
+
+    let hasLeadTime = false
+    let leadTime: number | null = null
+    if (leadCol !== -1) {
+      const raw = String(row.getCell(leadCol).value ?? '').trim()
+      if (raw !== '') {
+        hasLeadTime = true
+        const n = Number(raw.replace(',', '.'))
+        if (!Number.isInteger(n) || n < 0) error = error ?? `Valor "${raw}" inválido na coluna "${COL_LEAD_TIME}" — use um número inteiro igual ou maior que 0.`
+        else leadTime = n
+      }
+    }
+
+    let hasWeight = false
+    let weight: number | null = null
+    if (weightCol !== -1) {
+      const raw = String(row.getCell(weightCol).value ?? '').trim()
+      if (raw !== '') {
+        hasWeight = true
+        const n = Number(raw.replace(',', '.'))
+        if (!Number.isFinite(n) || n < 0) error = error ?? `Valor "${raw}" inválido na coluna "${COL_WEIGHT}" — use um número igual ou maior que 0.`
+        else weight = Math.round(n * 1000) / 1000
+      }
+    }
+
+    rows.push({
+      rowNumber: r, id: idStr, hasNewPrice, newPrice,
+      hasStatus, status, hasSku, sku, hasStock, stock, hasLeadTime, leadTime, hasWeight, weight,
+      error,
+    })
   }
 
   return { ok: true, rows }
