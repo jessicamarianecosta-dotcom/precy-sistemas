@@ -93,6 +93,7 @@ interface Product {
   catalog_category_id?:    string | null
   catalog_lead_time_days?: number | null
   catalog_starting_price?: number | null
+  catalog_promo_price?:    number | null
   // Peso/dimensões de embalagem — usados na cotação de frete (SuperFrete)
   weight_kg?: number | null
   length_cm?: number | null
@@ -118,6 +119,17 @@ const optionalNumber = z.preprocess(
   z.number().optional()
 )
 
+// catalog_promo_price é diferente: esta tela PRECISA conseguir apagar um
+// preço promocional já salvo (botão "Remover promoção"), então null aqui
+// tem que chegar como null no payload — ao contrário de optionalNumber
+// acima (usado por campos que só são sobrescritos quando preenchidos,
+// nunca apagados por este formulário). '' e undefined continuam virando
+// undefined (campo nunca tocado nesta sessão — ex: criação de produto novo).
+const clearableNumber = z.preprocess(
+  v => (v === '' || v === undefined ? undefined : v === null ? null : Number(v)),
+  z.number().nullable().optional()
+)
+
 /* ─── Schema (form de criação/edição básica) ─── */
 const schema = z.object({
   name:                  z.string().min(2, 'Nome obrigatório'),
@@ -140,6 +152,7 @@ const schema = z.object({
   catalog_category_id:   z.string().nullish(),
   catalog_lead_time_days: optionalNumber,
   catalog_starting_price: optionalNumber,
+  catalog_promo_price: clearableNumber,
   weight_kg: optionalNumber,
   length_cm: optionalNumber,
   width_cm:  optionalNumber,
@@ -308,6 +321,14 @@ export default function ProdutosPage() {
   const [priceAdjKind,  setPriceAdjKind]  = useState<PriceAdjKind>('')
   const [priceAdjValue, setPriceAdjValue] = useState('')
   function resetPriceAdj() { setPriceAdjKind(''); setPriceAdjValue('') }
+  /**
+   * Desconto: NÃO altera o Preço Final — grava o valor calculado em
+   * catalog_promo_price, mantendo o Preço Final como a referência "de" que a
+   * loja já mostra riscada ao lado do preço promocional (ProductCard,
+   * página do produto, favoritos — todos já leem catalog_promo_price).
+   * Acréscimo: não tem equivalente de "promoção" pra mostrar na loja —
+   * ajusta o próprio Preço Final, como antes.
+   */
   function applyPriceAdj() {
     const magnitude = Math.abs(Number(priceAdjValue || 0))
     if (!priceAdjKind || magnitude === 0) return
@@ -315,9 +336,12 @@ export default function ProdutosPage() {
     const isDiscount = priceAdjKind.endsWith('_discount')
     const delta = priceAdjKind.startsWith('fixed') ? magnitude : current * (magnitude / 100)
     const next = Math.max(0, current + (isDiscount ? -delta : delta))
-    setValue('final_price', Math.round(next * 100) / 100)
+    const rounded = Math.round(next * 100) / 100
+    if (isDiscount) setValue('catalog_promo_price', rounded)
+    else setValue('final_price', rounded)
     resetPriceAdj()
   }
+  function removePromoPrice() { setValue('catalog_promo_price', null) }
 
   /* ── Mutations ── */
   const saveMutation = useMutation({
@@ -433,7 +457,7 @@ export default function ProdutosPage() {
     setEditingId(p.id)
     resetPriceAdj()
     ;(['name','description','category','unit','production_time_hours','material_cost','markup_percentage','final_price',
-       'is_published_catalog','catalog_category_id','catalog_lead_time_days','catalog_starting_price',
+       'is_published_catalog','catalog_category_id','catalog_lead_time_days','catalog_starting_price','catalog_promo_price',
        'weight_kg','length_cm','width_cm','height_cm'] as Array<keyof FormData>)
       .forEach(k => setValue(k, (p as unknown as Record<string, unknown>)[k] as string))
     // Produto já cadastrado sem o campo preenchido (null/undefined) ainda não
@@ -1251,7 +1275,7 @@ export default function ProdutosPage() {
                   <input type="number" step="0.01" className="input" placeholder="0,00" {...register('final_price')} />
                 </div>
                 <div className="sm:col-span-2">
-                  <p className="text-xs font-medium text-text-secondary dark:text-stone-400 mb-1.5">Aplicar desconto ou acréscimo no Preço Final</p>
+                  <p className="text-xs font-medium text-text-secondary dark:text-stone-400 mb-1.5">Aplicar desconto ou acréscimo</p>
                   <div className="flex flex-wrap items-center gap-2">
                     <select
                       value={priceAdjKind}
@@ -1279,12 +1303,18 @@ export default function ProdutosPage() {
                       onClick={applyPriceAdj}
                       className="btn-secondary text-xs h-9 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      Aplicar ao Preço Final
+                      Aplicar
                     </button>
                   </div>
                   <p className="text-[11px] text-text-muted dark:text-stone-500 mt-1">
-                    Calcula a partir do Preço Final atual e já preenche o campo acima — não fica salvo separadamente.
+                    Desconto: mostra na loja como promoção — &ldquo;de {fmt(Number(watch('final_price')) || 0)} por&rdquo; o novo preço, sem alterar o Preço Final. Acréscimo: ajusta o próprio Preço Final.
                   </p>
+                  {watch('catalog_promo_price') != null && (
+                    <p className="flex items-center gap-2 text-xs mt-2 px-2.5 py-1.5 rounded-lg bg-error-light dark:bg-error/10 text-error dark:text-red-400">
+                      Promoção ativa: de {fmt(Number(watch('final_price')) || 0)} por {fmt(Number(watch('catalog_promo_price')))}
+                      <button type="button" onClick={removePromoPrice} className="font-medium underline flex-shrink-0">Remover</button>
+                    </p>
+                  )}
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Descrição</label>
