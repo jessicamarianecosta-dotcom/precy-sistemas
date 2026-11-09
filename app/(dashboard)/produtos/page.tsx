@@ -303,6 +303,22 @@ export default function ProdutosPage() {
   })
   const categoryValue = watch('category') ?? ''
 
+  /** Calculadora de desconto/acréscimo no formulário de edição — não é salva; só ajusta o campo "Preço Final" ao aplicar. */
+  type PriceAdjKind = '' | 'fixed_add' | 'fixed_discount' | 'percent_add' | 'percent_discount'
+  const [priceAdjKind,  setPriceAdjKind]  = useState<PriceAdjKind>('')
+  const [priceAdjValue, setPriceAdjValue] = useState('')
+  function resetPriceAdj() { setPriceAdjKind(''); setPriceAdjValue('') }
+  function applyPriceAdj() {
+    const magnitude = Math.abs(Number(priceAdjValue || 0))
+    if (!priceAdjKind || magnitude === 0) return
+    const current = Number(watch('final_price')) || 0
+    const isDiscount = priceAdjKind.endsWith('_discount')
+    const delta = priceAdjKind.startsWith('fixed') ? magnitude : current * (magnitude / 100)
+    const next = Math.max(0, current + (isDiscount ? -delta : delta))
+    setValue('final_price', Math.round(next * 100) / 100)
+    resetPriceAdj()
+  }
+
   /* ── Mutations ── */
   const saveMutation = useMutation({
     mutationFn: async (d: FormData) => {
@@ -415,6 +431,7 @@ export default function ProdutosPage() {
   /* ── Handlers ── */
   function openEdit(p: Product) {
     setEditingId(p.id)
+    resetPriceAdj()
     ;(['name','description','category','unit','production_time_hours','material_cost','markup_percentage','final_price',
        'is_published_catalog','catalog_category_id','catalog_lead_time_days','catalog_starting_price',
        'weight_kg','length_cm','width_cm','height_cm'] as Array<keyof FormData>)
@@ -426,7 +443,7 @@ export default function ProdutosPage() {
   }
 
   function closeForm() {
-    setShowForm(false); reset(); setEditingId(null)
+    setShowForm(false); reset(); setEditingId(null); resetPriceAdj()
     // Edição aberta a partir de Catálogo Online → Produtos: volta para a lista de lá
     // (já atualizada, pois salvar invalida a query do catálogo).
     if (returnToCatalog.current) {
@@ -503,7 +520,7 @@ export default function ProdutosPage() {
                 <Upload size={16} /> Importar Catálogo
               </button>
             )}
-            <button onClick={() => { reset(); setEditingId(null); setShowForm(true) }}
+            <button onClick={() => { reset(); setEditingId(null); resetPriceAdj(); setShowForm(true) }}
               className="btn-primary flex items-center gap-2 flex-1 sm:flex-initial justify-center">
               <Plus size={16} /> Novo Produto
             </button>
@@ -1232,6 +1249,42 @@ export default function ProdutosPage() {
                 <div>
                   <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Preço Final (R$)</label>
                   <input type="number" step="0.01" className="input" placeholder="0,00" {...register('final_price')} />
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-xs font-medium text-text-secondary dark:text-stone-400 mb-1.5">Aplicar desconto ou acréscimo no Preço Final</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={priceAdjKind}
+                      onChange={e => setPriceAdjKind(e.target.value as PriceAdjKind)}
+                      className="input py-1.5 text-xs h-9 flex-1 min-w-[160px]"
+                    >
+                      <option value="">Nenhum</option>
+                      <option value="fixed_add">Acréscimo fixo (R$)</option>
+                      <option value="fixed_discount">Desconto fixo (R$)</option>
+                      <option value="percent_add">Acréscimo percentual (%)</option>
+                      <option value="percent_discount">Desconto percentual (%)</option>
+                    </select>
+                    {priceAdjKind && (
+                      <input
+                        type="number" step="0.01" min="0"
+                        placeholder={priceAdjKind.startsWith('percent') ? '0' : '0,00'}
+                        value={priceAdjValue}
+                        onChange={e => setPriceAdjValue(e.target.value)}
+                        className="input py-1.5 text-xs h-9 w-24"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      disabled={!priceAdjKind || !priceAdjValue}
+                      onClick={applyPriceAdj}
+                      className="btn-secondary text-xs h-9 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Aplicar ao Preço Final
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-text-muted dark:text-stone-500 mt-1">
+                    Calcula a partir do Preço Final atual e já preenche o campo acima — não fica salvo separadamente.
+                  </p>
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">Descrição</label>
