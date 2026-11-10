@@ -388,7 +388,7 @@ export function ProductGalleryUpload({ productId, companyId }: Props) {
                 onDrop={() => onDrop(idx)}
                 className="relative aspect-square rounded-xl overflow-hidden group border border-border dark:border-border-dark bg-surface dark:bg-white/[0.03] cursor-grab active:cursor-grabbing"
               >
-                <img src={img.url} alt="" className="w-full h-full object-cover" />
+                <img src={img.url} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                 {img.is_primary && (
                   <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-primary text-white">
                     Capa
