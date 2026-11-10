@@ -322,9 +322,8 @@ export default function OrcamentoPublicoPage() {
                 {pix.label && <p>Beneficiário: <b className="text-stone-700 dark:text-stone-200">{pix.label}</b></p>}
                 <p>Chave {pixTypeLabel(pix.type)}: <b className="text-stone-700 dark:text-stone-200 break-all">{pix.key}</b></p>
               </div>
-              <div className="flex flex-col sm:flex-row gap-2 w-full">
+              <div className="w-full">
                 <CopyButton value={pix.key} label="Copiar chave Pix" />
-                <CopyButton value={pix.payload} label="Copiar código Pix" />
               </div>
             </div>
           ) : (
