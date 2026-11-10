@@ -53,27 +53,30 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     return NextResponse.json({ error: 'Orçamento não encontrado' }, { status: 404 })
   }
 
-  const { data: items } = await db
+  const { data: items, error: itemsError } = await db
     .from('budget_items')
     .select(`
-      id, product_id, name, description, quantity, unit_price, subtotal, discount,
+      id, product_id, name, description, quantity, unit_price, subtotal,
       width, height, area, measurement_unit, finishings, finishing_type, technical_notes,
       variant_label
     `)
     .eq('budget_id', budget.id)
     .order('created_at', { ascending: true })
+  if (itemsError) console.error('[loja/orcamento] erro ao buscar itens', itemsError)
 
   const itemIds = (items ?? []).map((i: any) => i.id)
   const productIds = (items ?? []).map((i: any) => i.product_id).filter(Boolean)
 
-  const [{ data: files }, { data: productImages }] = await Promise.all([
+  const [{ data: files, error: filesError }, { data: productImages, error: imagesError }] = await Promise.all([
     itemIds.length > 0
       ? db.from('budget_item_files').select('budget_item_id, file_url, file_name, file_size, mime_type').in('budget_item_id', itemIds)
-      : Promise.resolve({ data: [] }),
+      : Promise.resolve({ data: [], error: null }),
     productIds.length > 0
       ? db.from('product_images').select('product_id, url, sort_order').in('product_id', productIds).order('sort_order', { ascending: true })
-      : Promise.resolve({ data: [] }),
+      : Promise.resolve({ data: [], error: null }),
   ])
+  if (filesError) console.error('[loja/orcamento] erro ao buscar arquivos do item', filesError)
+  if (imagesError) console.error('[loja/orcamento] erro ao buscar imagens do produto', imagesError)
 
   const firstImageByProduct = new Map<string, string>()
   for (const img of productImages ?? []) {
@@ -98,7 +101,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
       quantity: i.quantity,
       unit_price: i.unit_price,
       subtotal: i.subtotal,
-      discount: i.discount,
       variant_label: i.variant_label,
       finishings: i.finishings,
       finishing_type: i.finishing_type,

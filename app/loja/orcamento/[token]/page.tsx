@@ -21,7 +21,6 @@ interface BudgetItemOut {
   quantity: number
   unit_price: number
   subtotal: number
-  discount: number | null
   variant_label: string | null
   finishings: string[] | null
   finishing_type: string | null
