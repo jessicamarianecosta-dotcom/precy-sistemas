@@ -230,15 +230,17 @@ export default function ProdutoLojaPage() {
   function computeSelection(base: Record<string, string>): Record<string, string> {
     const next: Record<string, string> = {}
     for (const g of groups) {
-      // '' = grupo opcional desmarcado de propósito (ver pills abaixo) — ao
-      // contrário de "ainda não escolhido" (chave ausente), não deve ser
-      // reatribuído automaticamente à primeira opção. Preserva a marcação
-      // (em vez de simplesmente omitir a chave) pra não ser desfeita no
-      // próximo recálculo (useEffect abaixo, que roda de novo a cada render).
-      if (g.is_required === false && base[g.id] === '') { next[g.id] = ''; continue }
       const current = g.options.find(o => o.id === base[g.id])
       if (current && isAllowedGiven(current.id, next)) {
+        // Mantém a escolha atual (inclusive de um grupo opcional já marcado
+        // pelo cliente), enquanto ela continuar válida.
         next[g.id] = current.id
+      } else if (g.is_required === false) {
+        // Grupo opcional sem seleção válida: fica assim por padrão (o cliente
+        // precisa clicar pra marcar) — nunca escolhido automaticamente, ao
+        // contrário dos grupos obrigatórios logo abaixo. Cobre tanto o
+        // carregamento inicial quanto um clique que desmarcou a opção.
+        next[g.id] = ''
       } else {
         const firstAllowed = g.options.find(o => isAllowedGiven(o.id, next))
         if (firstAllowed) next[g.id] = firstAllowed.id
@@ -521,7 +523,7 @@ export default function ProdutoLojaPage() {
                   return (
                     <div key={g.id}>
                       <p className="text-xs font-semibold text-text-primary dark:text-stone-100 mb-1.5">
-                        {g.name} {g.is_required === false && <span className="font-normal text-text-muted">(opcional — clique de novo para remover)</span>}
+                        {g.name} {g.is_required === false && <span className="font-normal text-text-muted">(opcional)</span>}
                       </p>
                       <div className="flex flex-wrap gap-1.5">
                         {g.options.map(opt => {
