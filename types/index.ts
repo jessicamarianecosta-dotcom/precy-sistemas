@@ -112,21 +112,70 @@ export interface Budget {
   id: string;
   company_id: string;
   customer_id: string;
+  budget_number: string;
   items: BudgetItem[];
+  subtotal: number;
+  discount: number;
   total: number;
-  valid_until: string;
-  status: 'draft' | 'sent' | 'approved' | 'rejected' | 'converted';
+  notes: string | null;
+  valid_until: string | null;
+  status: 'draft' | 'sent' | 'viewed' | 'approved' | 'rejected' | 'converted';
+  converted_to_order_id: string | null;
+  quote_id?: string | null;
   created_at: string;
   updated_at: string;
+  /* Pagamento / entrega */
+  payment_method: string | null;
+  pay_condition: 'avista' | 'parcelado' | 'entrada' | 'prazo' | null;
+  installments: number | null;
+  signal_amount: number | null;
+  delivery_type: string | null;
+  delivery_fee: number | null;
+  delivery_addr: string | null;
+  delivery_days: string | null;
+  production_days: string | null;
+  prazo_type: 'dias' | 'data' | null;
+  prazo_dias: number | null;
+  prazo_due_date: string | null;
+  /* PIX (snapshot congelado no momento da emissão) */
+  pix_type: string | null;
+  pix_key: string | null;
+  pix_label: string | null;
+  pix_txid: string | null;
+  payment_status: 'pending' | 'paid' | 'partial';
+  /* Orçamento digital — link público */
+  public_token: string;
+  sent_at: string | null;
+  first_viewed_at: string | null;
+  last_viewed_at: string | null;
+  view_count: number;
+  approved_at: string | null;
+  rejected_at: string | null;
+  rejection_reason: string | null;
 }
 
 export interface BudgetItem {
   id: string;
   budget_id: string;
-  product_id: string;
+  product_id: string | null;
+  name?: string | null;
+  description?: string | null;
   quantity: number;
   unit_price: number;
   subtotal: number;
+  discount?: number | null;
+  width?: number | null;
+  height?: number | null;
+  area?: number | null;
+  measurement_unit?: string | null;
+  finishings?: string[] | null;
+  finishing_type?: string | null;
+  technical_notes?: string | null;
+  pricing_mode?: 'fixed' | 'square_meter' | null;
+  price_per_m2?: number | null;
+  variant_id?: string | null;
+  variant_label?: string | null;
+  unit_cost?: number | null;
 }
 
 // Financial Types

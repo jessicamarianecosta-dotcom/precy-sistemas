@@ -17,6 +17,7 @@ import {
   CheckCircle, XCircle, Clock, Send, ChevronRight,
   ChevronLeft, User, Package, CreditCard, Truck,
   Eye, Search, Edit3, Edit2, Minus, Info, ShoppingBag, ExternalLink, Copy,
+  Share2, MessageCircle, Check,
 } from 'lucide-react'
 import { calculateAreaM2, formatAreaM2, formatDimDisplay, getDimBlock } from '@/lib/utils/dimensions'
 import { companyPickupAddressLines, companyPickupAddressText } from '@/lib/company/pickupAddress'
@@ -43,8 +44,9 @@ interface NewClientData { name: string; phone: string; email: string }
 type Step = 1|2|3|4|5
 
 const STATUS_CONFIG: Record<string,{label:string;badge:string;icon:React.ElementType}> = {
-  draft:     { label:'Rascunho',   badge:'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-300',    icon:Clock       },
-  sent:      { label:'Enviado',    badge:'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',     icon:Send        },
+  draft:     { label:'Rascunho',     badge:'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-300',    icon:Clock       },
+  sent:      { label:'Enviado',      badge:'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',     icon:Send        },
+  viewed:    { label:'Visualizado',  badge:'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300', icon:Eye     },
   approved:  { label:'Aprovado',   badge:'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300', icon:CheckCircle },
   rejected:  { label:'Recusado',  badge:'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',          icon:XCircle     },
   converted: { label:'Convertido', badge:'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300', icon:CheckCircle },
@@ -152,6 +154,9 @@ export default function OrcamentosPage() {
   const [status,setStatus]=useState('draft')
   const [companyData,setCompanyData]=useState<Record<string,unknown>|null>(null)
   const [converting,setConverting]=useState<string|null>(null) // budget id sendo convertido
+  const [shareBudget,setShareBudget]=useState<any|null>(null)
+  const [linkCopied,setLinkCopied]=useState(false)
+  const [markingPaid,setMarkingPaid]=useState(false)
   const [duplicatingBudget,setDuplicatingBudget]=useState<string|null>(null)
 
   useEffect(()=>{
@@ -589,10 +594,17 @@ export default function OrcamentosPage() {
         .select('*,customers(id,name,email,phone,city,state,cpf_cnpj,address)')
         .eq('id',b.id).single()
 
-      // Arte: o orçamento não tem arquivos próprios — se já virou pedido,
-      // busca a arte anexada a esse pedido (order_files via converted_to_order_id).
+      // Arte: lê direto de budget_item_files (arte anexada ao próprio orçamento,
+      // via BudgetItemArtwork) — não depende de o orçamento já ter virado pedido.
+      // Fallback para order_files só serve orçamentos legados já convertidos
+      // antes de budget_item_files existir (sem arte própria salva no orçamento).
+      const { data: budgetFiles } = await (supabase.from('budget_item_files') as any)
+        .select('id, file_name, file_url, file_path, file_size, mime_type')
+        .eq('budget_id', b.id)
       const convertedOrderId = (fullBudget ?? b)?.converted_to_order_id as string | undefined
-      const artFiles = convertedOrderId ? await getOrderArtFiles(convertedOrderId) : []
+      const artFiles = (budgetFiles && budgetFiles.length > 0)
+        ? budgetFiles
+        : (convertedOrderId ? await getOrderArtFiles(convertedOrderId) : [])
 
       // Itens com produto vinculado (para resolver nome e specs via JOIN)
       const {data:bi}=await(supabase.from('budget_items')as any)
@@ -627,203 +639,77 @@ export default function OrcamentosPage() {
       return
     }
 
-    // Revalida no banco antes de criar (evita corrida se a lista estiver desatualizada)
-    const { data: fresh } = await (supabase.from('budgets') as any)
-      .select('converted_to_order_id')
-      .eq('id', b.id)
-      .maybeSingle()
-    if (fresh?.converted_to_order_id) {
-      toast('info', 'Este orçamento já foi convertido. Abrindo o pedido vinculado…')
-      qc.invalidateQueries({ queryKey: ['budgets', companyId] })
-      window.location.href = '/pedidos'
-      return
-    }
-
     setConverting(b.id)
     try {
-      // 1. Buscar itens do orçamento (com fallback de dados do produto)
-      const { data: bi } = await (supabase.from('budget_items') as any)
-        .select('*, products(name, description, width, height, area, measurement_unit, finishings, finishing_type, technical_notes)')
-        .eq('budget_id', b.id)
+      // Lógica de conversão vive em lib/orders/convertBudgetToOrder.ts,
+      // compartilhada com a aprovação pelo link público do cliente
+      // (app/api/loja/orcamento/[token]/aprovar) — não duplicar aqui.
+      const res = await fetch(`/api/orcamentos/${b.id}/converter`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Erro ao criar pedido')
 
-      const customer = b.customers as any
-      const customerId = b.customer_id
-
-      // 2. Entrada acordada no orçamento — apenas informativa. NÃO é recebimento:
-      //    aprovar orçamento não registra pagamento. O dinheiro só entra quando
-      //    o usuário clicar em "Registrar Recebimento" no pedido.
-      const sigAmt = Number(b.signal_amount) || 0
-      const orderTotal = Number(b.total) || 0
-
-      // 3. Criar pedido na tabela orders
-      const orderPayload: Record<string, unknown> = {
-        company_id:     companyId,
-        customer_id:    customerId,
-        order_number:   '',            // trigger gera PED-XXXX automaticamente
-        service_name:   (bi ?? []).length > 0
-          ? (bi![0].name || 'Pedido')
-          : (customer?.name ? `Pedido — ${customer.name}` : 'Pedido'),
-        description:    b.notes || null,
-        status:         'pending',
-        payment_status: 'pending',           // nada recebido até registro manual
-        payment_method: b.payment_method  || null,
-        subtotal:       Number(b.subtotal) || 0,
-        discount:       Number(b.discount) || 0,
-        total:          orderTotal,
-        signal_amount:  sigAmt,               // entrada acordada (informativo)
-        remaining_amount: orderTotal,         // saldo devedor = total (nada recebido)
-        notes:          b.notes || null,
-        // PIX: herda o snapshot já gravado no orçamento (não busca a chave
-        // atual da empresa de novo — o pedido nasce com o que foi cotado).
-        ...extractPixSnapshot(b),
-        // delivery_days é texto livre ("até 5 dias", "3"...) — só vira data se for numérico puro
-        due_date:       (() => {
-          const n = Number(b.delivery_days)
-          return Number.isFinite(n) && n > 0
-            ? new Date(Date.now() + n * 86400000).toISOString()
-            : null
-        })(),
-        priority:       'normal',
-        quote_id:       b.id,          // vínculo com orçamento original
+      if (json.alreadyConverted) {
+        toast('info', 'Este orçamento já foi convertido. Abrindo o pedido vinculado…')
+      } else {
+        toast('success', `✔ Pedido ${json.orderNumber} criado com sucesso!`)
       }
 
-      // A tabela `orders` NÃO possui colunas de entrega (delivery_type/delivery_addr).
-      // Esses dados permanecem no orçamento e são acessados pelo pedido via `quote_id`
-      // (ver lib/pdf/orderQuoteData + handleGeneratePDF em Pedidos). Retirada = endereço
-      // fixo da LumiLife, resolvido a partir do orçamento vinculado.
-      let { data: order, error: orderErr } = await (supabase.from('orders') as any)
-        .insert([orderPayload])
-        .select('id, order_number')
-        .single()
-
-      // Fallback temporário: se o banco de produção ainda não tem as colunas
-      // pix_type/pix_key/pix_label em `orders` (schema cache do PostgREST
-      // desatualizado — PGRST204), tenta de novo sem elas para não travar a
-      // aprovação do orçamento. Assim que a coluna existir no banco, esse
-      // fallback deixa de ser acionado e o PIX volta a ser gravado normalmente.
-      if (orderErr && orderErr.code === 'PGRST204' && /pix_(key|type|label)/.test(orderErr.message || '')) {
-        const { pix_type, pix_key, pix_label, ...payloadWithoutPix } = orderPayload as any
-        ;({ data: order, error: orderErr } = await (supabase.from('orders') as any)
-          .insert([payloadWithoutPix])
-          .select('id, order_number')
-          .single())
-      }
-
-      if (orderErr) throw new Error(orderErr.message)
-
-      // 3b. Copiar todos os itens do orçamento para order_items (carrinho completo, não só o primeiro)
-      const itemRows = (bi ?? []).map((i: any) => ({
-        order_id:         order.id,
-        product_id:       i.product_id || null,
-        name:             i.name             || i.products?.name        || 'Item',
-        description:      i.description      || i.products?.description || null,
-        quantity:         Number(i.quantity)   || 1,
-        unit_price:       Number(i.unit_price) || 0,
-        discount:         0,
-        discount_type:    'amount',
-        subtotal:         Number(i.subtotal)   || 0,
-        width:            i.width             ?? i.products?.width             ?? null,
-        height:           i.height            ?? i.products?.height            ?? null,
-        area:             i.area              ?? i.products?.area              ?? null,
-        measurement_unit: i.measurement_unit  ?? i.products?.measurement_unit  ?? null,
-        finishings:       Array.isArray(i.finishings)          ? i.finishings
-                        : Array.isArray(i.products?.finishings) ? i.products.finishings
-                        : [],
-        finishing_type:   i.finishing_type   ?? i.products?.finishing_type   ?? null,
-        technical_notes:  i.technical_notes  ?? i.products?.technical_notes  ?? null,
-        ...(i.variant_id ? { variant_id: i.variant_id, variant_label: i.variant_label ?? null, unit_cost: i.unit_cost ?? null } : {}),
-      }))
-
-      if (itemRows.length === 0 && Number(b.total) > 0) {
-        // Orçamento legado sem itens salvos — sintetiza 1 item a partir do total
-        itemRows.push({
-          order_id: order.id, product_id: null,
-          name: (orderPayload.service_name as string) || 'Item', description: null,
-          quantity: 1, unit_price: Number(b.total), discount: 0, discount_type: 'amount',
-          subtotal: Number(b.total), width: null, height: null, area: null,
-          measurement_unit: null, finishings: [], finishing_type: null, technical_notes: null,
-        })
-      }
-
-      let insertedOrderItems: { id: string }[] = []
-      if (itemRows.length > 0) {
-        const { data: ins, error: itemsErr } = await (supabase.from('order_items') as any).insert(itemRows).select('id')
-        if (itemsErr) throw new Error(itemsErr.message)
-        insertedOrderItems = ins ?? []
-      }
-
-      // 3c. Copiar a arte anexada a cada item do orçamento para o pedido recém-criado
-      // (budget_item_files -> order_files), sem exigir novo upload do usuário.
-      // Cópia dentro do mesmo bucket ("order-files"): não baixa nem reenvia o
-      // arquivo, só cria um novo objeto de Storage (copy) e uma linha em order_files.
-      // bi[idx] corresponde a insertedOrderItems[idx] porque itemRows foi construído
-      // 1:1 a partir de `bi` — o item sintético do fallback legado só existe quando
-      // `bi` está vazio, e nesse caso este bloco não roda (nada para copiar mesmo).
-      if (bi && bi.length > 0 && insertedOrderItems.length === bi.length) {
-        const { data: budgetFiles } = await (supabase.from('budget_item_files') as any)
-          .select('*').eq('budget_id', b.id)
-        if (budgetFiles && budgetFiles.length > 0) {
-          for (let idx = 0; idx < bi.length; idx++) {
-            const filesForItem = budgetFiles.filter((f: any) => f.budget_item_id === bi[idx].id)
-            for (const f of filesForItem) {
-              const ext = f.file_path.split('.').pop()
-              const newPath = `${companyId}/${order.id}/${uid()}.${ext}`
-              const { error: copyErr } = await supabase.storage.from('order-files').copy(f.file_path, newPath)
-              if (copyErr) { console.error('[convert] copiar arte do item', copyErr); continue }
-              const { data: urlData } = supabase.storage.from('order-files').getPublicUrl(newPath)
-              await (supabase.from('order_files') as any).insert([{
-                order_id:   order.id,
-                company_id: companyId,
-                file_name:  f.file_name,
-                file_url:   urlData.publicUrl,
-                file_path:  newPath,
-                file_size:  f.file_size,
-                mime_type:  f.mime_type,
-                uploaded_by:'equipe',
-              }])
-            }
-          }
-        }
-      }
-
-      // 4. Marcar orçamento como convertido + salvar referência do pedido
-      await (supabase.from('budgets') as any).update({
-        status:               'converted',
-        converted_to_order_id: order.id,
-        updated_at:           new Date().toISOString(),
-      }).eq('id', b.id)
-
-      // 5. (sem lançamento financeiro automático) — a entrada/sinal do orçamento
-      //    é só uma condição acordada; o recebimento é registrado manualmente
-      //    pelo usuário em "Registrar Recebimento" no pedido.
-
-      // 6. Agenda: se o prazo de entrega for numérico (dias), criar tarefa
-      const delivDaysNum = Number(b.delivery_days)
-      if (Number.isFinite(delivDaysNum) && delivDaysNum > 0 && order?.id) {
-        const dueDate = new Date(Date.now() + delivDaysNum * 86400000)
-        await (supabase.from('calendar_tasks') as any).insert([{
-          company_id:  companyId,
-          title:       `Entrega — ${order.order_number}`,
-          description: `Pedido originado do orçamento ${b.budget_number || ''}`,
-          due_date:    dueDate.toISOString().split('T')[0],
-          status:      'pending',
-          priority:    'normal',
-          order_id:    order.id,
-        }]).select()
-      }
-
-      // 7. Invalidar caches
       qc.invalidateQueries({ queryKey: ['budgets', companyId] })
       qc.invalidateQueries({ queryKey: ['orders', companyId] })
       qc.invalidateQueries({ queryKey: ['dashboard', companyId] })
       qc.invalidateQueries({ queryKey: ['transactions', companyId] })
-
-      toast('success', `✔ Pedido ${order.order_number} criado com sucesso!`)
     } catch (err: unknown) {
       console.error('[convert]', err)
       toast('error', `Erro ao criar pedido: ${(err as Error).message}`)
     } finally {
       setConverting(null)
+    }
+  }
+
+  /* ─── Compartilhar orçamento (link público) ─── */
+  function publicBudgetUrl(b: any): string {
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    return `${origin}/loja/orcamento/${b.public_token}`
+  }
+
+  async function openShare(b: any) {
+    setLinkCopied(false)
+    setShareBudget(b)
+    // Primeiro compartilhamento: rascunho passa a "enviado"
+    if (b.status === 'draft') {
+      await (supabase.from('budgets') as any)
+        .update({ status: 'sent', sent_at: new Date().toISOString() })
+        .eq('id', b.id)
+      qc.invalidateQueries({ queryKey: ['budgets', companyId] })
+      setShareBudget({ ...b, status: 'sent', sent_at: new Date().toISOString() })
+    }
+  }
+
+  async function copyShareLink(b: any) {
+    try {
+      await navigator.clipboard.writeText(publicBudgetUrl(b))
+      setLinkCopied(true)
+      setTimeout(() => setLinkCopied(false), 2000)
+    } catch { /* clipboard indisponível */ }
+  }
+
+  function shareOnWhatsApp(b: any) {
+    const customerName = (b.customers as any)?.name ?? ''
+    const text = `Olá${customerName ? ' ' + customerName : ''}! Segue o orçamento ${b.budget_number || ''} para sua análise: ${publicBudgetUrl(b)}`
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+  }
+
+  async function handleMarkPaid(b: any) {
+    setMarkingPaid(true)
+    try {
+      await (supabase.from('budgets') as any).update({ payment_status: 'paid' }).eq('id', b.id)
+      qc.invalidateQueries({ queryKey: ['budgets', companyId] })
+      setShareBudget({ ...b, payment_status: 'paid' })
+      toast('success', 'Pagamento marcado como recebido.')
+    } catch (err: unknown) {
+      toast('error', `Erro: ${(err as Error).message}`)
+    } finally {
+      setMarkingPaid(false)
     }
   }
 
@@ -968,6 +854,9 @@ export default function OrcamentosPage() {
                         <button onClick={()=>handleGeneratePDF(b)} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-xl border border-border dark:border-border-dark hover:border-primary hover:text-primary transition-all">
                           {generating?<Loader2 size={12} className="animate-spin"/>:<Download size={12}/>}PDF
                         </button>
+                        <button onClick={()=>openShare(b)} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-xl border border-border dark:border-border-dark hover:border-primary hover:text-primary transition-all">
+                          <Share2 size={12}/>Compartilhar
+                        </button>
                         <button
                           onClick={()=>handleDuplicateBudget(b)}
                           disabled={duplicatingBudget===b.id}
@@ -1022,6 +911,9 @@ export default function OrcamentosPage() {
                               </button>
                               <button onClick={()=>handleGeneratePDF(b)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors" title="PDF">
                                 {generating?<Loader2 size={14} className="animate-spin"/>:<Download size={14}/>}
+                              </button>
+                              <button onClick={()=>openShare(b)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors" title="Compartilhar orçamento">
+                                <Share2 size={14}/>
                               </button>
                               <button onClick={()=>handleDuplicateBudget(b)} disabled={duplicatingBudget===b.id}
                                 className="p-1.5 rounded-lg text-text-muted hover:text-info hover:bg-info-light transition-colors" title="Duplicar">
@@ -1892,6 +1784,62 @@ export default function OrcamentosPage() {
                 className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-error hover:opacity-90 disabled:opacity-50">
                 {deleteMutation.isPending&&<Loader2 size={14} className="animate-spin"/>}Excluir
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {shareBudget&&(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={()=>setShareBudget(null)}/>
+          <div className="relative bg-white dark:bg-surface-dark rounded-2xl shadow-modal w-full max-w-md animate-scaleIn p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold text-text-primary dark:text-stone-100">Compartilhar orçamento {shareBudget.budget_number||''}</h3>
+              <button onClick={()=>setShareBudget(null)} className="p-1 text-text-muted hover:text-text-primary"><X size={18}/></button>
+            </div>
+
+            <div className="flex items-center gap-2 p-2.5 rounded-xl border border-border dark:border-border-dark bg-surface dark:bg-white/5">
+              <p className="flex-1 text-xs text-text-secondary dark:text-stone-300 truncate">{publicBudgetUrl(shareBudget)}</p>
+              <button onClick={()=>copyShareLink(shareBudget)} className="flex-shrink-0 p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors" title="Copiar link">
+                {linkCopied?<Check size={15} className="text-success"/>:<Copy size={15}/>}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={()=>shareOnWhatsApp(shareBudget)} className="flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium rounded-xl bg-green-600 text-white hover:bg-green-700 transition-colors">
+                <MessageCircle size={14}/>WhatsApp
+              </button>
+              <button onClick={()=>window.open(publicBudgetUrl(shareBudget),'_blank')} className="flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium rounded-xl border border-border dark:border-border-dark hover:border-primary hover:text-primary transition-all">
+                <ExternalLink size={14}/>Abrir prévia
+              </button>
+            </div>
+
+            <div className="pt-3 border-t border-border dark:border-border-dark space-y-1.5 text-xs text-text-secondary dark:text-stone-400">
+              {shareBudget.sent_at && <p>Enviado em: {new Date(shareBudget.sent_at).toLocaleString('pt-BR')}</p>}
+              {shareBudget.first_viewed_at && <p>Primeira visualização: {new Date(shareBudget.first_viewed_at).toLocaleString('pt-BR')}</p>}
+              {shareBudget.last_viewed_at && <p>Última visualização: {new Date(shareBudget.last_viewed_at).toLocaleString('pt-BR')} ({shareBudget.view_count||0}x)</p>}
+              {shareBudget.approved_at && <p className="text-success-dark dark:text-success">Aprovado em: {new Date(shareBudget.approved_at).toLocaleString('pt-BR')}</p>}
+              {shareBudget.rejected_at && (
+                <p className="text-error">
+                  Reprovado em: {new Date(shareBudget.rejected_at).toLocaleString('pt-BR')}
+                  {shareBudget.rejection_reason && <> — motivo: {shareBudget.rejection_reason}</>}
+                </p>
+              )}
+              {shareBudget.converted_to_order_id && <p className="text-success-dark dark:text-success">Convertido em pedido.</p>}
+            </div>
+
+            <div className="pt-3 border-t border-border dark:border-border-dark flex items-center justify-between">
+              <span className="text-xs text-text-secondary dark:text-stone-400">
+                Pagamento: <b className={shareBudget.payment_status==='paid'?'text-success-dark dark:text-success':'text-text-primary dark:text-stone-100'}>
+                  {shareBudget.payment_status==='paid'?'Pago':shareBudget.payment_status==='partial'?'Parcial':'Pendente'}
+                </b>
+              </span>
+              {shareBudget.payment_status!=='paid' && (
+                <button onClick={()=>handleMarkPaid(shareBudget)} disabled={markingPaid}
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg bg-success-light dark:bg-success/10 text-success-dark dark:text-success hover:bg-success/20 transition-colors disabled:opacity-60">
+                  {markingPaid?'Salvando...':'Marcar como pago'}
+                </button>
+              )}
             </div>
           </div>
         </div>
