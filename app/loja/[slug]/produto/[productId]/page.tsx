@@ -230,6 +230,12 @@ export default function ProdutoLojaPage() {
   function computeSelection(base: Record<string, string>): Record<string, string> {
     const next: Record<string, string> = {}
     for (const g of groups) {
+      // '' = grupo opcional desmarcado de propósito (ver pills abaixo) — ao
+      // contrário de "ainda não escolhido" (chave ausente), não deve ser
+      // reatribuído automaticamente à primeira opção. Preserva a marcação
+      // (em vez de simplesmente omitir a chave) pra não ser desfeita no
+      // próximo recálculo (useEffect abaixo, que roda de novo a cada render).
+      if (g.is_required === false && base[g.id] === '') { next[g.id] = ''; continue }
       const current = g.options.find(o => o.id === base[g.id])
       if (current && isAllowedGiven(current.id, next)) {
         // Mantém a escolha atual (inclusive de um grupo opcional já marcado
