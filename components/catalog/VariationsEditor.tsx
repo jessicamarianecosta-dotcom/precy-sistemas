@@ -1012,8 +1012,8 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
       </div>
 
       {/* Ações de combinação */}
-      {groupsSorted.length > 0 && (
-        <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2">
+        {groupsSorted.length > 0 && (
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => setShowWizard(true)}
               className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5">
@@ -1024,31 +1024,31 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
               <Plus size={13} /> Nova combinação
             </button>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {variantsNormalized.length > 0 && (
-              <>
-                <a
-                  href={`/api/produtos/variacoes/exportar?productId=${productId}`}
-                  className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5"
-                  title="Baixa uma planilha .xlsx com todas as combinações deste produto"
-                >
-                  <FileDown size={13} /> Exportar Excel
-                </a>
-                <button type="button" onClick={() => setShowImportModal(true)}
-                  className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5"
-                  title="Atualiza preço, status, SKU, estoque, prazo e peso das combinações já existentes">
-                  <FileUp size={13} /> Importar Excel (atualizar)
-                </button>
-              </>
-            )}
-            <button type="button" onClick={() => setShowCreateBulkModal(true)}
-              className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5"
-              title="Baixa um modelo em branco e cria várias combinações novas de uma vez, a partir dos grupos/opções já cadastrados">
-              <FileUp size={13} /> Importar Excel (criar combinações)
-            </button>
-          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {variantsNormalized.length > 0 && (
+            <>
+              <a
+                href={`/api/produtos/variacoes/exportar?productId=${productId}`}
+                className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5"
+                title="Baixa uma planilha .xlsx com todas as combinações deste produto"
+              >
+                <FileDown size={13} /> Exportar Excel
+              </a>
+              <button type="button" onClick={() => setShowImportModal(true)}
+                className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5"
+                title="Atualiza preço, status, SKU, estoque, prazo e peso das combinações já existentes">
+                <FileUp size={13} /> Importar Excel (atualizar)
+              </button>
+            </>
+          )}
+          <button type="button" onClick={() => setShowCreateBulkModal(true)}
+            className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5"
+            title="Baixa um modelo e cria grupos, opções e combinações novas de uma vez — os nomes de grupo/opção na planilha são livres">
+            <FileUp size={13} /> Importar Excel (criar combinações)
+          </button>
         </div>
-      )}
+      </div>
 
       {/* Tabela de combinações existentes */}
       {hasPendingChanges && (
@@ -1058,7 +1058,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
       )}
       {groupsSorted.length === 0 ? (
         <p className="text-xs text-text-muted dark:text-stone-500 text-center py-2">
-          Adicione um grupo de variação para começar a criar combinações.
+          Adicione um grupo de variação acima, ou use &ldquo;Importar Excel (criar combinações)&rdquo; para cadastrar grupos, opções e combinações de uma vez pela planilha.
         </p>
       ) : variantsNormalized.length === 0 ? (
         <p className="text-xs text-text-muted dark:text-stone-500 text-center py-2">

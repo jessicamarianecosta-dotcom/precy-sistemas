@@ -5,7 +5,7 @@ import { X, Upload, Loader2, AlertCircle, CheckCircle2, FileSpreadsheet } from '
 import { clsx } from 'clsx'
 import { useToast } from '@/components/ui/Toaster'
 import { formatCurrency } from '@/lib/utils/format'
-import type { CreateBulkPreviewRow, CreateBulkInvalidRow } from '@/app/api/produtos/variacoes/criar-em-massa/analisar/route'
+import type { CreateBulkPreviewRow, CreateBulkInvalidRow, CreateBulkGroupPlan } from '@/app/api/produtos/variacoes/criar-em-massa/analisar/route'
 
 interface Props {
   productId: string
@@ -16,6 +16,7 @@ interface Props {
 
 interface PreviewData {
   productName: string
+  groupsPlan: CreateBulkGroupPlan[]
   totalRows: number
   toCreateCount: number
   duplicateCount: number
@@ -40,6 +41,7 @@ export function VariantsCreateBulkModal({ productId, onClose, onCreated }: Props
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [step, setStep] = useState<Step>('pick')
   const [fileName, setFileName] = useState<string | null>(null)
+  const [pickedFile, setPickedFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<PreviewData | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -47,6 +49,7 @@ export function VariantsCreateBulkModal({ productId, onClose, onCreated }: Props
     if (!file) return
     setError(null)
     setFileName(file.name)
+    setPickedFile(file)
     setStep('analyzing')
     try {
       const formData = new FormData()
@@ -68,20 +71,17 @@ export function VariantsCreateBulkModal({ productId, onClose, onCreated }: Props
   }
 
   async function handleConfirm() {
-    if (!preview || preview.rows.length === 0) return
+    // Reenvia o MESMO arquivo pro servidor reprocessar do zero — ver nota em
+    // .../criar-em-massa/confirmar sobre por que isso é necessário (grupo/
+    // opção "novo" ainda não tem ID nenhum até ser criado lá).
+    if (!preview || preview.toCreateCount === 0 || !pickedFile) return
     setStep('confirming')
     setError(null)
     try {
-      const res = await fetch('/api/produtos/variacoes/criar-em-massa/confirmar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          productId,
-          rows: preview.rows.map(r => ({
-            price: r.price, sku: r.sku, stock: r.stock, leadTime: r.leadTime, weight: r.weight, options: r.options,
-          })),
-        }),
-      })
+      const formData = new FormData()
+      formData.append('file', pickedFile)
+      formData.append('productId', productId)
+      const res = await fetch('/api/produtos/variacoes/criar-em-massa/confirmar', { method: 'POST', body: formData })
       const data = await res.json()
       if (!res.ok) {
         setError(data?.error ?? 'Não foi possível criar as combinações. Nenhuma foi salva.')
@@ -101,6 +101,7 @@ export function VariantsCreateBulkModal({ productId, onClose, onCreated }: Props
     setStep('pick')
     setPreview(null)
     setFileName(null)
+    setPickedFile(null)
     setError(null)
   }
 
@@ -147,7 +148,7 @@ export function VariantsCreateBulkModal({ productId, onClose, onCreated }: Props
                 <>
                   <Upload size={28} className="text-text-muted mx-auto" />
                   <p className="text-sm text-text-secondary dark:text-stone-300">
-                    Baixe o modelo, preencha uma linha por combinação nova e selecione o arquivo preenchido.
+                    Baixe o modelo, renomeie as colunas de variação com os nomes que quiser (ex: Quantidade, Medida, Acabamento), preencha uma linha por combinação nova e selecione o arquivo preenchido.
                   </p>
                   <div className="flex flex-wrap items-center justify-center gap-2">
                     <a
@@ -185,6 +186,22 @@ export function VariantsCreateBulkModal({ productId, onClose, onCreated }: Props
                 <p className="text-xs text-text-muted dark:text-stone-500 text-center py-3">
                   Nenhuma linha preenchida foi encontrada nesta planilha.
                 </p>
+              )}
+
+              {preview.groupsPlan.some(g => g.isNew || g.newOptionsCount > 0) && (
+                <div>
+                  <p className="text-xs font-semibold text-text-primary dark:text-stone-100 mb-2">Grupos e opções desta planilha</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {preview.groupsPlan.map(g => (
+                      <span key={g.name} className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-primary-50 dark:bg-primary/10 text-primary">
+                        {g.name}
+                        {g.isNew && <span className="ml-1 font-semibold">(novo)</span>}
+                        {!g.isNew && g.newOptionsCount > 0 && <span className="ml-1">({g.newOptionsCount} opção(ões) nova(s))</span>}
+                        {g.isNew && !g.isRequired && <span className="ml-1 text-text-muted">· opcional</span>}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               )}
 
               {preview.rows.length > 0 && (
