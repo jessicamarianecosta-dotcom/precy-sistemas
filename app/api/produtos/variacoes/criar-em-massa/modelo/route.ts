@@ -8,9 +8,11 @@ import type { GroupRow } from '@/lib/catalog/variationCombos'
 
 /**
  * GET /api/produtos/variacoes/criar-em-massa/modelo?productId=...
- * Gera o modelo .xlsx em branco pra criar combinações em massa (Produtos →
- * Variações → "Baixar modelo"), com uma coluna por grupo de variação já
- * cadastrado no produto (dropdown com as opções válidas). Somente leitura.
+ * Gera o modelo .xlsx pra criar combinações em massa (Produtos → Variações
+ * → "Baixar modelo"): uma coluna de texto livre por grupo já cadastrado no
+ * produto + colunas extras em branco pra grupos novos (a pessoa escreve o
+ * nome do grupo que quiser no cabeçalho). Somente leitura — funciona mesmo
+ * para um produto que ainda não tem nenhum grupo de variação.
  */
 export async function GET(request: Request) {
   try {
@@ -49,14 +51,7 @@ export async function GET(request: Request) {
       options: g.product_variation_options ?? [],
     }))
 
-    if (groups.length === 0) {
-      return NextResponse.json({ error: 'Este produto ainda não tem grupos de variação cadastrados. Cadastre os grupos e opções primeiro na tela de Variações.' }, { status: 400 })
-    }
-    if (groups.some(g => g.options.length === 0)) {
-      return NextResponse.json({ error: 'Todo grupo de variação precisa de pelo menos uma opção cadastrada antes de gerar o modelo.' }, { status: 400 })
-    }
-
-    const wb = buildCreateVariantsWorkbook({ productName: product.name, groups })
+    const wb = buildCreateVariantsWorkbook({ productName: product.name, existingGroups: groups })
     const buffer = await wb.xlsx.writeBuffer()
 
     const safeName = product.name

@@ -325,15 +325,20 @@ export async function parseVariantsWorkbook(buffer: ArrayBuffer | Buffer): Promi
 }
 
 // ============================================================
-// Criação de combinações em massa ("Modo B"): baixar modelo em branco,
-// preencher uma linha por combinação desejada (não precisa ser o produto
-// cartesiano completo — só as combinações que serão vendidas de verdade) e
-// importar. Usa os grupos/opções JÁ CADASTRADOS no produto (não cria grupo
-// nem opção nova) — complementa o fluxo de atualização acima, não substitui.
+// Criação de combinações em massa ("Modo B"): baixar modelo, preencher uma
+// linha por combinação desejada (não precisa ser o produto cartesiano
+// completo — só as combinações que serão vendidas de verdade) e importar.
+//
+// LIVRE: os cabeçalhos das colunas de variação são texto comum, editável —
+// a pessoa escreve o nome do grupo que quiser (ex: Quantidade, Medida,
+// Frente e verso, Acabamento) e os valores que quiser em cada linha; grupos
+// e opções que ainda não existem no produto são CRIADOS automaticamente ao
+// confirmar a importação (resolvido por nome/valor, nunca duplica um grupo
+// ou opção que já existe — comparação sem diferenciar maiúsculas/minúsculas).
+// Não precisa abrir a tela de Variações e cadastrar grupo por grupo antes.
 // ============================================================
 
 export const CREATE_SHEET_NAME = 'Novas combinações'
-export const CREATE_OPTIONS_SHEET_NAME = 'Opções válidas'
 export const CREATE_COL_SEQ = 'Nº'
 export const CREATE_COL_SKU = 'SKU'
 export const CREATE_COL_STOCK = 'Estoque'
@@ -341,37 +346,31 @@ export const CREATE_COL_LEAD_TIME = 'Prazo (dias)'
 export const CREATE_COL_WEIGHT = 'Peso (kg)'
 export const CREATE_COL_PRICE = 'Preço-base'
 const CREATE_ROWS = 200
-
-function createGroupColHeader(g: GroupRow): string {
-  return g.is_required === false ? `${g.name} (opcional — pode deixar em branco)` : g.name
-}
+/** Colunas de variação em branco oferecidas além das já existentes no produto — a pessoa renomeia o cabeçalho pra criar um grupo novo, ou apaga a coluna se não precisar. */
+const CREATE_EXTRA_BLANK_GROUP_COLS = 6
 
 /**
- * Monta o modelo em branco de criação em massa: uma coluna por grupo de
- * variação do produto (com dropdown das opções já cadastradas, via uma aba
- * auxiliar oculta — evita o limite de 255 caracteres de uma lista inline no
- * Excel), + SKU/Estoque/Prazo/Peso/Preço-base. Não grava nada — função pura.
+ * Monta o modelo de criação em massa: uma coluna de texto livre por grupo já
+ * cadastrado no produto (cabeçalho = nome do grupo, editável) + algumas
+ * colunas extras em branco para grupos novos, + SKU/Estoque/Prazo/Peso/
+ * Preço-base. Sem dropdown/validação de lista de propósito — a pessoa pode
+ * digitar uma opção que ainda não existe, e ela é criada ao importar. Não
+ * grava nada — função pura.
  */
-export function buildCreateVariantsWorkbook(opts: { productName: string; groups: GroupRow[] }): ExcelJS.Workbook {
-  const { productName, groups } = opts
+export function buildCreateVariantsWorkbook(opts: { productName: string; existingGroups: GroupRow[] }): ExcelJS.Workbook {
+  const { productName, existingGroups } = opts
   const wb = new ExcelJS.Workbook()
   wb.creator = 'Precy+'
   wb.created = new Date()
 
-  // Aba auxiliar (oculta) só com as listas de opções válidas por grupo —
-  // referenciada pela validação de lista (dropdown) das colunas do modelo.
-  const optsSheet = wb.addWorksheet(CREATE_OPTIONS_SHEET_NAME, { state: 'veryHidden' })
-  const groupRanges = groups.map((g, idx) => {
-    const col = optsSheet.getColumn(idx + 1)
-    col.values = [g.name, ...g.options.map(o => o.value)]
-    const colLetter = col.letter
-    return `'${CREATE_OPTIONS_SHEET_NAME}'!$${colLetter}$2:$${colLetter}$${g.options.length + 1}`
-  })
-
   const sheet = wb.addWorksheet(CREATE_SHEET_NAME, { views: [{ state: 'frozen', ySplit: 1 }] })
+  const groupHeaders = [
+    ...existingGroups.map(g => g.name),
+    ...Array.from({ length: CREATE_EXTRA_BLANK_GROUP_COLS }, (_, i) => `Variação nova ${i + 1}`),
+  ]
   const columns = [
     { header: CREATE_COL_SEQ, key: 'seq', width: 6 },
-    ...groups.map(g => ({ header: createGroupColHeader(g), key: groupKey(g.id), width: Math.max(18, g.name.length + 6) })),
+    ...groupHeaders.map((name, i) => ({ header: name, key: `col_${i}`, width: Math.max(18, name.length + 4) })),
     { header: CREATE_COL_SKU, key: 'sku', width: 14 },
     { header: CREATE_COL_STOCK, key: 'stock', width: 10 },
     { header: CREATE_COL_LEAD_TIME, key: 'lead', width: 12 },
@@ -395,17 +394,8 @@ export function buildCreateVariantsWorkbook(opts: { productName: string; groups:
     row.getCell(1).value = r - 1
     row.getCell(priceColIndex).numFmt = '#,##0.00'
     row.getCell(priceColIndex).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3D6' } }
-    groups.forEach((g, gi) => {
-      const cell = row.getCell(gi + 2)
-      cell.dataValidation = {
-        type: 'list',
-        allowBlank: g.is_required === false,
-        formulae: [groupRanges[gi]],
-        showErrorMessage: true,
-        errorTitle: 'Opção inválida',
-        error: `Escolha um valor da lista de "${g.name}" (use a setinha da célula).`,
-      }
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5EEE5' } }
+    groupHeaders.forEach((_, gi) => {
+      row.getCell(gi + 2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5EEE5' } }
     })
   }
 
@@ -415,13 +405,14 @@ export function buildCreateVariantsWorkbook(opts: { productName: string; groups:
     [`Produto: ${productName}`],
     [''],
     ['Como preencher esta planilha'],
-    ['1. Cada linha é uma combinação nova. Preencha uma opção por grupo (use a setinha da célula — só aceita valores já cadastrados no produto) e o preço-base.'],
-    ['2. Grupos marcados "(opcional)" podem ficar em branco — a combinação é criada sem nenhuma opção desse grupo (ex: um "Extra" que o cliente pode escolher não levar).'],
-    ['3. Não precisa preencher todas as linhas nem todas as combinações matematicamente possíveis — só as que você realmente vai vender.'],
-    ['4. SKU, Estoque, Prazo e Peso são opcionais; deixe em branco para usar o padrão do produto.'],
-    ['5. Não crie grupos ou opções novos aqui — esta planilha só cria combinações a partir dos grupos/opções que o produto já tem cadastrados na tela de Variações.'],
-    ['6. Salve o arquivo em .xlsx e importe pelo botão "Importar Excel (criar combinações)".'],
-    ['7. Antes de confirmar, o sistema mostra uma prévia com cada combinação, erros encontrados e combinações que já existem (não duplica) — nada é salvo automaticamente.'],
+    ['1. Cada coluna de fundo rosa é um grupo de variação — o CABEÇALHO (primeira linha) é o nome do grupo. Pode renomear, apagar ou adicionar colunas livremente.'],
+    ['2. Cada linha (abaixo do cabeçalho) é uma combinação nova. Escreva o valor da opção em cada grupo (ex: "500", "A4", "Fosco") e o preço-base.'],
+    ['3. Grupo e opção que ainda não existirem no produto são criados automaticamente ao importar — não precisa cadastrar nada antes na tela de Variações.'],
+    ['4. Deixe uma célula de grupo em branco se essa combinação não usa aquele grupo (ex: um "Extra" opcional que o cliente pode não querer).'],
+    ['5. Não precisa preencher todas as linhas nem todas as combinações matematicamente possíveis — só as que você realmente vai vender.'],
+    ['6. SKU, Estoque, Prazo e Peso são opcionais; deixe em branco para usar o padrão do produto.'],
+    ['7. Salve o arquivo em .xlsx e importe pelo botão "Importar Excel (criar combinações)".'],
+    ['8. Antes de confirmar, o sistema mostra uma prévia: quais grupos/opções são novos, quais combinações serão criadas, quais já existem (não duplica) e quais linhas têm erro — nada é salvo automaticamente.'],
   ])
   info.getRow(1).font = { bold: true, size: 13 }
   info.getRow(3).font = { bold: true }
@@ -431,7 +422,7 @@ export function buildCreateVariantsWorkbook(opts: { productName: string; groups:
 
 export interface CreateParsedRow {
   rowNumber: number
-  /** Valor de texto digitado/selecionado por grupo, na mesma ordem do array `groups` passado a parseCreateVariantsWorkbook — '' = em branco. */
+  /** Valor de texto digitado por grupo, na mesma ordem de `CreateParsedResult.groupNames` — '' = em branco. */
   valueByGroup: string[]
   sku: string | null
   stock: number | null
@@ -443,31 +434,32 @@ export interface CreateParsedRow {
 export interface CreateParsedResult {
   ok: boolean
   error?: string
+  /** Nome de cada coluna de grupo (texto do cabeçalho, livre), na ordem das colunas da planilha. */
+  groupNames: string[]
   rows: CreateParsedRow[]
 }
 
 /**
- * Lê o modelo preenchido. NÃO resolve os valores de texto para option_id
- * (isso depende dos grupos atuais do produto vindos do banco — feito por
- * quem chama, em .../criar-em-massa/analisar) — só extrai e valida o
- * formato básico de cada célula.
+ * Lê o modelo preenchido. Qualquer coluna cujo cabeçalho não seja um dos
+ * nomes fixos (Nº/SKU/Estoque/Prazo/Peso/Preço-base) e não esteja em branco
+ * é tratada como grupo de variação, com o nome literal do cabeçalho — NÃO
+ * resolve contra grupos/opções do banco aqui (isso depende do que já existe
+ * no produto, feito por quem chama em .../criar-em-massa/analisar).
  */
-export async function parseCreateVariantsWorkbook(
-  buffer: ArrayBuffer | Buffer,
-  groups: { id: string; name: string }[],
-): Promise<CreateParsedResult> {
+export async function parseCreateVariantsWorkbook(buffer: ArrayBuffer | Buffer): Promise<CreateParsedResult> {
   const wb = new ExcelJS.Workbook()
   try {
     await wb.xlsx.load(buffer as any)
   } catch {
-    return { ok: false, error: 'Arquivo inválido. Envie um arquivo .xlsx gerado pelo botão "Baixar modelo".', rows: [] }
+    return { ok: false, error: 'Arquivo inválido. Envie um arquivo .xlsx gerado pelo botão "Baixar modelo".', groupNames: [], rows: [] }
   }
 
   const sheet = wb.getWorksheet(CREATE_SHEET_NAME) ?? wb.worksheets[0]
-  if (!sheet) return { ok: false, error: 'Planilha vazia ou sem abas.', rows: [] }
+  if (!sheet) return { ok: false, error: 'Planilha vazia ou sem abas.', groupNames: [], rows: [] }
 
   const headerRow = sheet.getRow(1)
   const groupCols: number[] = []
+  const groupNames: string[] = []
   let priceCol = -1
   let skuCol = -1, stockCol = -1, leadCol = -1, weightCol = -1
   headerRow.eachCell((cell, colNumber) => {
@@ -477,13 +469,20 @@ export async function parseCreateVariantsWorkbook(
     else if (label === CREATE_COL_STOCK) stockCol = colNumber
     else if (label === CREATE_COL_LEAD_TIME) leadCol = colNumber
     else if (label === CREATE_COL_WEIGHT) weightCol = colNumber
-    else if (label !== CREATE_COL_SEQ && label !== '') groupCols.push(colNumber)
+    else if (label !== CREATE_COL_SEQ && label !== '') { groupCols.push(colNumber); groupNames.push(label) }
   })
-  if (priceCol === -1 || groupCols.length !== groups.length) {
+  if (priceCol === -1) {
     return {
       ok: false,
-      error: 'Esta planilha não corresponde aos grupos de variação atuais deste produto. Baixe um modelo novo pelo botão "Baixar modelo" e preencha de novo.',
-      rows: [],
+      error: 'Esta planilha não tem a coluna "Preço-base". Baixe um modelo novo pelo botão "Baixar modelo" e preencha de novo.',
+      groupNames: [], rows: [],
+    }
+  }
+  if (groupCols.length === 0) {
+    return {
+      ok: false,
+      error: 'Nenhuma coluna de grupo de variação foi encontrada — renomeie pelo menos uma das colunas em branco do modelo com o nome do grupo (ex: "Quantidade").',
+      groupNames: [], rows: [],
     }
   }
 
@@ -536,5 +535,141 @@ export async function parseCreateVariantsWorkbook(
     })
   }
 
-  return { ok: true, rows }
+  return { ok: true, groupNames, rows }
+}
+
+export interface GroupPlanEntry {
+  name: string
+  /** null = grupo ainda não existe no produto — será criado ao confirmar. */
+  existingId: string | null
+  isRequired: boolean
+  /** chave = valor em minúsculo/sem espaço nas pontas; existingId = null quando a opção ainda não existe. */
+  options: Map<string, { value: string; existingId: string | null }>
+}
+export interface PlannedRow {
+  rowNumber: number
+  price: number
+  sku: string | null
+  stock: number | null
+  leadTime: number | null
+  weight: number | null
+  /** Valor de texto (ou null = em branco) por grupo, na ordem de `PlanResult.groupsPlan`. */
+  valueByFinalGroup: (string | null)[]
+}
+export interface PlanResult {
+  ok: boolean
+  error?: string
+  groupsPlan: GroupPlanEntry[]
+  rows: PlannedRow[]
+  invalidRows: { row: number; reason: string }[]
+}
+
+/**
+ * Reconcilia as colunas de grupo da planilha (nomes livres) com os grupos e
+ * opções que o produto JÁ TEM — sem tocar no banco. Grupo/opção não
+ * encontrado por nome/valor (comparação sem diferenciar maiúsculas/
+ * minúsculas nem espaços nas pontas) entra no plano como "novo"
+ * (existingId: null); quem chama decide se cria agora (confirmar) ou só
+ * mostra na prévia (analisar) — a MESMA função roda nos dois passos, pra
+ * nunca divergir entre o que a prévia mostra e o que é realmente criado.
+ *
+ * Um grupo novo (citado na planilha mas que ainda não existe) é
+ * considerado opcional automaticamente se alguma linha preenchida deixou a
+ * célula dele em branco — ninguém precisa configurar isso à parte. Um
+ * grupo que o produto JÁ TEM e é obrigatório precisa aparecer como coluna
+ * na planilha (erro claro se não aparecer) — do contrário não dá pra saber
+ * que valor usar nele para as combinações novas.
+ */
+export function planCreateVariants(
+  groupNames: string[],
+  parsedRows: CreateParsedRow[],
+  existingGroups: GroupRow[],
+): PlanResult {
+  const norm = (s: string) => s.trim().toLowerCase()
+
+  const sheetColByNameLower = new Map<string, number>()
+  groupNames.forEach((name, idx) => {
+    const key = norm(name)
+    if (!sheetColByNameLower.has(key)) sheetColByNameLower.set(key, idx)
+  })
+
+  const missingRequired = existingGroups.filter(g => g.is_required !== false && !sheetColByNameLower.has(norm(g.name)))
+  if (missingRequired.length > 0) {
+    return {
+      ok: false,
+      error: `Este produto já tem o(s) grupo(s) obrigatório(s) ${missingRequired.map(g => `"${g.name}"`).join(', ')} que não aparece(m) nesta planilha. Inclua uma coluna com esse nome exato, ou torne o grupo opcional na tela de Variações.`,
+      groupsPlan: [], rows: [], invalidRows: [],
+    }
+  }
+
+  // Ordem final: grupos já existentes primeiro (ordem atual do produto),
+  // depois os grupos novos, na ordem de 1ª aparição entre as colunas da planilha.
+  const groupsPlan: GroupPlanEntry[] = existingGroups.map(g => ({
+    name: g.name,
+    existingId: g.id,
+    isRequired: g.is_required !== false,
+    options: new Map(g.options.map(o => [norm(o.value), { value: o.value, existingId: o.id }])),
+  }))
+  const existingNamesLower = new Set(existingGroups.map(g => norm(g.name)))
+  const seenNewNames = new Set<string>()
+  for (const name of groupNames) {
+    const key = norm(name)
+    if (!existingNamesLower.has(key) && !seenNewNames.has(key)) {
+      seenNewNames.add(key)
+      groupsPlan.push({ name: name.trim(), existingId: null, isRequired: true, options: new Map() })
+    }
+  }
+
+  const sheetColForFinalGroup = groupsPlan.map(g => sheetColByNameLower.get(norm(g.name)) ?? -1)
+
+  const invalidRows: { row: number; reason: string }[] = []
+  const rows: PlannedRow[] = []
+  const newGroupHasBlank = new Set<string>() // nome(lower) de grupo novo com alguma linha em branco
+
+  for (const r of parsedRows) {
+    if (r.error) { invalidRows.push({ row: r.rowNumber, reason: r.error }); continue }
+    if (r.price == null) { invalidRows.push({ row: r.rowNumber, reason: 'Preço-base é obrigatório.' }); continue }
+
+    const valueByFinalGroup: (string | null)[] = groupsPlan.map((_, finalIdx) => {
+      const col = sheetColForFinalGroup[finalIdx]
+      if (col === -1) return null // grupo existente opcional, não citado na planilha
+      const raw = r.valueByGroup[col]
+      return raw === '' ? null : raw.trim()
+    })
+
+    groupsPlan.forEach((g, finalIdx) => {
+      if (g.existingId === null && valueByFinalGroup[finalIdx] == null) newGroupHasBlank.add(norm(g.name))
+    })
+
+    rows.push({
+      rowNumber: r.rowNumber, price: r.price, sku: r.sku, stock: r.stock, leadTime: r.leadTime, weight: r.weight,
+      valueByFinalGroup,
+    })
+  }
+
+  groupsPlan.forEach(g => {
+    if (g.existingId === null && newGroupHasBlank.has(norm(g.name))) g.isRequired = false
+  })
+
+  for (const row of rows) {
+    for (const [finalIdx, g] of groupsPlan.entries()) {
+      if (g.isRequired && row.valueByFinalGroup[finalIdx] == null) {
+        invalidRows.push({ row: row.rowNumber, reason: `Grupo "${g.name}" é obrigatório — preencha um valor.` })
+        break
+      }
+    }
+  }
+  const invalidRowNumbers = new Set(invalidRows.map(r => r.row))
+  const validRows = rows.filter(r => !invalidRowNumbers.has(r.rowNumber))
+
+  for (const row of validRows) {
+    groupsPlan.forEach((g, finalIdx) => {
+      const val = row.valueByFinalGroup[finalIdx]
+      if (val == null) return
+      const key = norm(val)
+      if (!g.options.has(key)) g.options.set(key, { value: val, existingId: null })
+    })
+  }
+
+  return { ok: true, groupsPlan, rows: validRows, invalidRows }
 }

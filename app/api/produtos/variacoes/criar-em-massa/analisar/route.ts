@@ -3,7 +3,7 @@ import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { resolveCompanyIdForUser } from '@/lib/supabase/pgHelpers'
-import { parseCreateVariantsWorkbook } from '@/lib/catalog/variantsExcel'
+import { parseCreateVariantsWorkbook, planCreateVariants } from '@/lib/catalog/variantsExcel'
 import { comboKey, type GroupRow } from '@/lib/catalog/variationCombos'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024
@@ -16,16 +16,22 @@ export interface CreateBulkPreviewRow {
   stock: number | null
   leadTime: number | null
   weight: number | null
-  /** Enviado como está para .../confirmar — não recalculado no client. */
-  options: { group_id: string; option_id: string }[]
 }
 export interface CreateBulkInvalidRow { row: number; reason: string }
+export interface CreateBulkGroupPlan {
+  name: string
+  isNew: boolean
+  isRequired: boolean
+  newOptionsCount: number
+  totalOptionsCount: number
+}
 
 /**
  * POST /api/produtos/variacoes/criar-em-massa/analisar
  * Body: multipart/form-data { file, productId }
- * Lê o modelo de criação em massa, resolve cada valor de texto digitado
- * (dropdown) contra os grupos/opções ATUAIS do produto, identifica
+ * Lê o modelo (colunas de grupo com nome livre), reconcilia contra os
+ * grupos/opções ATUAIS do produto (planCreateVariants — a MESMA função que
+ * .../confirmar usa, pra prévia e confirmação nunca divergirem), identifica
  * combinações já existentes (nunca duplica) e devolve uma prévia. NÃO grava
  * nada — confirmação é um passo separado (.../confirmar).
  */
@@ -61,77 +67,83 @@ export async function POST(request: Request) {
       .eq('product_id', productId)
       .order('sort_order')
       .order('sort_order', { foreignTable: 'product_variation_options' })
-    const groups: GroupRow[] = (groupRows ?? []).map((g: any) => ({
+    const existingGroups: GroupRow[] = (groupRows ?? []).map((g: any) => ({
       id: g.id, name: g.name, sort_order: g.sort_order, is_required: g.is_required ?? true,
       options: g.product_variation_options ?? [],
     }))
-    if (groups.length === 0) {
-      return NextResponse.json({ error: 'Este produto não tem grupos de variação cadastrados.' }, { status: 400 })
-    }
 
     const arrayBuffer = await file.arrayBuffer()
-    const parsed = await parseCreateVariantsWorkbook(arrayBuffer, groups.map(g => ({ id: g.id, name: g.name })))
+    const parsed = await parseCreateVariantsWorkbook(arrayBuffer)
     if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 422 })
     if (parsed.rows.length === 0) {
       return NextResponse.json({ error: 'Nenhuma linha preenchida foi encontrada nesta planilha.' }, { status: 422 })
     }
 
-    // Combinações já existentes — nunca duplica (mesmo conjunto de
-    // option_ids, na mesma ordem dos grupos, igual ao resto do sistema).
+    const plan = planCreateVariants(parsed.groupNames, parsed.rows, existingGroups)
+    if (!plan.ok) return NextResponse.json({ error: plan.error }, { status: 422 })
+
+    // Combinações já existentes — nunca duplica. Monta a chave de cada
+    // combinação (salva ou da planilha) na MESMA ordem de plan.groupsPlan
+    // (grupos existentes primeiro, novos depois): um grupo novo contribui
+    // sempre com undefined pro lado das combinações já salvas (nenhuma delas
+    // pode referenciar um grupo que ainda não existia), e com o id real da
+    // opção (já existente ou recém-vista) pro lado da planilha — strings
+    // sintéticas (`new:grupo:valor`) nunca coincidem com um UUID salvo, então
+    // uma linha que usa uma opção nova nunca é apontada como duplicata.
     const { data: existingVariants } = await db
       .from('product_variants')
       .select('id, product_variant_option_values(option_id, group_id)')
       .eq('product_id', productId)
     const existingKeys = new Set<string>((existingVariants ?? []).map((v: any) => {
       const byGroup = new Map<string, string>((v.product_variant_option_values ?? []).map((ov: any) => [ov.group_id, ov.option_id]))
-      return comboKey(groups.map(g => byGroup.get(g.id)))
+      return comboKey(plan.groupsPlan.map(g => (g.existingId ? byGroup.get(g.existingId) : undefined)))
     }))
 
-    const invalidRows: CreateBulkInvalidRow[] = []
+    const invalidRows: CreateBulkInvalidRow[] = [...plan.invalidRows]
     const duplicateRows: { row: number; label: string }[] = []
     const toCreate: CreateBulkPreviewRow[] = []
     const seenInFile = new Set<string>()
 
-    for (const r of parsed.rows) {
-      if (r.error) { invalidRows.push({ row: r.rowNumber, reason: r.error }); continue }
-
-      const options: { group_id: string; option_id: string }[] = []
+    for (const row of plan.rows) {
       const labelParts: string[] = []
-      let rowError: string | null = null
-      groups.forEach((g, idx) => {
-        const raw = r.valueByGroup[idx] ?? ''
-        if (raw === '') {
-          if (g.is_required !== false) rowError = rowError ?? `Grupo "${g.name}" é obrigatório — escolha uma opção da lista.`
-          return
-        }
-        const opt = g.options.find(o => o.value.trim().toLowerCase() === raw.toLowerCase())
-        if (!opt) { rowError = rowError ?? `Valor "${raw}" não é uma opção válida do grupo "${g.name}".`; return }
-        options.push({ group_id: g.id, option_id: opt.id })
-        labelParts.push(`${g.name}: ${opt.value}`)
+      const rowKeyParts = plan.groupsPlan.map((g, idx) => {
+        const val = row.valueByFinalGroup[idx]
+        if (val == null) return undefined
+        labelParts.push(`${g.name}: ${val}`)
+        const existingOptionId = g.options.get(val.trim().toLowerCase())?.existingId
+        return existingOptionId ?? `new:${g.name}:${val}`
       })
-      if (rowError) { invalidRows.push({ row: r.rowNumber, reason: rowError }); continue }
-      if (r.price == null) { invalidRows.push({ row: r.rowNumber, reason: 'Preço-base é obrigatório.' }); continue }
+      const label = labelParts.join(' · ') || '—'
+      const rowKey = comboKey(rowKeyParts)
 
-      const key = comboKey(groups.map(g => options.find(o => o.group_id === g.id)?.option_id))
-      if (existingKeys.has(key)) {
-        duplicateRows.push({ row: r.rowNumber, label: labelParts.join(' · ') || '—' })
+      if (existingKeys.has(rowKey)) {
+        duplicateRows.push({ row: row.rowNumber, label })
         continue
       }
-      if (seenInFile.has(key)) {
-        invalidRows.push({ row: r.rowNumber, reason: 'Combinação duplicada dentro desta própria planilha.' })
+      if (seenInFile.has(rowKey)) {
+        invalidRows.push({ row: row.rowNumber, reason: 'Combinação duplicada dentro desta própria planilha.' })
         continue
       }
-      seenInFile.add(key)
+      seenInFile.add(rowKey)
 
       toCreate.push({
-        rowNumber: r.rowNumber, label: labelParts.join(' · ') || '—', price: r.price,
-        sku: r.sku, stock: r.stock, leadTime: r.leadTime, weight: r.weight, options,
+        rowNumber: row.rowNumber, label, price: row.price,
+        sku: row.sku, stock: row.stock, leadTime: row.leadTime, weight: row.weight,
       })
     }
+
+    const groupsPlanOut: CreateBulkGroupPlan[] = plan.groupsPlan.map(g => ({
+      name: g.name,
+      isNew: g.existingId === null,
+      isRequired: g.isRequired,
+      newOptionsCount: [...g.options.values()].filter(o => o.existingId === null).length,
+      totalOptionsCount: g.options.size,
+    }))
 
     return NextResponse.json({
       productId,
       productName: product.name,
+      groupsPlan: groupsPlanOut,
       totalRows: parsed.rows.length,
       toCreateCount: toCreate.length,
       duplicateCount: duplicateRows.length,
