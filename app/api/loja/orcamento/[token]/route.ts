@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
 import { buildPixPayload, sanitizeTxid } from '@/lib/pix/brcode'
+import { companyPickupAddressLines } from '@/lib/company/pickupAddress'
 import QRCode from 'qrcode'
 
 /**
@@ -35,8 +36,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
       sent_at, first_viewed_at, last_viewed_at, view_count,
       approved_at, rejected_at, rejection_reason,
       converted_to_order_id, created_at,
-      customers(name),
-      companies(id, name, email, phone, logo_url, primary_color, secondary_color, city, state,
+      customers(name, phone, email, cpf_cnpj, city, state, address),
+      companies(id, name, email, phone, logo_url, primary_color, secondary_color,
+                cnpj, address, street, number, complement, neighborhood, city, state, zip_code,
                 pix_type, pix_key, pix_label)
     `)
     .eq('public_token', token)
@@ -66,7 +68,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
 
   const [{ data: files }, { data: productImages }] = await Promise.all([
     itemIds.length > 0
-      ? db.from('budget_item_files').select('budget_item_id, file_url, file_name, mime_type').in('budget_item_id', itemIds)
+      ? db.from('budget_item_files').select('budget_item_id, file_url, file_name, file_size, mime_type').in('budget_item_id', itemIds)
       : Promise.resolve({ data: [] }),
     productIds.length > 0
       ? db.from('product_images').select('product_id, url, sort_order').in('product_id', productIds).order('sort_order', { ascending: true })
@@ -85,10 +87,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   }
 
   const itemsOut = (items ?? []).map((i: any) => {
-    const itemFiles = (filesByItem.get(i.id) ?? [])
+    const itemFilesImages = (filesByItem.get(i.id) ?? [])
       .filter((f: any) => (f.mime_type || '').startsWith('image/'))
       .map((f: any) => f.file_url)
-    const image = itemFiles[0] ?? (i.product_id ? firstImageByProduct.get(i.product_id) ?? null : null)
+    const image = itemFilesImages[0] ?? (i.product_id ? firstImageByProduct.get(i.product_id) ?? null : null)
     return {
       id: i.id,
       name: i.name,
@@ -99,10 +101,28 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
       discount: i.discount,
       variant_label: i.variant_label,
       finishings: i.finishings,
+      finishing_type: i.finishing_type,
+      width: i.width,
+      height: i.height,
+      area: i.area,
+      measurement_unit: i.measurement_unit,
       technical_notes: i.technical_notes,
       image,
     }
   })
+
+  // Arte enviada pelo cliente — galeria completa (imagens e outros arquivos),
+  // exatamente como aparece no PDF do orçamento (não só a 1ª imagem de cada item).
+  const artFiles = (files ?? []).map((f: any) => ({
+    file_name: f.file_name,
+    file_url: f.file_url,
+    file_size: f.file_size,
+    is_image: (f.mime_type || '').startsWith('image/'),
+  }))
+
+  const pickupAddressLines = budget.delivery_type === 'pickup'
+    ? companyPickupAddressLines(budget.companies)
+    : []
 
   const isExpired = !!budget.valid_until
     && new Date(budget.valid_until) < new Date()
@@ -181,16 +201,25 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
       converted: !!budget.converted_to_order_id,
       is_expired: isExpired,
       customer_name: budget.customers?.name ?? null,
+      customer_phone: budget.customers?.phone ?? null,
+      customer_email: budget.customers?.email ?? null,
+      customer_cpf_cnpj: budget.customers?.cpf_cnpj ?? null,
+      customer_city: budget.customers?.city ?? null,
+      customer_state: budget.customers?.state ?? null,
+      customer_address: budget.customers?.address ?? null,
     },
     company: {
       name: budget.companies?.name ?? '',
       email: budget.companies?.email ?? null,
       phone: budget.companies?.phone ?? null,
+      cnpj: budget.companies?.cnpj ?? null,
       logo_url: budget.companies?.logo_url ?? null,
       primary_color: budget.companies?.primary_color ?? '#8B6C4F',
       secondary_color: budget.companies?.secondary_color ?? '#2C2018',
+      pickup_address_lines: pickupAddressLines,
     },
     items: itemsOut,
+    art_files: artFiles,
     pix,
   })
 }
