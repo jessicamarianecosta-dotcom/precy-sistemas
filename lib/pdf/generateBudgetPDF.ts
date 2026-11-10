@@ -10,6 +10,8 @@ import { companyPickupAddressLines } from '@/lib/company/pickupAddress'
 import { getFileKind, getDownloadUrl } from '@/lib/utils/fileIcons'
 import { formatBudgetTitle } from '@/lib/pdf/budgetTitle'
 import { pixTypeLabel } from '@/lib/company/pix'
+import { buildPixPayload, sanitizeTxid } from '@/lib/pix/brcode'
+import QRCode from 'qrcode'
 import type { OrderFile } from '@/components/orders/types'
 
 interface PDFParams {
@@ -76,6 +78,27 @@ export async function generateBudgetPDF({ budget, items, company, fileName, artF
   const bPixKey  = X(b.pix_key ?? '')
   const bPixType = pixTypeLabel(b.pix_type as string | undefined)
   const bPixLbl  = X(b.pix_label ?? '')
+
+  /* ── QR Code Pix (BR Code/EMV) — mesmo payload exibido no orçamento público ── */
+  let bPixQrCode = ''
+  if (b.pix_key) {
+    try {
+      const pixAmount = b.pay_condition === 'entrada' && (Number(b.signal_amount) || 0) > 0
+        ? Number(b.signal_amount)
+        : (Number(b.total) || 0)
+      const txid = b.pix_txid || sanitizeTxid(b.budget_number || b.id || '')
+      const payload = buildPixPayload({
+        pixKey: String(b.pix_key),
+        merchantName: String(co.name ?? 'RECEBEDOR'),
+        merchantCity: String(co.city ?? 'BRASIL'),
+        amount: pixAmount,
+        txid,
+      })
+      bPixQrCode = await QRCode.toDataURL(payload, { margin: 1, width: 240 })
+    } catch (err) {
+      console.error('[generateBudgetPDF] erro ao gerar QR Code Pix', err)
+    }
+  }
 
   /* ── Financeiro ── */
   const bSub  = Number(b.subtotal) || items.reduce((s,i) => s + (Number(i.subtotal)||0), 0)
@@ -324,7 +347,10 @@ export async function generateBudgetPDF({ budget, items, company, fileName, artF
   /* forma de pagamento — PIX */
   .pix-w{padding:0 26px 14px;}
   .pix-box{background:#faf8f5;border:1px solid #ede9e3;border-left:3px solid ${primary};
-    border-radius:0 8px 8px 0;padding:13px 16px;max-width:340px;}
+    border-radius:0 8px 8px 0;padding:13px 16px;max-width:460px;
+    display:flex;align-items:center;gap:16px;page-break-inside:avoid;}
+  .pix-info{flex:1;min-width:0;}
+  .pix-qr{flex-shrink:0;width:92px;height:92px;border-radius:6px;border:1px solid #ede9e3;background:#fff;}
   .pix-badge{display:inline-block;background:${primary};color:#fff;font-size:9px;
     font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
     padding:3px 10px;border-radius:20px;margin-bottom:8px;}
@@ -588,10 +614,13 @@ ${bPixKey ? `
 <div class="slbl">Forma de Pagamento</div>
 <div class="pix-w">
   <div class="pix-box">
-    <span class="pix-badge">PIX</span>
-    <div class="pix-row"><span class="ck">Chave</span><span class="cv" style="font-weight:600;">${bPixKey}</span></div>
-    ${bPixType ? `<div class="pix-row"><span class="ck">Tipo</span><span class="cv">${bPixType}</span></div>` : ''}
-    ${bPixLbl  ? `<div class="pix-row"><span class="ck">Titular</span><span class="cv">${bPixLbl}</span></div>` : ''}
+    <div class="pix-info">
+      <span class="pix-badge">PIX</span>
+      <div class="pix-row"><span class="ck">Chave</span><span class="cv" style="font-weight:600;">${bPixKey}</span></div>
+      ${bPixType ? `<div class="pix-row"><span class="ck">Tipo</span><span class="cv">${bPixType}</span></div>` : ''}
+      ${bPixLbl  ? `<div class="pix-row"><span class="ck">Titular</span><span class="cv">${bPixLbl}</span></div>` : ''}
+    </div>
+    ${bPixQrCode ? `<img class="pix-qr" src="${bPixQrCode}" alt="QR Code Pix">` : ''}
   </div>
 </div>` : ''}
 
