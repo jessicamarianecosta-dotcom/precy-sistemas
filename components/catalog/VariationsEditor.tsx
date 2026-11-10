@@ -11,6 +11,7 @@ import { compressImage } from '@/lib/catalog/useImageCompression'
 import { uploadImageXhr } from '@/lib/catalog/useImageUploadXhr'
 import { VariationRulesWizard } from './VariationRulesWizard'
 import { VariantsImportModal } from './VariantsImportModal'
+import { VariantsCreateBulkModal } from './VariantsCreateBulkModal'
 import { formatCurrency } from '@/lib/utils/format'
 import { calcOptionsAdjustment } from '@/lib/produtos/variantPricing'
 
@@ -118,6 +119,7 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
   const [error, setError] = useState<string | null>(null)
   const [showWizard, setShowWizard] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
+  const [showCreateBulkModal, setShowCreateBulkModal] = useState(false)
   const [variantForm, setVariantForm] = useState<{ selection: Record<string, string>; settings: Record<string, string> } | null>(null)
   const [copySourceId, setCopySourceId] = useState<string | null>(null)
   const [copyTargetId, setCopyTargetId] = useState<string>('')
@@ -1022,21 +1024,29 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
               <Plus size={13} /> Nova combinação
             </button>
           </div>
-          {variantsNormalized.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              <a
-                href={`/api/produtos/variacoes/exportar?productId=${productId}`}
-                className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5"
-                title="Baixa uma planilha .xlsx com todas as combinações deste produto"
-              >
-                <FileDown size={13} /> Exportar Excel
-              </a>
-              <button type="button" onClick={() => setShowImportModal(true)}
-                className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5">
-                <FileUp size={13} /> Importar Excel
-              </button>
-            </div>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {variantsNormalized.length > 0 && (
+              <>
+                <a
+                  href={`/api/produtos/variacoes/exportar?productId=${productId}`}
+                  className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5"
+                  title="Baixa uma planilha .xlsx com todas as combinações deste produto"
+                >
+                  <FileDown size={13} /> Exportar Excel
+                </a>
+                <button type="button" onClick={() => setShowImportModal(true)}
+                  className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5"
+                  title="Atualiza preço, status, SKU, estoque, prazo e peso das combinações já existentes">
+                  <FileUp size={13} /> Importar Excel (atualizar)
+                </button>
+              </>
+            )}
+            <button type="button" onClick={() => setShowCreateBulkModal(true)}
+              className="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5"
+              title="Baixa um modelo em branco e cria várias combinações novas de uma vez, a partir dos grupos/opções já cadastrados">
+              <FileUp size={13} /> Importar Excel (criar combinações)
+            </button>
+          </div>
         </div>
       )}
 
@@ -1323,6 +1333,15 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
           productId={productId}
           onClose={() => setShowImportModal(false)}
           onImported={() => invalidateVariants()}
+        />
+      )}
+
+      {/* Criação em massa de combinações por planilha Excel */}
+      {showCreateBulkModal && (
+        <VariantsCreateBulkModal
+          productId={productId}
+          onClose={() => setShowCreateBulkModal(false)}
+          onCreated={() => invalidateVariants()}
         />
       )}
 

@@ -323,3 +323,218 @@ export async function parseVariantsWorkbook(buffer: ArrayBuffer | Buffer): Promi
 
   return { ok: true, rows }
 }
+
+// ============================================================
+// Criação de combinações em massa ("Modo B"): baixar modelo em branco,
+// preencher uma linha por combinação desejada (não precisa ser o produto
+// cartesiano completo — só as combinações que serão vendidas de verdade) e
+// importar. Usa os grupos/opções JÁ CADASTRADOS no produto (não cria grupo
+// nem opção nova) — complementa o fluxo de atualização acima, não substitui.
+// ============================================================
+
+export const CREATE_SHEET_NAME = 'Novas combinações'
+export const CREATE_OPTIONS_SHEET_NAME = 'Opções válidas'
+export const CREATE_COL_SEQ = 'Nº'
+export const CREATE_COL_SKU = 'SKU'
+export const CREATE_COL_STOCK = 'Estoque'
+export const CREATE_COL_LEAD_TIME = 'Prazo (dias)'
+export const CREATE_COL_WEIGHT = 'Peso (kg)'
+export const CREATE_COL_PRICE = 'Preço-base'
+const CREATE_ROWS = 200
+
+function createGroupColHeader(g: GroupRow): string {
+  return g.is_required === false ? `${g.name} (opcional — pode deixar em branco)` : g.name
+}
+
+/**
+ * Monta o modelo em branco de criação em massa: uma coluna por grupo de
+ * variação do produto (com dropdown das opções já cadastradas, via uma aba
+ * auxiliar oculta — evita o limite de 255 caracteres de uma lista inline no
+ * Excel), + SKU/Estoque/Prazo/Peso/Preço-base. Não grava nada — função pura.
+ */
+export function buildCreateVariantsWorkbook(opts: { productName: string; groups: GroupRow[] }): ExcelJS.Workbook {
+  const { productName, groups } = opts
+  const wb = new ExcelJS.Workbook()
+  wb.creator = 'Precy+'
+  wb.created = new Date()
+
+  // Aba auxiliar (oculta) só com as listas de opções válidas por grupo —
+  // referenciada pela validação de lista (dropdown) das colunas do modelo.
+  const optsSheet = wb.addWorksheet(CREATE_OPTIONS_SHEET_NAME, { state: 'veryHidden' })
+  const groupRanges = groups.map((g, idx) => {
+    const col = optsSheet.getColumn(idx + 1)
+    col.values = [g.name, ...g.options.map(o => o.value)]
+    const colLetter = col.letter
+    return `'${CREATE_OPTIONS_SHEET_NAME}'!$${colLetter}$2:$${colLetter}$${g.options.length + 1}`
+  })
+
+  const sheet = wb.addWorksheet(CREATE_SHEET_NAME, { views: [{ state: 'frozen', ySplit: 1 }] })
+  const columns = [
+    { header: CREATE_COL_SEQ, key: 'seq', width: 6 },
+    ...groups.map(g => ({ header: createGroupColHeader(g), key: groupKey(g.id), width: Math.max(18, g.name.length + 6) })),
+    { header: CREATE_COL_SKU, key: 'sku', width: 14 },
+    { header: CREATE_COL_STOCK, key: 'stock', width: 10 },
+    { header: CREATE_COL_LEAD_TIME, key: 'lead', width: 12 },
+    { header: CREATE_COL_WEIGHT, key: 'weight', width: 10 },
+    { header: CREATE_COL_PRICE, key: 'price', width: 14 },
+  ]
+  sheet.columns = columns as ExcelJS.Column[]
+
+  const headerRow = sheet.getRow(1)
+  headerRow.eachCell(cell => {
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8B6C4F' } }
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+  })
+  headerRow.height = 26
+  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columns.length } }
+
+  const priceColIndex = columns.length
+  for (let r = 2; r <= CREATE_ROWS + 1; r++) {
+    const row = sheet.getRow(r)
+    row.getCell(1).value = r - 1
+    row.getCell(priceColIndex).numFmt = '#,##0.00'
+    row.getCell(priceColIndex).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3D6' } }
+    groups.forEach((g, gi) => {
+      const cell = row.getCell(gi + 2)
+      cell.dataValidation = {
+        type: 'list',
+        allowBlank: g.is_required === false,
+        formulae: [groupRanges[gi]],
+        showErrorMessage: true,
+        errorTitle: 'Opção inválida',
+        error: `Escolha um valor da lista de "${g.name}" (use a setinha da célula).`,
+      }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5EEE5' } }
+    })
+  }
+
+  const info = wb.addWorksheet('Instruções')
+  info.getColumn(1).width = 95
+  info.addRows([
+    [`Produto: ${productName}`],
+    [''],
+    ['Como preencher esta planilha'],
+    ['1. Cada linha é uma combinação nova. Preencha uma opção por grupo (use a setinha da célula — só aceita valores já cadastrados no produto) e o preço-base.'],
+    ['2. Grupos marcados "(opcional)" podem ficar em branco — a combinação é criada sem nenhuma opção desse grupo (ex: um "Extra" que o cliente pode escolher não levar).'],
+    ['3. Não precisa preencher todas as linhas nem todas as combinações matematicamente possíveis — só as que você realmente vai vender.'],
+    ['4. SKU, Estoque, Prazo e Peso são opcionais; deixe em branco para usar o padrão do produto.'],
+    ['5. Não crie grupos ou opções novos aqui — esta planilha só cria combinações a partir dos grupos/opções que o produto já tem cadastrados na tela de Variações.'],
+    ['6. Salve o arquivo em .xlsx e importe pelo botão "Importar Excel (criar combinações)".'],
+    ['7. Antes de confirmar, o sistema mostra uma prévia com cada combinação, erros encontrados e combinações que já existem (não duplica) — nada é salvo automaticamente.'],
+  ])
+  info.getRow(1).font = { bold: true, size: 13 }
+  info.getRow(3).font = { bold: true }
+
+  return wb
+}
+
+export interface CreateParsedRow {
+  rowNumber: number
+  /** Valor de texto digitado/selecionado por grupo, na mesma ordem do array `groups` passado a parseCreateVariantsWorkbook — '' = em branco. */
+  valueByGroup: string[]
+  sku: string | null
+  stock: number | null
+  leadTime: number | null
+  weight: number | null
+  price: number | null
+  error: string | null
+}
+export interface CreateParsedResult {
+  ok: boolean
+  error?: string
+  rows: CreateParsedRow[]
+}
+
+/**
+ * Lê o modelo preenchido. NÃO resolve os valores de texto para option_id
+ * (isso depende dos grupos atuais do produto vindos do banco — feito por
+ * quem chama, em .../criar-em-massa/analisar) — só extrai e valida o
+ * formato básico de cada célula.
+ */
+export async function parseCreateVariantsWorkbook(
+  buffer: ArrayBuffer | Buffer,
+  groups: { id: string; name: string }[],
+): Promise<CreateParsedResult> {
+  const wb = new ExcelJS.Workbook()
+  try {
+    await wb.xlsx.load(buffer as any)
+  } catch {
+    return { ok: false, error: 'Arquivo inválido. Envie um arquivo .xlsx gerado pelo botão "Baixar modelo".', rows: [] }
+  }
+
+  const sheet = wb.getWorksheet(CREATE_SHEET_NAME) ?? wb.worksheets[0]
+  if (!sheet) return { ok: false, error: 'Planilha vazia ou sem abas.', rows: [] }
+
+  const headerRow = sheet.getRow(1)
+  const groupCols: number[] = []
+  let priceCol = -1
+  let skuCol = -1, stockCol = -1, leadCol = -1, weightCol = -1
+  headerRow.eachCell((cell, colNumber) => {
+    const label = String(cell.value ?? '').trim()
+    if (label === CREATE_COL_PRICE) priceCol = colNumber
+    else if (label === CREATE_COL_SKU) skuCol = colNumber
+    else if (label === CREATE_COL_STOCK) stockCol = colNumber
+    else if (label === CREATE_COL_LEAD_TIME) leadCol = colNumber
+    else if (label === CREATE_COL_WEIGHT) weightCol = colNumber
+    else if (label !== CREATE_COL_SEQ && label !== '') groupCols.push(colNumber)
+  })
+  if (priceCol === -1 || groupCols.length !== groups.length) {
+    return {
+      ok: false,
+      error: 'Esta planilha não corresponde aos grupos de variação atuais deste produto. Baixe um modelo novo pelo botão "Baixar modelo" e preencha de novo.',
+      rows: [],
+    }
+  }
+
+  const rows: CreateParsedRow[] = []
+  const lastRow = sheet.rowCount
+  for (let r = 2; r <= lastRow; r++) {
+    const row = sheet.getRow(r)
+    const valueByGroup = groupCols.map(c => String(row.getCell(c).value ?? '').trim())
+    const priceRaw = String(row.getCell(priceCol).value ?? '').trim()
+    const skuRaw = skuCol !== -1 ? String(row.getCell(skuCol).value ?? '').trim() : ''
+    const stockRaw = stockCol !== -1 ? String(row.getCell(stockCol).value ?? '').trim() : ''
+    const leadRaw = leadCol !== -1 ? String(row.getCell(leadCol).value ?? '').trim() : ''
+    const weightRaw = weightCol !== -1 ? String(row.getCell(weightCol).value ?? '').trim() : ''
+
+    const rowHasData = valueByGroup.some(v => v !== '') || priceRaw !== ''
+    if (!rowHasData) continue // linha em branco — ignora
+
+    let error: string | null = null
+    let price: number | null = null
+    if (priceRaw === '') {
+      error = 'Preço-base é obrigatório.'
+    } else {
+      const n = Number(priceRaw.replace(',', '.'))
+      if (!Number.isFinite(n)) error = `Valor "${priceRaw}" não é um número válido na coluna "${CREATE_COL_PRICE}".`
+      else if (n < 0) error = 'Preço negativo não é permitido.'
+      else price = Math.round(n * 100) / 100
+    }
+
+    let stock: number | null = null
+    if (!error && stockRaw !== '') {
+      const n = Number(stockRaw.replace(',', '.'))
+      if (!Number.isInteger(n) || n < 0) error = `Valor "${stockRaw}" inválido na coluna "${CREATE_COL_STOCK}".`
+      else stock = n
+    }
+    let leadTime: number | null = null
+    if (!error && leadRaw !== '') {
+      const n = Number(leadRaw.replace(',', '.'))
+      if (!Number.isInteger(n) || n < 0) error = `Valor "${leadRaw}" inválido na coluna "${CREATE_COL_LEAD_TIME}".`
+      else leadTime = n
+    }
+    let weight: number | null = null
+    if (!error && weightRaw !== '') {
+      const n = Number(weightRaw.replace(',', '.'))
+      if (!Number.isFinite(n) || n < 0) error = `Valor "${weightRaw}" inválido na coluna "${CREATE_COL_WEIGHT}".`
+      else weight = Math.round(n * 1000) / 1000
+    }
+
+    rows.push({
+      rowNumber: r, valueByGroup, sku: skuRaw || null, stock, leadTime, weight, price, error,
+    })
+  }
+
+  return { ok: true, rows }
+}
