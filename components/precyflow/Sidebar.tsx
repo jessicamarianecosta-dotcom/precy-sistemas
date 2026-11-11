@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Package, Boxes, ShoppingCart, Users, FileText,
   DollarSign, Settings, CalendarDays, CheckSquare, Truck, Store,
-  BarChart2, ChevronLeft, ChevronRight, LogOut, Cat, Sparkles,
+  BarChart2, ChevronLeft, ChevronRight, LogOut, Sparkles,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useSidebar } from '@/providers/SidebarProvider'
@@ -70,8 +70,13 @@ function PrecyflowSidebarInner({ collapsed, onClose }: { collapsed: boolean; onC
     <div className="h-full flex flex-col pf-card rounded-none border-l-0 border-t-0 border-b-0">
       <div className="p-4 flex items-center gap-2.5 border-b" style={{ borderColor: 'var(--pf-border)' }}>
         <Link href="/precyflow/app" onClick={onClose} className="flex items-center gap-2.5 flex-1 min-w-0">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 pf-btn-primary">
-            {theme === 'cat' ? <Cat size={18} /> : <Sparkles size={18} />}
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 pf-btn-primary overflow-hidden">
+            {theme === 'cat' ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src="/precyflow/mascote/gatinho-oficial.png" alt="PrecyFlow" className="w-full h-full object-contain p-0.5" />
+            ) : (
+              <Sparkles size={18} />
+            )}
           </div>
           {!collapsed && (
             <span className="font-bold truncate">
