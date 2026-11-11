@@ -104,14 +104,25 @@ export async function registerSchedulePayment(
   return paymentId as string
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
 /**
  * Substitui o plano de recebimento (payment_schedule) de um pedido pelo
- * gerado a partir da seção Financeiro do formulário. Só regenera quando
- * NENHUMA parcela existente já recebeu algo — uma vez que o cliente
- * começou a pagar sob um plano, editar o pedido não apaga esse
+ * gerado a partir da seção Financeiro do formulário. Só regenera do zero
+ * quando NENHUMA parcela existente já recebeu algo — uma vez que o
+ * cliente começou a pagar sob um plano, editar o pedido não apaga esse
  * histórico nem reembaralha os números de parcela; a forma de
  * pagamento só volta a ser editável parcela a parcela, no card
  * Financeiro do pedido.
+ *
+ * Exceção: pedido com uma ÚNICA parcela (caso mais comum — pagamento à
+ * vista) que já recebeu algo, mas cujo total mudou (ex.: item adicionado
+ * depois do 1º recebimento) — em vez de travar o recebimento pelo saldo
+ * da parcela congelado no valor antigo, resincroniza o `amount` dessa
+ * parcela com o novo total do pedido, preservando o que já foi recebido.
+ * Nunca reduz abaixo do que já foi recebido (não "desfaz" um recebimento).
  */
 export async function syncOrderPaymentSchedule(
   supabase: AnySupabaseClient,
@@ -133,11 +144,27 @@ export async function syncOrderPaymentSchedule(
   }
 ): Promise<{ applied: boolean }> {
   const { data: existing } = await supabase.from('payment_schedule')
-    .select('id, received_amount')
+    .select('id, amount, received_amount, status')
     .eq('order_id', params.orderId)
 
   const hasReceivedSomething = (existing ?? []).some((r: any) => Number(r.received_amount) > 0)
-  if (hasReceivedSomething) return { applied: false }
+  if (hasReceivedSomething) {
+    if ((existing?.length ?? 0) === 1 && params.rows.length === 1) {
+      const row = existing![0] as any
+      const received = round2(Number(row.received_amount) || 0)
+      const newAmount = Math.max(round2(params.rows[0].amount), received)
+      if (newAmount !== round2(Number(row.amount))) {
+        const newStatus = row.status === 'cancelado'
+          ? row.status
+          : received >= newAmount ? 'recebido' : (received > 0 ? 'parcial' : row.status)
+        await supabase.from('payment_schedule')
+          .update({ amount: newAmount, status: newStatus, updated_at: new Date().toISOString() })
+          .eq('id', row.id)
+        return { applied: true }
+      }
+    }
+    return { applied: false }
+  }
 
   if (existing && existing.length > 0) {
     await supabase.from('payment_schedule').delete().eq('order_id', params.orderId)
