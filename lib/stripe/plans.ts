@@ -20,18 +20,30 @@ export const PLANS = {
     get price_id() { return process.env.NEXT_PUBLIC_STRIPE_PRICE_ID_PRO ?? process.env.STRIPE_PRICE_ID_PRO ?? '' },
     trialDays:  0,
   },
+  // PrecyFlow: assinatura única anual, separada da escada Basic→Pro do
+  // Precy+ — mesma base de dados, módulos próprios (ver documento PrecyFlow).
+  precyflow: {
+    id:         'precyflow',
+    name:       'PrecyFlow',
+    price:      9700,
+    priceLabel: 'R$ 97/ano',
+    get price_id() { return process.env.NEXT_PUBLIC_STRIPE_PRICE_ID_PRECYFLOW ?? process.env.STRIPE_PRICE_ID_PRECYFLOW ?? '' },
+    trialDays:  0,
+  },
 } as const
 
 export type PlanId = keyof typeof PLANS
 
 // Limites por plano — used in both client and server
 export const PLAN_LIMITS: Record<PlanId, { products: number; orders: number; categories: number; published_products: number }> = {
-  basic: { products: 20, orders: 30, categories: 0,  published_products: 0 },
-  pro:   { products: Infinity, orders: Infinity, categories: 20, published_products: 500 },
+  basic:     { products: 20, orders: 30, categories: 0,  published_products: 0 },
+  pro:       { products: Infinity, orders: Infinity, categories: 20, published_products: 500 },
+  precyflow: { products: 300, orders: Infinity, categories: 20, published_products: 300 },
 }
 
 // Resolve plano a partir do Stripe price_id (server-side env vars)
 export function getPlanFromPriceId(priceId: string): PlanId {
   if (priceId === process.env.STRIPE_PRICE_ID_PRO) return 'pro'
+  if (priceId === process.env.STRIPE_PRICE_ID_PRECYFLOW) return 'precyflow'
   return 'basic'
 }
