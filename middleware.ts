@@ -7,7 +7,16 @@ import { TERMS_VERSION, PRIVACY_VERSION } from '@/lib/legal/versions'
 /* ── Rotas públicas ── */
 const PUBLIC = ['/', '/login', '/cadastro', '/recuperar-senha', '/nova-senha',
                 '/termos', '/privacidade', '/reembolso', '/cancelamento', '/suporte',
-                '/loja', '/api/loja']
+                '/loja', '/api/loja',
+                /* PrecyFlow: landing + cadastro/login próprios (mesma base de
+                   usuários/auth do Precy+, front-end e redirecionamento
+                   diferentes — ver /precyflow/app abaixo). */
+                '/precyflow', '/precyflow/cadastro', '/precyflow/login']
+
+/* Rotas de auth do PrecyFlow — mesmo tratamento de /login e /cadastro:
+   se já tem sessão, redireciona para a área logada (mas a do PrecyFlow). */
+const PRECYFLOW_AUTH_ROUTES = ['/precyflow/cadastro', '/precyflow/login']
+const PRECYFLOW_APP_ROOT = '/precyflow/app'
 
 /* ── Gate de re-aceite de Termos/Privacidade: liberado mesmo sem aceite
    atual, para não gerar loop de redirecionamento ── */
@@ -118,6 +127,9 @@ export async function middleware(req: NextRequest) {
   if (isPublic) {
     if (session && (pathname === '/login' || pathname === '/cadastro')) {
       return NextResponse.redirect(new URL(DASHBOARD_ROOT, req.url))
+    }
+    if (session && PRECYFLOW_AUTH_ROUTES.includes(pathname)) {
+      return NextResponse.redirect(new URL(PRECYFLOW_APP_ROOT, req.url))
     }
     return res
   }
