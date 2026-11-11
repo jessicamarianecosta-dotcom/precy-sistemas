@@ -6,12 +6,13 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Package, Boxes, ShoppingCart, Users, FileText,
   DollarSign, Settings, CalendarDays, CheckSquare, Truck, Store,
-  BarChart2, ChevronLeft, ChevronRight, LogOut, Cat,
+  BarChart2, ChevronLeft, ChevronRight, LogOut, Cat, Sparkles,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useSidebar } from '@/providers/SidebarProvider'
 import { createClient } from '@/lib/supabase/client'
 import { useQueryClient } from '@tanstack/react-query'
+import { usePrecyflowTheme } from '@/providers/PrecyflowThemeProvider'
 
 /* 14 módulos aprovados do PrecyFlow (documento, seção 9) — Precificação
    fica de fora por decisão explícita do escopo. */
@@ -37,6 +38,7 @@ function PrecyflowSidebarInner({ collapsed, onClose }: { collapsed: boolean; onC
   const router = useRouter()
   const queryClient = useQueryClient()
   const supabase = createClient()
+  const { theme } = usePrecyflowTheme()
 
   async function handleLogout() {
     queryClient.clear()
@@ -69,7 +71,7 @@ function PrecyflowSidebarInner({ collapsed, onClose }: { collapsed: boolean; onC
       <div className="p-4 flex items-center gap-2.5 border-b" style={{ borderColor: 'var(--pf-border)' }}>
         <Link href="/precyflow/app" onClick={onClose} className="flex items-center gap-2.5 flex-1 min-w-0">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 pf-btn-primary">
-            <Cat size={18} />
+            {theme === 'cat' ? <Cat size={18} /> : <Sparkles size={18} />}
           </div>
           {!collapsed && (
             <span className="font-bold truncate">
