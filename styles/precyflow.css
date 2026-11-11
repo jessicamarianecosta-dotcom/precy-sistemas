@@ -52,3 +52,26 @@
 .pf-bg-primary-soft {
   background-color: var(--pf-primary-soft);
 }
+
+/* Reaproveita .input/.card/.btn-primary globais (styles/globals.css), mas
+   substitui as cores pelo tema do PrecyFlow — mesmo padrão já usado pela
+   loja pública em [data-store-theme]. */
+.pf-root .input {
+  background-color: var(--pf-surface);
+  border-color: var(--pf-border);
+  color: var(--pf-text-primary);
+}
+
+.pf-root .input:focus {
+  border-color: var(--pf-primary);
+  box-shadow: 0 0 0 2px var(--pf-primary-soft);
+}
+
+.pf-root .input::placeholder {
+  color: var(--pf-text-muted);
+}
+
+.pf-root .card {
+  background-color: var(--pf-surface);
+  border-color: var(--pf-border);
+}

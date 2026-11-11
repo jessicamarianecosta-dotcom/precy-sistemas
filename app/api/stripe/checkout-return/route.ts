@@ -45,6 +45,12 @@ export async function GET(req: NextRequest) {
     }
 
     await syncCompanyFromCheckoutSession(cs, '[checkout-return]')
+
+    // PrecyFlow tem sua própria área logada (/precyflow/app), separada do
+    // /dashboard do Precy+ — o destino depende do plano da Checkout Session.
+    if (cs.metadata?.plan === 'precyflow') {
+      return NextResponse.redirect(new URL('/precyflow/app?checkout=success', appUrl))
+    }
   } catch (err: any) {
     console.error('[checkout-return] erro ao sincronizar:', err?.message ?? err)
   }

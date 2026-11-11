@@ -14,6 +14,12 @@ import {
  */
 export async function POST(request: NextRequest) {
   try {
+    // PrecyFlow: cadastro próprio (/precyflow/cadastro) manda
+    // { product: 'precyflow' } para nascer no plano certo — plano único
+    // pago, sem o trial interno de 7 dias do Basic do Precy+ (o usuário
+    // segue direto pro checkout Stripe de R$97/ano).
+    const body = await request.json().catch(() => ({} as Record<string, unknown>))
+    const isPrecyflow = body?.product === 'precyflow'
     // Pegar usuário pela sessão server-side
     const serverClient = createServerComponentClient({ cookies })
     const { data: { user }, error: userError } = await serverClient.auth.getUser()
@@ -75,9 +81,13 @@ export async function POST(request: NextRequest) {
     const ipHash = hashIp(ip)
     const abusive = await isTrialAbusive(deviceId, ipHash)
 
-    const trialEnd = abusive
-      ? new Date().toISOString() // trial já "usado" — sem bônus, cai direto no Basic normal
-      : new Date(Date.now() + PLANS.basic.trialDays * 24 * 60 * 60 * 1000).toISOString()
+    // PrecyFlow não tem trial interno (trialDays: 0) — trial_end já nasce
+    // no passado, então o middleware bloqueia o acesso até o checkout
+    // Stripe confirmar o pagamento (ver syncCompanyFromCheckoutSession).
+    const trialDays = isPrecyflow ? PLANS.precyflow.trialDays : PLANS.basic.trialDays
+    const trialEnd = (abusive || isPrecyflow)
+      ? new Date().toISOString()
+      : new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000).toISOString()
 
     // Upsert com ignoreDuplicates: a garantia de "nunca duplicar" vem da
     // constraint UNIQUE(user_id) no banco, não deste código — se duas
@@ -94,7 +104,7 @@ export async function POST(request: NextRequest) {
         fixed_costs:          0,
         currency:             'BRL',
         timezone:             'America/Sao_Paulo',
-        current_plan:         'basic',
+        current_plan:         isPrecyflow ? 'precyflow' : 'basic',
         subscription_status:  'trialing',
         trial_end:            trialEnd,
       },
@@ -119,7 +129,7 @@ export async function POST(request: NextRequest) {
     }
 
     await recordTrialFingerprint({
-      deviceId, ipHash, companyId: company.id, userId: user.id, granted: !abusive,
+      deviceId, ipHash, companyId: company.id, userId: user.id, granted: !abusive && !isPrecyflow,
     })
 
     return withDeviceCookie(NextResponse.json({ companyId: company.id, created: true }))
