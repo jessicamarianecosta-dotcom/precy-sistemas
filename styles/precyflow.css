@@ -1,0 +1,54 @@
+/**
+ * PrecyFlow — tokens visuais isolados do tema padrão do Precy+.
+ * Escopado em .pf-root para nunca vazar para /dashboard, /produtos etc.
+ * As cores reais vêm de --pf-primary/--pf-primary-hover/--pf-primary-soft,
+ * definidas inline pelo PrecyflowThemeProvider a partir de lib/precyflow/theme.ts.
+ */
+
+.pf-root {
+  --pf-bg: #FFF9FB;
+  --pf-surface: #FFFFFF;
+  --pf-border: #F3E1EA;
+  --pf-text-primary: #2C2030;
+  --pf-text-secondary: #7A6B74;
+  --pf-text-muted: #B8A8B2;
+  --pf-success: #4C8C6B;
+  --pf-warning: #C4893A;
+  --pf-error: #C4503A;
+
+  background-color: var(--pf-bg);
+  color: var(--pf-text-primary);
+  min-height: 100vh;
+}
+
+.pf-root[data-pf-color="preto"] {
+  --pf-bg: #FAFAFA;
+  --pf-border: #E4E4E4;
+}
+
+.pf-card {
+  background-color: var(--pf-surface);
+  border: 1px solid var(--pf-border);
+  border-radius: 1rem;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+}
+
+.pf-btn-primary {
+  background-color: var(--pf-primary);
+  color: #FFFFFF;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  transition: background-color 0.15s ease;
+}
+
+.pf-btn-primary:hover {
+  background-color: var(--pf-primary-hover);
+}
+
+.pf-text-primary-accent {
+  color: var(--pf-primary);
+}
+
+.pf-bg-primary-soft {
+  background-color: var(--pf-primary-soft);
+}
