@@ -22,6 +22,8 @@ interface PDFParams {
   fileName?: string
   /** Arte(s) anexada(s) ao pedido de origem — exibidas inteiras, sem corte. */
   artFiles?: OrderFile[]
+  /** Nome do produto que gerou o PDF, exibido no rodapé (ex.: PrecyFlow). Padrão: Precy+. */
+  brandName?: string
 }
 
 const R = (v: unknown) => formatCurrency(Number(v) || 0)
@@ -35,7 +37,7 @@ const D = (iso?: string | null) => {
 const X = (s: unknown) =>
   String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')
 
-export async function generateBudgetPDF({ budget, items, company, fileName, artFiles }: PDFParams) {
+export async function generateBudgetPDF({ budget, items, company, fileName, artFiles, brandName = 'Precy+' }: PDFParams) {
   const co   = company as any ?? {}
   const b    = budget  as any ?? {}
   const cust = b.customers as any ?? {}
@@ -168,12 +170,17 @@ export async function generateBudgetPDF({ budget, items, company, fileName, artF
         <tr style="background:${bg};page-break-inside:avoid;">
           <td style="padding:11px 10px;border-bottom:1px solid #ede9e3;color:#aaa;font-size:11px;text-align:center;width:28px;vertical-align:top;">${idx+1}</td>
           <td style="padding:11px 14px;border-bottom:1px solid #ede9e3;vertical-align:top;">
+            <div style="display:flex;gap:10px;align-items:flex-start;">
+              ${item.image_url ? `<img src="${item.image_url}" alt="${nm}" style="width:42px;height:42px;object-fit:cover;border-radius:6px;flex-shrink:0;">` : ''}
+              <div style="flex:1;min-width:0;">
             <div style="font-size:13px;font-weight:600;color:#1a1208;line-height:1.35;">${nm}</div>
             ${desc ? `<div style="font-size:11px;color:#9a8a7a;margin-top:3px;line-height:1.5;">${X(desc)}</div>` : ''}
             ${dim ? `<div style="font-size:10.5px;color:#6b7280;margin-top:4px;">📐 Medidas: ${X(dim)}</div>` : ''}
             ${fins.length > 0 ? `<div style="font-size:10.5px;color:#6b7280;margin-top:3px;">✂ Acabamento: ${fins.map(X).join(' · ')}</div>` : ''}
             ${finT ? `<div style="font-size:10.5px;color:#6b7280;margin-top:2px;">📦 Finalização: ${finTHTML}</div>` : ''}
             ${obs ? `<div style="font-size:10px;color:#9a8a7a;margin-top:3px;font-style:italic;">ℹ ${X(obs)}</div>` : ''}
+              </div>
+            </div>
           </td>
           <td style="padding:11px 10px;border-bottom:1px solid #ede9e3;text-align:center;font-size:12.5px;color:#333;width:52px;vertical-align:top;">${qty}</td>
           <td style="padding:11px 10px;border-bottom:1px solid #ede9e3;text-align:right;font-size:12.5px;color:#555;width:92px;vertical-align:top;">${R(up)}</td>
@@ -646,7 +653,7 @@ ${bNotes ? `
     Orçamento válido ${bValid ? 'até '+bValid : 'conforme condições acima'}
   </div>
   <div class="fr2">
-    Gerado em ${new Date().toLocaleDateString('pt-BR')} &nbsp;·&nbsp; <b>Precy+</b>
+    Gerado em ${new Date().toLocaleDateString('pt-BR')} &nbsp;·&nbsp; <b>${X(brandName)}</b>
   </div>
 </div>
 

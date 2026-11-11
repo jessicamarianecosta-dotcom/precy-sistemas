@@ -29,6 +29,7 @@ export interface EffectiveItem {
   finishings?: string[]
   finishing_type?: string
   technical_notes?: string
+  image_url?: string
 }
 
 export function getBudgetItems(
@@ -54,6 +55,7 @@ export function getBudgetItems(
                     : undefined,
     finishing_type:   item.finishing_type   ?? item.products?.finishing_type   ?? undefined,
     technical_notes:  item.technical_notes  ?? item.products?.technical_notes  ?? undefined,
+    image_url:        item.image_url        ?? item.products?.image_url        ?? undefined,
   }))
 
   if (enriched.length > 0) return enriched
