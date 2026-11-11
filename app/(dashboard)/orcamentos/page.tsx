@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import {
   isDesktopForWhatsapp, getDesktopWhatsappMode, setDesktopWhatsappMode,
+  normalizePhoneToWhatsapp, openWhatsappConversation,
   type DesktopWhatsappMode,
 } from '@/lib/orders/whatsapp'
 import { calculateAreaM2, formatAreaM2, formatDimDisplay, getDimBlock } from '@/lib/utils/dimensions'
@@ -711,10 +712,18 @@ export default function OrcamentosPage() {
   function shareOnWhatsApp(b: any) {
     const customerName = (b.customers as any)?.name ?? ''
     const text = `Olá${customerName ? ' ' + customerName : ''}! Segue o orçamento ${b.budget_number || ''} para sua análise: ${publicBudgetUrl(b)}`
-    const encodedText = encodeURIComponent(text)
+    const phoneDigits = normalizePhoneToWhatsapp((b.customers as any)?.phone)
 
-    // No computador, modo "app": entrega ao WhatsApp Business instalado no
-    // sistema (esquema whatsapp://), com fallback para o WhatsApp Web.
+    // Cliente com telefone cadastrado: abre a conversa já com ele (igual ao
+    // "Avisar cliente" dos pedidos), respeitando a escolha Web × app do
+    // computador. Sem telefone cadastrado, cai no seletor de contato do
+    // próprio WhatsApp.
+    if (phoneDigits) {
+      openWhatsappConversation(phoneDigits, text)
+      return
+    }
+
+    const encodedText = encodeURIComponent(text)
     if (isDesktop && desktopWaMode === 'app') {
       const appUrl = `whatsapp://send?text=${encodedText}`
       let switched = false
@@ -731,7 +740,6 @@ export default function OrcamentosPage() {
       return
     }
 
-    // Padrão: WhatsApp Web no computador (sessão já conectada) ou wa.me no celular.
     const url = isDesktop
       ? `https://web.whatsapp.com/send?text=${encodedText}`
       : `https://wa.me/?text=${encodedText}`
