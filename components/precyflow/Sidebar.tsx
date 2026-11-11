@@ -92,6 +92,13 @@ function PrecyflowSidebarInner({ collapsed, onClose }: { collapsed: boolean; onC
         ))}
       </nav>
 
+      {!collapsed && theme === 'cat' && (
+        <div className="px-4 pb-2 pt-4 flex justify-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/precyflow/mascote/gatinho-oficial.png" alt="" className="w-20 h-20 object-contain opacity-90" aria-hidden />
+        </div>
+      )}
+
       <div className="p-3 border-t" style={{ borderColor: 'var(--pf-border)' }}>
         <button
           onClick={handleLogout}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Menu, Search } from 'lucide-react'
+import { Menu, Search, Bell, HelpCircle, ChevronDown } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useSidebar } from '@/providers/SidebarProvider'
 
@@ -61,9 +61,25 @@ export function PrecyflowHeader({ title, subtitle }: Props) {
               className="bg-transparent text-xs w-full focus:outline-none"
             />
           </div>
-          <span className="text-xs sm:text-sm font-medium hidden sm:block max-w-[140px] truncate">
-            {userName || '...'}
-          </span>
+          <button className="p-2 rounded-xl hover:pf-bg-primary-soft relative flex-shrink-0" aria-label="Notificações">
+            <Bell size={18} />
+            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-error" />
+          </button>
+          <button className="hidden sm:flex p-2 rounded-xl hover:pf-bg-primary-soft flex-shrink-0" aria-label="Ajuda">
+            <HelpCircle size={18} />
+          </button>
+          <div className="flex items-center gap-2 pl-1 flex-shrink-0">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center pf-bg-primary-soft">
+              <span className="text-xs font-bold pf-text-primary-accent">
+                {userName.split(' ').filter(n => /[a-zA-ZÀ-ÿ]/.test(n[0])).map(n => n[0]).slice(0, 2).join('').toUpperCase() || '…'}
+              </span>
+            </div>
+            <div className="hidden sm:block">
+              <p className="text-xs sm:text-sm font-semibold leading-tight max-w-[140px] truncate">{userName || '...'}</p>
+              <p className="text-[11px] leading-tight" style={{ color: 'var(--pf-text-secondary)' }}>Minha conta</p>
+            </div>
+            <ChevronDown size={14} className="hidden sm:block" style={{ color: 'var(--pf-text-muted)' }} />
+          </div>
         </div>
       </div>
     </header>

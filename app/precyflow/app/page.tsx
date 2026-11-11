@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
-import { BarChart, Bar, XAxis, ResponsiveContainer } from 'recharts'
-import { ShoppingCart, Clock, CheckCircle2, Wallet } from 'lucide-react'
+import { BarChart, Bar, XAxis, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
+import { ShoppingCart, Wallet, Coins, BarChart3, Heart, Lightbulb } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { fetchOrderReceivables } from '@/lib/orders/receivables'
 import { formatCurrency } from '@/lib/utils/format'
@@ -19,6 +19,9 @@ const STATUS_LABELS: Record<string, string> = {
   delivered:  'Entregue',
 }
 const STATUS_ORDER = ['pending', 'production', 'ready', 'delivered']
+const STATUS_COLORS: Record<string, string> = {
+  pending: '#A7D8A7', production: '#F4A6C6', ready: '#F6D186', delivered: '#B9A6E0',
+}
 
 function useCompany() {
   const supabase = createClient()
@@ -104,14 +107,18 @@ function usePrecyflowDashboard(companyId: string | null) {
   })
 }
 
-function Indicator({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
+function Indicator({
+  icon: Icon, label, value, bg, fg,
+}: { icon: React.ElementType; label: string; value: string; bg: string; fg: string }) {
   return (
-    <div className="pf-card p-4">
-      <div className="flex items-center gap-2 mb-2" style={{ color: 'var(--pf-text-secondary)' }}>
-        <Icon size={15} />
-        <span className="text-xs font-medium">{label}</span>
+    <div className="pf-card p-4 flex items-center gap-3">
+      <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: bg }}>
+        <Icon size={20} style={{ color: fg }} />
       </div>
-      <p className="text-xl font-bold">{value}</p>
+      <div className="min-w-0">
+        <p className="text-xs font-medium truncate" style={{ color: 'var(--pf-text-secondary)' }}>{label}</p>
+        <p className="text-lg font-bold truncate">{value}</p>
+      </div>
     </div>
   )
 }
@@ -124,11 +131,22 @@ export default function PrecyflowDashboardPage() {
     <div>
       <PrecyflowHeader title="Dashboard" subtitle={companyName} />
       <div className="p-4 sm:p-6 space-y-6">
-        <div>
-          <h2 className="text-lg font-bold">Bom dia{companyName ? `, ${companyName}` : ''}!</h2>
-          <p className="text-sm" style={{ color: 'var(--pf-text-secondary)' }}>
-            Aqui está um resumo do seu negócio hoje.
-          </p>
+        <div className="relative overflow-hidden rounded-2xl">
+          <div
+            className="absolute -right-10 -top-16 w-72 h-72 rounded-full opacity-70 pointer-events-none"
+            style={{ backgroundColor: 'var(--pf-primary-soft)' }}
+            aria-hidden
+          />
+          <Heart size={28} className="absolute right-6 top-6 pf-text-primary-accent opacity-80" aria-hidden fill="currentColor" />
+          <div className="relative py-2">
+            <h2 className="text-lg font-bold flex items-center gap-1.5">
+              Bom dia{companyName ? `, ${companyName.split(' ')[0]}` : ''}!
+              <Heart size={16} className="pf-text-primary-accent" fill="currentColor" />
+            </h2>
+            <p className="text-sm" style={{ color: 'var(--pf-text-secondary)' }}>
+              Aqui está um resumo do seu negócio hoje.
+            </p>
+          </div>
         </div>
 
         {isLoading || !data ? (
@@ -138,10 +156,10 @@ export default function PrecyflowDashboardPage() {
         ) : (
           <>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <Indicator icon={ShoppingCart} label="Pedidos hoje" value={String(data.pedidosHoje)} />
-              <Indicator icon={Clock} label="A receber" value={formatCurrency(data.aReceber)} />
-              <Indicator icon={Wallet} label="Recebido hoje" value={formatCurrency(data.recebidoHoje)} />
-              <Indicator icon={CheckCircle2} label="Faturamento do mês" value={formatCurrency(data.faturamentoMes)} />
+              <Indicator icon={ShoppingCart} label="Pedidos hoje" value={String(data.pedidosHoje)} bg="#FBE4EC" fg="#D6568C" />
+              <Indicator icon={Wallet} label="A receber" value={formatCurrency(data.aReceber)} bg="#E3F3E3" fg="#5CA85C" />
+              <Indicator icon={Coins} label="Recebido hoje" value={formatCurrency(data.recebidoHoje)} bg="#FDEFDD" fg="#D99A3F" />
+              <Indicator icon={BarChart3} label="Faturamento do mês" value={formatCurrency(data.faturamentoMes)} bg="#EFE6FA" fg="#8E6FC2" />
             </div>
 
             <div className="grid lg:grid-cols-2 gap-4">
@@ -157,13 +175,34 @@ export default function PrecyflowDashboardPage() {
 
               <div className="pf-card p-4">
                 <p className="text-sm font-semibold mb-3">Pedidos por status</p>
-                <div className="space-y-2.5">
-                  {STATUS_ORDER.map(status => (
-                    <div key={status} className="flex items-center justify-between text-sm">
-                      <span style={{ color: 'var(--pf-text-secondary)' }}>{STATUS_LABELS[status]}</span>
-                      <span className="font-semibold">{data.statusCounts[status] ?? 0}</span>
+                <div className="flex items-center gap-4">
+                  <div className="relative w-32 h-32 flex-shrink-0">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={STATUS_ORDER.map(s => ({ name: STATUS_LABELS[s], value: data.statusCounts[s] ?? 0 }))}
+                          dataKey="value" innerRadius={38} outerRadius={60} paddingAngle={3} stroke="none"
+                        >
+                          {STATUS_ORDER.map(s => <Cell key={s} fill={STATUS_COLORS[s]} />)}
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-xl font-bold">
+                        {STATUS_ORDER.reduce((s, k) => s + (data.statusCounts[k] ?? 0), 0)}
+                      </span>
+                      <span className="text-[10px]" style={{ color: 'var(--pf-text-secondary)' }}>Pedidos</span>
                     </div>
-                  ))}
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    {STATUS_ORDER.map(status => (
+                      <div key={status} className="flex items-center gap-2 text-sm">
+                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: STATUS_COLORS[status] }} />
+                        <span className="flex-1 truncate" style={{ color: 'var(--pf-text-secondary)' }}>{STATUS_LABELS[status]}</span>
+                        <span className="font-semibold">{data.statusCounts[status] ?? 0}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -193,6 +232,20 @@ export default function PrecyflowDashboardPage() {
                   ))}
                 </div>
               )}
+            </div>
+
+            <div className="pf-card p-4 sm:p-5 flex items-center gap-4 overflow-hidden relative" style={{ backgroundColor: 'var(--pf-primary-soft)' }}>
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--pf-surface)' }}>
+                <Lightbulb size={20} className="text-warning" />
+              </div>
+              <div className="min-w-0 relative z-10">
+                <p className="text-sm font-bold flex items-center gap-1.5">Dica do PrecyFlow <span>✨</span></p>
+                <p className="text-sm mt-0.5" style={{ color: 'var(--pf-text-secondary)' }}>
+                  Mantenha seus produtos e materiais sempre atualizados para decisões mais precisas e lucrativas.
+                </p>
+              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/precyflow/mascote/gatinho-oficial.png" alt="" className="hidden sm:block w-20 h-20 object-contain flex-shrink-0 ml-auto" aria-hidden />
             </div>
           </>
         )}
