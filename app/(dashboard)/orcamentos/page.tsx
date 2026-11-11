@@ -17,8 +17,12 @@ import {
   CheckCircle, XCircle, Clock, Send, ChevronRight,
   ChevronLeft, User, Package, CreditCard, Truck,
   Eye, Search, Edit3, Edit2, Minus, Info, ShoppingBag, ExternalLink, Copy,
-  Share2, MessageCircle, Check,
+  Share2, MessageCircle, Check, Monitor,
 } from 'lucide-react'
+import {
+  isDesktopForWhatsapp, getDesktopWhatsappMode, setDesktopWhatsappMode,
+  type DesktopWhatsappMode,
+} from '@/lib/orders/whatsapp'
 import { calculateAreaM2, formatAreaM2, formatDimDisplay, getDimBlock } from '@/lib/utils/dimensions'
 import { companyPickupAddressLines, companyPickupAddressText } from '@/lib/company/pickupAddress'
 import { BudgetItemArtwork } from '@/components/orcamentos/BudgetItemArtwork'
@@ -156,6 +160,17 @@ export default function OrcamentosPage() {
   const [converting,setConverting]=useState<string|null>(null) // budget id sendo convertido
   const [shareBudget,setShareBudget]=useState<any|null>(null)
   const [linkCopied,setLinkCopied]=useState(false)
+  // Só no computador: escolha entre WhatsApp Web e app do WhatsApp Business.
+  const [isDesktop,setIsDesktop]=useState(false)
+  const [desktopWaMode,setDesktopWaModeState]=useState<DesktopWhatsappMode>('web')
+  useEffect(()=>{
+    setIsDesktop(isDesktopForWhatsapp())
+    setDesktopWaModeState(getDesktopWhatsappMode())
+  },[])
+  function changeDesktopWaMode(mode: DesktopWhatsappMode) {
+    setDesktopWhatsappMode(mode)
+    setDesktopWaModeState(mode)
+  }
   const [markingPaid,setMarkingPaid]=useState(false)
   const [duplicatingBudget,setDuplicatingBudget]=useState<string|null>(null)
 
@@ -696,7 +711,32 @@ export default function OrcamentosPage() {
   function shareOnWhatsApp(b: any) {
     const customerName = (b.customers as any)?.name ?? ''
     const text = `Olá${customerName ? ' ' + customerName : ''}! Segue o orçamento ${b.budget_number || ''} para sua análise: ${publicBudgetUrl(b)}`
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+    const encodedText = encodeURIComponent(text)
+
+    // No computador, modo "app": entrega ao WhatsApp Business instalado no
+    // sistema (esquema whatsapp://), com fallback para o WhatsApp Web.
+    if (isDesktop && desktopWaMode === 'app') {
+      const appUrl = `whatsapp://send?text=${encodedText}`
+      let switched = false
+      const onHide = () => { switched = true }
+      document.addEventListener('visibilitychange', onHide, { once: true })
+      window.location.href = appUrl
+      window.setTimeout(() => {
+        document.removeEventListener('visibilitychange', onHide)
+        if (!switched && !document.hidden) {
+          const w = window.open(`https://web.whatsapp.com/send?text=${encodedText}`, '_blank')
+          if (w) w.opener = null
+        }
+      }, 1200)
+      return
+    }
+
+    // Padrão: WhatsApp Web no computador (sessão já conectada) ou wa.me no celular.
+    const url = isDesktop
+      ? `https://web.whatsapp.com/send?text=${encodedText}`
+      : `https://wa.me/?text=${encodedText}`
+    const w = window.open(url, '_blank')
+    if (w) w.opener = null
   }
 
   async function handleMarkPaid(b: any) {
@@ -1804,6 +1844,36 @@ export default function OrcamentosPage() {
                 {linkCopied?<Check size={15} className="text-success"/>:<Copy size={15}/>}
               </button>
             </div>
+
+            {isDesktop && (
+              <div>
+                <div className="flex items-center gap-1.5 text-[11px] font-medium text-text-secondary dark:text-stone-300 mb-1.5">
+                  <Monitor size={12} /> No computador, abrir por:
+                </div>
+                <div className="flex items-center gap-1 bg-primary-50 dark:bg-white/5 rounded-xl p-1">
+                  <button
+                    type="button"
+                    onClick={()=>changeDesktopWaMode('web')}
+                    className={clsx(
+                      'flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-colors',
+                      desktopWaMode==='web' ? 'bg-white dark:bg-surface-dark text-primary shadow-sm' : 'text-text-muted'
+                    )}
+                  >
+                    WhatsApp Web
+                  </button>
+                  <button
+                    type="button"
+                    onClick={()=>changeDesktopWaMode('app')}
+                    className={clsx(
+                      'flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-colors',
+                      desktopWaMode==='app' ? 'bg-white dark:bg-surface-dark text-primary shadow-sm' : 'text-text-muted'
+                    )}
+                  >
+                    App WhatsApp Business
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-2">
               <button onClick={()=>shareOnWhatsApp(shareBudget)} className="flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium rounded-xl bg-green-600 text-white hover:bg-green-700 transition-colors">
