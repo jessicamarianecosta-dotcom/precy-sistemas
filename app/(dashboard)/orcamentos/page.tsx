@@ -453,6 +453,16 @@ export default function OrcamentosPage() {
     saveEditItem({...item,unit_price:sel.pricing.price,unit_cost:sel.pricing.cost,variant_id:sel.variantId,variant_label:sel.label,
       description:[`Variação: ${sel.label}`,rest].filter(Boolean).join('\n')})
   }
+  function duplicateItem(item:BudgetItem){
+    const copy:BudgetItem={...item,id:uid()}
+    setItems(prev=>{
+      const idx=prev.findIndex(i=>i.id===item.id)
+      const n=[...prev]
+      n.splice(idx+1,0,copy)
+      return n
+    })
+    persistItemForArtwork(copy)
+  }
   async function removeItem(id:string){
     const wasPersisted=persistedItemIds.has(id)
     setItems(prev=>prev.filter(i=>i.id!==id))
@@ -1159,8 +1169,9 @@ export default function OrcamentosPage() {
                               {item.product_id&&productsWithVariants.has(item.product_id)&&(
                                 <button type="button" onClick={()=>setChangeVariantItem(item)} className="px-2 py-1.5 rounded-lg text-[11px] font-medium text-primary hover:bg-primary-50 transition-colors">Trocar variação</button>
                               )}
-                              <button type="button" onClick={()=>setEditItem(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>
-                              <button type="button" onClick={()=>removeItem(item.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>
+                              <button type="button" onClick={()=>setEditItem(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors" title="Editar"><Edit3 size={13}/></button>
+                              <button type="button" onClick={()=>duplicateItem(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors" title="Duplicar item"><Copy size={13}/></button>
+                              <button type="button" onClick={()=>removeItem(item.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors" title="Excluir"><Trash2 size={13}/></button>
                             </div>
                           </div>
                           {editingBudgetId&&persistedItemIds.has(item.id)?(
