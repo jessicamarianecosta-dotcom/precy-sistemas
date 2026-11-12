@@ -1720,10 +1720,28 @@ export default function OrcamentosPage() {
                             <span className="text-[11px] text-text-muted">Valor do m²</span>
                             <span className="text-xs text-text-secondary">{fmt(ppm2)}</span>
                           </div>
-                          <div className="flex justify-between items-baseline border-t border-primary/10 pt-1.5">
+                          <div className="flex justify-between items-center border-t border-primary/10 pt-1.5">
                             <span className="text-[11px] font-semibold text-text-primary dark:text-stone-200">Preço/peça</span>
-                            <span className="text-sm font-bold text-primary">{fmt(unitPrice)}</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-text-muted">R$</span>
+                              <input
+                                type="number" min="0" step="0.01"
+                                className="w-24 text-right text-sm font-bold text-primary bg-transparent border-b border-dashed border-primary/40 focus:border-primary focus:outline-none"
+                                title="Edite o preço final da peça — o valor do m² é recalculado automaticamente"
+                                value={unitPrice ? Math.round(unitPrice * 100) / 100 : ''}
+                                onChange={e => {
+                                  const newUnitPrice = parseFloat(e.target.value)
+                                  setEditItem(p => {
+                                    if (!p) return null
+                                    if (isNaN(newUnitPrice)) return { ...p, unit_price: 0 }
+                                    if (!area || area <= 0) return { ...p, unit_price: newUnitPrice }
+                                    return { ...p, price_per_m2: newUnitPrice / area, unit_price: newUnitPrice, area }
+                                  })
+                                }}
+                              />
+                            </div>
                           </div>
+                          <p className="text-[10px] text-text-muted -mt-1">Pode editar o preço da peça — o valor do m² se ajusta sozinho.</p>
                           {editItem.quantity>1&&(
                             <>
                               <div className="flex justify-between items-baseline">
