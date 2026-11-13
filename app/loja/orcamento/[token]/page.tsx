@@ -7,12 +7,13 @@ import Image from 'next/image'
 import {
   CheckCircle2, XCircle, Clock, Copy, Check, Package,
   Truck, CreditCard, AlertTriangle, Building2, X as CloseIcon,
-  MapPin, FileText, Download,
+  MapPin, FileText, Download, Printer,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils/format'
 import { pixTypeLabel } from '@/lib/company/pix'
 import { formatDimDisplay } from '@/lib/utils/dimensions'
 import { getFileKind, getDownloadUrl } from '@/lib/utils/fileIcons'
+import { generatePublicBudgetPDF } from '@/lib/pdf/generatePublicBudgetPDF'
 
 interface BudgetItemOut {
   id: string
@@ -291,6 +292,13 @@ export default function OrcamentoPublicoPage() {
               </p>
             )}
           </div>
+          <button
+            type="button"
+            onClick={() => generatePublicBudgetPDF(data as any)}
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-200 hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors w-full sm:w-auto"
+          >
+            <Printer size={16} /> Imprimir / Salvar PDF
+          </button>
         </div>
 
         {/* Dados do cliente */}
