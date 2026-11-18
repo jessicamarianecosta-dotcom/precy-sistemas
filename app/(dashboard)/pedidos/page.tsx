@@ -992,7 +992,12 @@ function PedidosPage() {
             .eq('company_id', companyId)
             .gte('created_at', startOfMonth.toISOString())
           if ((count ?? 0) >= limit) {
-            throw new Error(`Limite de ${limit} pedidos/mês do plano Basic atingido. Faça upgrade para o PRO e crie pedidos ilimitados.`)
+            // sub.plan pode ser 'basic' ou 'essencial' aqui — ambos caem em
+            // !sub.isPro, mas o limite (e a mensagem) tem que refletir o
+            // plano real: um assinante Essencial que bate o teto de 50
+            // pedidos não pode ver "plano Basic... faça upgrade pro PRO".
+            const planLabel = sub.plan === 'essencial' ? 'Essencial' : 'Basic'
+            throw new Error(`Limite de ${limit} pedidos/mês do plano ${planLabel} atingido. Faça upgrade para o PRO e crie pedidos ilimitados.`)
           }
         }
       }
