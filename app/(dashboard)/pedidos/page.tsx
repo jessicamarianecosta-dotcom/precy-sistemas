@@ -862,6 +862,17 @@ function PedidosPage() {
     setItems(prev => prev.filter(i => i.id !== id))
   }
 
+  function duplicateItem(item: OrderItem) {
+    const copy: OrderItem = { ...item, id: uid() }
+    setItems(prev => {
+      const idx = prev.findIndex(i => i.id === item.id)
+      if (idx < 0) return [...prev, copy]
+      const n = [...prev]
+      n.splice(idx + 1, 0, copy)
+      return n
+    })
+  }
+
   function applyVariantToItem(item: OrderItem, sel: VariantSelection) {
     const rest = (item.description || '').split('\n').filter(l => !l.startsWith('Variação:')).join('\n')
     const next: OrderItem = {
@@ -2935,6 +2946,9 @@ function PedidosPage() {
                               )}
                               <button type="button" onClick={() => openEditItem(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors" title="Editar">
                                 <Edit2 size={13} />
+                              </button>
+                              <button type="button" onClick={() => duplicateItem(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors" title="Duplicar">
+                                <Copy size={13} />
                               </button>
                               <button type="button" onClick={() => removeItem(item.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors" title="Excluir">
                                 <Trash2 size={13} />
