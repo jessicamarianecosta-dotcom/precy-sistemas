@@ -179,16 +179,6 @@ export async function middleware(req: NextRequest) {
 
   if (isSubscriptionPage || isCheckoutApi) return res
 
-  /* ── Catálogo Online: beta privado — checa ANTES de tudo (independe de
-     plano/role), com match exato de segmento para não pegar /catalogo-em-breve ── */
-  const isCatalogRoute = CATALOG_ROUTES.some(r => pathname === r || pathname.startsWith(r + '/'))
-  if (isCatalogRoute && !canAccessCatalog(session.user.email)) {
-    if (pathname.startsWith('/api/')) {
-      return NextResponse.json({ error: 'Catálogo Online ainda não está disponível para esta conta.' }, { status: 403 })
-    }
-    return NextResponse.redirect(new URL(CATALOG_SOON_ROUTE, req.url))
-  }
-
   /* ── Buscar plano da empresa (companies usa company_id do usuário) ──
      IMPORTANTE: nunca usar .single()/.maybeSingle() aqui. Se por qualquer
      motivo existir mais de uma linha para o mesmo user_id, essas variantes
@@ -248,6 +238,23 @@ export async function middleware(req: NextRequest) {
   /* ── Aviso de past_due na toolbar (header) ── */
   if (status === 'past_due') {
     res.headers.set('x-subscription-warning', 'past_due')
+  }
+
+  /* ── Catálogo Online (Vitrine Virtual): liberado para Basic e Essencial
+     — o Pro NÃO tem acesso (vai ganhar, no futuro, a loja redesenhada do
+     projeto "reformulação da loja LumiLife", fora do escopo aqui). Trial
+     ativo libera em qualquer plano, mesmo critério já usado no resto do
+     sistema. Precisa vir DEPOIS da resolução de plano/trial acima — por
+     isso não é mais checado antes de tudo como no beta antigo (que era
+     só um e-mail, independente de plano). Match exato de segmento para
+     não pegar /catalogo-em-breve. ── */
+  const isTrialActiveNow = !trialExpired && status === 'trialing'
+  const isCatalogRoute = CATALOG_ROUTES.some(r => pathname === r || pathname.startsWith(r + '/'))
+  if (isCatalogRoute && !isTrialActiveNow && !canAccessCatalog(session.user.email, plan)) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Catálogo Online ainda não está disponível para esta conta.' }, { status: 403 })
+    }
+    return NextResponse.redirect(new URL(CATALOG_SOON_ROUTE, req.url))
   }
 
   /* ── Proteção de rotas Essencial/PRO ── */

@@ -77,8 +77,6 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
   const isEssencial = sub?.data?.isEssencial ?? false
   const isTrial = sub?.data?.isTrial ?? false
 
-  // Catálogo Online: beta privado — só quem está em CATALOG_BETA_USERS
-  // (lib/catalog/betaAccess.ts) vê o item normal; os demais veem "Em breve".
   const { data: userEmail } = useQuery({
     queryKey: ['auth-user-email'],
     staleTime: 10 * 60 * 1000,
@@ -87,7 +85,9 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
       return user?.email ?? null
     },
   })
-  const hasCatalogAccess = canAccessCatalog(userEmail)
+  // Vitrine Virtual (Catálogo Online): Basic e Essencial, não Pro — trial
+  // ativo libera em qualquer plano, mesmo critério usado em middleware.ts.
+  const hasCatalogAccess = isTrial || canAccessCatalog(userEmail, sub?.data?.plan)
   const comingSoon = hasCatalogAccess ? BASE_COMING_SOON : [...BASE_COMING_SOON, 'Catálogo Online']
   const isAdmin = userEmail === ADMIN_EMAIL
   const productName = getProductDisplayName(sub?.data?.plan)

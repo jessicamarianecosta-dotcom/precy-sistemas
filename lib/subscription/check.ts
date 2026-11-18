@@ -4,8 +4,9 @@ import { PLAN_LIMITS }   from '@/lib/stripe'
 const GRACE_DAYS = 5
 
 export interface PlanCheck {
-  allowed: boolean; plan: 'basic'|'pro'; status: string
-  isPro: boolean; companyId: string; limits: typeof PLAN_LIMITS.basic; reason?: string
+  allowed: boolean; plan: 'basic'|'essencial'|'pro'; status: string
+  isPro: boolean; isEssencial: boolean; isTrial: boolean
+  companyId: string; limits: typeof PLAN_LIMITS.basic; reason?: string
 }
 
 export async function checkPlan(userId: string): Promise<PlanCheck> {
@@ -14,10 +15,11 @@ export async function checkPlan(userId: string): Promise<PlanCheck> {
     .eq('user_id', userId).single()
 
   if (!co) return { allowed: false, plan: 'basic', status: 'unknown',
-    isPro: false, companyId: '', limits: PLAN_LIMITS.basic, reason: 'Empresa não encontrada' }
+    isPro: false, isEssencial: false, isTrial: false,
+    companyId: '', limits: PLAN_LIMITS.basic, reason: 'Empresa não encontrada' }
 
   const status = (co.subscription_status ?? 'trialing') as string
-  const plan   = (co.current_plan        ?? 'basic')    as 'basic'|'pro'
+  const plan   = (co.current_plan        ?? 'basic')    as 'basic'|'essencial'|'pro'
   const now    = new Date()
 
   // Fail-closed: só libera nos status que comprovadamente significam
@@ -43,19 +45,26 @@ export async function checkPlan(userId: string): Promise<PlanCheck> {
   }
 
   if (blocked) return { allowed: false, plan: 'basic', status,
-    isPro: false, companyId: co.id, limits: PLAN_LIMITS.basic, reason: 'Assinatura expirada' }
+    isPro: false, isEssencial: false, isTrial: false,
+    companyId: co.id, limits: PLAN_LIMITS.basic, reason: 'Assinatura expirada' }
 
   // Neste ponto, se status === 'trialing' o trial comprovadamente ainda
-  // está vigente (senão já teria retornado bloqueado acima).
-  const effectivePlan: 'basic'|'pro' = status === 'trialing' ? 'pro' : plan
+  // está vigente (senão já teria retornado bloqueado acima). Trial dá
+  // acesso PRO completo, mesmo critério já usado no resto do sistema
+  // (middleware.ts, useSubscription.ts) — mas o chamador que precisar
+  // saber se é "PRO de verdade" ou "PRO só por estar em trial" (ex.:
+  // Catálogo Online, que não libera para o Pro) deve checar `isTrial`.
+  const isTrial: boolean = status === 'trialing'
+  const effectivePlan: 'basic'|'essencial'|'pro' = isTrial ? 'pro' : plan
   return { allowed: true, plan: effectivePlan, status,
-    isPro: effectivePlan === 'pro', companyId: co.id, limits: PLAN_LIMITS[effectivePlan] ?? PLAN_LIMITS.basic }
+    isPro: effectivePlan === 'pro', isEssencial: effectivePlan === 'essencial', isTrial,
+    companyId: co.id, limits: PLAN_LIMITS[effectivePlan] ?? PLAN_LIMITS.basic }
 }
 
 export async function checkUsageLimit(
   companyId: string,
   type: 'products'|'orders'|'categories'|'published_products',
-  plan: 'basic'|'pro'
+  plan: 'basic'|'essencial'|'pro'
 ) {
   const limit = PLAN_LIMITS[plan][type]
   if (limit === Infinity) return { allowed: true, current: 0, limit: Infinity }

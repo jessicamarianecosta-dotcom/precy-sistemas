@@ -26,13 +26,15 @@ export async function POST(request: Request) {
   }
 
   // Mesma checagem de limite de plano do fluxo de criação manual de produto
-  // (requireCatalogAccess já exige PRO, e hoje PLAN_LIMITS.pro.products é
-  // ilimitado — mas isso protege a rota caso esse limite mude no futuro,
-  // em vez de o import em massa ser o único caminho sem checagem).
+  // (requireCatalogAccess já exige Basic/Essencial/trial, e hoje nenhum
+  // desses planos tem limite de produtos infinito garantido — isso protege
+  // a rota caso esse limite mude no futuro, em vez de o import em massa
+  // ser o único caminho sem checagem).
   const usage = await checkUsageLimit(auth.companyId, 'products', auth.plan.plan)
   if (!usage.allowed) {
+    const PLAN_LABELS: Record<string, string> = { basic: 'Basic', essencial: 'Essencial', pro: 'PRO' }
     return NextResponse.json({
-      error: `Limite de ${usage.limit} produtos do plano ${auth.plan.plan === 'pro' ? 'PRO' : 'Basic'} atingido.`,
+      error: `Limite de ${usage.limit} produtos do plano ${PLAN_LABELS[auth.plan.plan] ?? auth.plan.plan} atingido.`,
     }, { status: 403 })
   }
   if (Number.isFinite(usage.limit) && usage.current + ids.length > usage.limit) {

@@ -43,7 +43,7 @@ export default function CatalogoEmBrevePage() {
               <h2 className="text-lg font-bold text-stone-100 mb-1">Catálogo Online</h2>
               <p className="text-sm font-medium text-stone-300 mb-1">Disponível em breve.</p>
               <p className="text-xs text-stone-500">
-                Estamos finalizando este módulo para disponibilizar para todos os usuários.
+                Para o plano PRO, estamos preparando uma loja própria, redesenhada — um módulo diferente do Catálogo Online dos planos Basic e Essencial.
               </p>
             </div>
 

@@ -1,16 +1,20 @@
 /**
- * Feature flag do Catálogo Online (beta privado): só as contas listadas
- * aqui podem ver e usar o módulo enquanto ele não é liberado para todo
- * mundo. Função pura — funciona igual em Client Component, Server
- * Component, middleware (Edge) e route handler, sem depender de env var
- * nem de chamada de rede. Para liberar mais gente, só adicionar o e-mail
- * na lista abaixo.
+ * Catálogo Online (Vitrine Virtual): liberado para Basic e Essencial.
+ * O Pro NÃO tem acesso a este módulo — vai ganhar, no futuro, a loja
+ * redesenhada do projeto "reformulação da loja LumiLife" (módulo
+ * separado, decisão comercial da Jessica em 18/11).
+ *
+ * `userEmail` continua tendo acesso incondicional (fallback de admin,
+ * igual já era no beta): útil para testar a conta sem depender do
+ * plano atual. Função pura — funciona igual em Client Component,
+ * Server Component, middleware (Edge) e route handler.
  */
-const CATALOG_BETA_USERS = [
-  'jessicamarianecosta@gmail.com',
-]
+const ADMIN_FALLBACK_EMAIL = 'jessicamarianecosta@gmail.com'
 
-export function canAccessCatalog(userEmail: string | null | undefined): boolean {
-  if (!userEmail) return false
-  return CATALOG_BETA_USERS.includes(userEmail.toLowerCase())
+export function canAccessCatalog(
+  userEmail: string | null | undefined,
+  plan?: string | null,
+): boolean {
+  if (userEmail && userEmail.toLowerCase() === ADMIN_FALLBACK_EMAIL) return true
+  return plan === 'basic' || plan === 'essencial'
 }

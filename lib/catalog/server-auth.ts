@@ -22,18 +22,19 @@ export async function requireCatalogAccess(): Promise<AuthResult> {
     return { ok: false, response: NextResponse.json({ error: 'Não autenticado' }, { status: 401 }) }
   }
 
-  // Beta privado: já bloqueado no middleware para /api/catalogo/*, mas nunca
-  // confiar só na interface/middleware — validar de novo aqui dentro.
-  if (!canAccessCatalog(user.email)) {
-    return { ok: false, response: NextResponse.json({ error: 'Catálogo Online ainda não está disponível para esta conta.' }, { status: 403 }) }
-  }
-
   const plan = await checkPlan(user.id)
   if (!plan.companyId) {
     return { ok: false, response: NextResponse.json({ error: 'Empresa não encontrada' }, { status: 404 }) }
   }
-  if (!plan.isPro) {
-    return { ok: false, response: NextResponse.json({ error: 'Catálogo Online é exclusivo do Plano PRO' }, { status: 403 }) }
+
+  // Catálogo Online (Vitrine Virtual): liberado para Basic e Essencial —
+  // o Pro não tem acesso a este módulo (vai ganhar, no futuro, a loja
+  // redesenhada do projeto "reformulação da loja LumiLife"). Trial ativo
+  // libera em qualquer plano. Já bloqueado no middleware para
+  // /api/catalogo/*, mas nunca confiar só na interface/middleware —
+  // validar de novo aqui dentro.
+  if (!plan.isTrial && !canAccessCatalog(user.email, plan.plan)) {
+    return { ok: false, response: NextResponse.json({ error: 'Catálogo Online não está disponível para o seu plano atual.' }, { status: 403 }) }
   }
 
   return { ok: true, userId: user.id, companyId: plan.companyId, plan }

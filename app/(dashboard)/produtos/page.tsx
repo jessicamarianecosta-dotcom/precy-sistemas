@@ -28,6 +28,7 @@ import { useRouter } from 'next/navigation'
 import { CategorySelect } from '@/components/ui/CategorySelect'
 import { formatCurrency } from '@/lib/utils/format'
 import { useSubscription } from '@/hooks/useSubscription'
+import { canAccessCatalog } from '@/lib/catalog/betaAccess'
 import { deleteProduct, duplicateProduct } from '@/lib/produtos/actions'
 
 /* ─── Types ─── */
@@ -194,7 +195,6 @@ export default function ProdutosPage() {
   const { toast }     = useToast()
   const { companyId } = useCompanyId()
   const sub           = useSubscription()
-  const isPro         = sub?.data?.isPro ?? false
   const router        = useRouter()
 
   // "Importar Catálogo": exclusivo desta conta (ver lib/catalog/importAccess.ts).
@@ -211,9 +211,15 @@ export default function ProdutosPage() {
   const canImportCatalog = isCatalogImportAdmin(userEmail)
   const [showImportModal, setShowImportModal] = useState(false)
 
+  // Catálogo Online: Basic e Essencial, não Pro (ver lib/catalog/betaAccess.ts
+  // e a decisão comercial do projeto Precy Essencial) — trial ativo libera
+  // em qualquer plano. Esconder/desabilitar aqui é só UX; a checagem que
+  // realmente protege é requireCatalogAccess() no servidor.
+  const hasCatalogAccess = (sub?.data?.isTrial ?? false) || canAccessCatalog(userEmail, sub?.data?.plan)
+
   const { data: catalogCategories } = useQuery<{ id: string; name: string }[]>({
     queryKey: ['catalog_categories', companyId],
-    enabled:  !!companyId && isPro,
+    enabled:  !!companyId && hasCatalogAccess,
     queryFn:  async () => {
       const { data } = await (supabase.from('catalog_categories') as any)
         .select('id, name').eq('company_id', companyId!).order('name')
@@ -741,8 +747,8 @@ export default function ProdutosPage() {
                 )}
               </FichaSection>
 
-              {/* ── Galeria de fotos e Variações (Catálogo Online, exclusivo PRO) ── */}
-              {isPro && vp?.id && companyId && (
+              {/* ── Galeria de fotos e Variações (Catálogo Online — Basic e Essencial, não Pro) ── */}
+              {hasCatalogAccess && vp?.id && companyId && (
                 <>
                   <FichaSection icon={Images} title="Fotos e vídeo do produto"
                     color="text-primary" bg="bg-primary-50 dark:bg-primary/10">
@@ -1085,7 +1091,7 @@ export default function ProdutosPage() {
 
             {/* Footer: ações */}
             <div className="flex-shrink-0 border-t border-border dark:border-border-dark">
-              {isPro && vp?.id && companyId && (
+              {hasCatalogAccess && vp?.id && companyId && (
                 <div className="px-3 sm:px-4 pt-3 sm:pt-4 flex items-center justify-between gap-2">
                   <span className={clsx(
                     'flex items-center gap-1 text-[11px] font-medium text-warning-dark dark:text-warning transition-opacity',
@@ -1363,13 +1369,13 @@ export default function ProdutosPage() {
 
               {/* ── Catálogo Online ── */}
               <div className="border-t border-border dark:border-border-dark pt-4">
-                <label className={clsx('flex items-center gap-2.5 text-sm font-medium', !isPro && 'opacity-50 cursor-not-allowed')} title={!isPro ? 'Exclusivo do Plano PRO' : undefined}>
-                  <input type="checkbox" disabled={!isPro} className="w-4 h-4 rounded accent-primary" {...register('is_published_catalog')} />
+                <label className={clsx('flex items-center gap-2.5 text-sm font-medium', !hasCatalogAccess && 'opacity-50 cursor-not-allowed')} title={!hasCatalogAccess ? 'Catálogo Online não disponível no seu plano atual' : undefined}>
+                  <input type="checkbox" disabled={!hasCatalogAccess} className="w-4 h-4 rounded accent-primary" {...register('is_published_catalog')} />
                   Publicar no Catálogo Online
-                  {!isPro && <span className="badge badge-primary text-[10px]">PRO</span>}
+                  {!hasCatalogAccess && <span className="badge badge-primary text-[10px]">Essencial</span>}
                 </label>
 
-                {watch('is_published_catalog') && isPro && (
+                {watch('is_published_catalog') && hasCatalogAccess && (
                   <div className="grid sm:grid-cols-2 gap-4 mt-3">
                     <div>
                       <label className="block text-xs font-medium text-text-secondary dark:text-stone-400 mb-1.5">Categoria do catálogo</label>
