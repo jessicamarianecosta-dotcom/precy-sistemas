@@ -6,13 +6,14 @@ import type { PrecyFlowProduct, PrecyFlowStore } from '@/lib/precyflow/types'
 
 export const revalidate = 0
 
-export default async function LojaPublicaPage({ params }: { params: { slug: string } }) {
+export default async function LojaPublicaPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params
   const supabase = createServerClient()
 
   const { data: store } = await supabase
     .from('precyflow_stores')
     .select('*')
-    .eq('slug', params.slug)
+    .eq('slug', slug)
     .eq('published', true)
     .maybeSingle()
 

@@ -1,7 +1,12 @@
 'use client'
 
-import { Menu, Search } from 'lucide-react'
+import { Menu } from 'lucide-react'
 
+/* Sem campo de busca global aqui de propósito: cada módulo (Produtos,
+   Materiais, Clientes, Fornecedores) já tem sua própria busca ligada aos
+   dados reais da tela. Um campo "Buscar no PrecyFlow..." decorativo no
+   cabeçalho, sem nada por trás, seria exatamente o tipo de tela-que-só-
+   parece-funcional que o guia de implementação pede para evitar. */
 export function Header({
   storeName,
   userEmail,
@@ -16,20 +21,10 @@ export function Header({
       className="sticky top-0 z-30 flex items-center justify-between gap-4 px-4 py-3 lg:px-8"
       style={{ backgroundColor: 'var(--pf-surface)', borderBottom: '1px solid var(--pf-border)' }}
     >
-      <div className="flex items-center gap-3">
-        <button onClick={onOpenMobile} className="lg:hidden" aria-label="Abrir menu" style={{ color: 'var(--pf-text-secondary)' }}>
-          <Menu size={22} />
-        </button>
-        <div className="hidden sm:flex items-center gap-2 rounded-xl px-3 py-2" style={{ border: '1px solid var(--pf-border)' }}>
-          <Search size={16} style={{ color: 'var(--pf-text-muted)' }} />
-          <input
-            placeholder="Buscar no PrecyFlow..."
-            className="bg-transparent text-sm outline-none w-48"
-            style={{ color: 'var(--pf-text)' }}
-          />
-        </div>
-      </div>
-      <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--pf-text-secondary)' }}>
+      <button onClick={onOpenMobile} className="lg:hidden" aria-label="Abrir menu" style={{ color: 'var(--pf-text-secondary)' }}>
+        <Menu size={22} />
+      </button>
+      <div className="flex items-center gap-2 text-sm ml-auto" style={{ color: 'var(--pf-text-secondary)' }}>
         <span className="font-medium" style={{ color: 'var(--pf-text)' }}>{storeName}</span>
         {userEmail && <span className="hidden sm:inline">· {userEmail}</span>}
       </div>
