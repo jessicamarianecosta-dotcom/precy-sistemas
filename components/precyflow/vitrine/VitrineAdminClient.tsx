@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Store, ExternalLink, Copy, Check, Loader2 } from 'lucide-react'
-import { createClient } from '@/lib/precyflow/supabase'
+import { createClient } from '@/lib/precyflow/supabase-client'
 import { formatBRL } from '@/lib/precyflow/format'
 import type { PrecyFlowProduct, PrecyFlowStore } from '@/lib/precyflow/types'
 

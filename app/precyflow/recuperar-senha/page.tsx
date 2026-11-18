@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Loader2, Mail, ArrowLeft, CheckCircle } from 'lucide-react'
-import { createClient } from '@/lib/precyflow/supabase'
+import { createClient } from '@/lib/precyflow/supabase-client'
 import { ThemeRoot } from '@/components/precyflow/ThemeRoot'
 import { Logo } from '@/components/precyflow/Logo'
 

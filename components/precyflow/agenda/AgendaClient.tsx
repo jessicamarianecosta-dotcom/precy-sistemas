@@ -6,7 +6,7 @@ import {
 } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { CalendarDays, ChevronLeft, ChevronRight, List as ListIcon, Grid3x3, Plus, Check, Loader2 } from 'lucide-react'
-import { createClient } from '@/lib/precyflow/supabase'
+import { createClient } from '@/lib/precyflow/supabase-client'
 import { EmptyState } from '@/components/precyflow/EmptyState'
 import { Modal } from '@/components/precyflow/Modal'
 import type { PrecyFlowAgendaEvent, PrecyFlowCustomer } from '@/lib/precyflow/types'

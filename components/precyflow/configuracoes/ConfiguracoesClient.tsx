@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { Check, LogOut, Loader2 } from 'lucide-react'
-import { createClient } from '@/lib/precyflow/supabase'
+import { createClient } from '@/lib/precyflow/supabase-client'
 import { Mascot } from '@/components/precyflow/Mascot'
 import type { PrecyFlowAccent, PrecyFlowStore, PrecyFlowTheme } from '@/lib/precyflow/types'
 

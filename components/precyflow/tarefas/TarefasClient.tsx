@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { CheckSquare, Plus, Loader2, RotateCcw, Check } from 'lucide-react'
-import { createClient } from '@/lib/precyflow/supabase'
+import { createClient } from '@/lib/precyflow/supabase-client'
 import { formatDateBR } from '@/lib/precyflow/format'
 import { EmptyState } from '@/components/precyflow/EmptyState'
 import { Modal } from '@/components/precyflow/Modal'

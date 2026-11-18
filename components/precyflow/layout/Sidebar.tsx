@@ -8,7 +8,7 @@ import {
   DollarSign, Archive, CalendarDays, CheckSquare, Truck, Store,
   BarChart2, Settings, LogOut, X,
 } from 'lucide-react'
-import { createClient } from '@/lib/precyflow/supabase'
+import { createClient } from '@/lib/precyflow/supabase-client'
 import { Logo } from '@/components/precyflow/Logo'
 import { Mascot } from '@/components/precyflow/Mascot'
 

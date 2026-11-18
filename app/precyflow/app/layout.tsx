@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { createServerClient } from '@/lib/precyflow/supabase'
+import { createServerClient } from '@/lib/precyflow/supabase-server'
 import { ThemeRoot } from '@/components/precyflow/ThemeRoot'
 import { AppShell } from '@/components/precyflow/layout/AppShell'
 import type { PrecyFlowStore } from '@/lib/precyflow/types'

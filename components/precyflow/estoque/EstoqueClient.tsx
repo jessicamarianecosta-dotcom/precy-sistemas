@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { Archive, Minus, Plus, AlertTriangle } from 'lucide-react'
-import { createClient } from '@/lib/precyflow/supabase'
+import { createClient } from '@/lib/precyflow/supabase-client'
 import { EmptyState } from '@/components/precyflow/EmptyState'
 import type { PrecyFlowMaterial, PrecyFlowProduct } from '@/lib/precyflow/types'
 

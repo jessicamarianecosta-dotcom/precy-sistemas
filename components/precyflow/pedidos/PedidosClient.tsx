@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { ShoppingCart, Plus, LayoutGrid, List as ListIcon, Loader2, X } from 'lucide-react'
-import { createClient } from '@/lib/precyflow/supabase'
+import { createClient } from '@/lib/precyflow/supabase-client'
 import { formatBRL, formatDateBR } from '@/lib/precyflow/format'
 import { EmptyState } from '@/components/precyflow/EmptyState'
 import { Modal } from '@/components/precyflow/Modal'

@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { createServerClient } from '@/lib/precyflow/supabase'
+import { createServerClient } from '@/lib/precyflow/supabase-server'
 import { ThemeRoot } from '@/components/precyflow/ThemeRoot'
 import { LojaClient } from '@/components/precyflow/loja/LojaClient'
 import type { PrecyFlowProduct, PrecyFlowStore } from '@/lib/precyflow/types'

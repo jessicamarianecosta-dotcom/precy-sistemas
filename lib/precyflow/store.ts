@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { createServerClient } from '@/lib/precyflow/supabase'
+import { createServerClient } from '@/lib/precyflow/supabase-server'
 import type { PrecyFlowStore } from '@/lib/precyflow/types'
 
 /* Usado no topo de cada página server-side de /precyflow/app/**. A própria
