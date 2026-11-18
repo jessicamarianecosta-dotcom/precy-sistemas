@@ -44,17 +44,11 @@
 .precyflow[data-pf-theme='cores'][data-pf-accent='verde'] { --pf-primary: #4F8B6C; --pf-primary-hover: #3D6E55; --pf-border: #DCEEE3; }
 .precyflow[data-pf-theme='cores'][data-pf-accent='marrom']{ --pf-primary: #8B6C4F; --pf-primary-hover: #70563E; --pf-border: #ECE1D6; }
 
-/* ── Dark mode: mesmas variáveis, valores escuros ── */
-@media (prefers-color-scheme: dark) {
-  .precyflow[data-pf-dark='true'] {
-    --pf-bg: #211A1F;
-    --pf-surface: #2B232A;
-    --pf-border: #3E323B;
-    --pf-text: #F3E8EE;
-    --pf-text-secondary: #C7B3BF;
-    --pf-text-muted: #8F7C87;
-  }
-}
+/* Sem dark mode automático: o guia de implementação define só dois temas
+   (Cat e Cores), escolhidos pela loja — nenhum dos dois deve mudar de cor
+   sozinho porque o sistema operacional de quem visita está no escuro.
+   Já existiu um @media (prefers-color-scheme: dark) aqui que anulava o
+   rosa do tema Cat em qualquer Windows/macOS no modo escuro; removido. */
 
 /* ── Componentes ── */
 .pf-card {

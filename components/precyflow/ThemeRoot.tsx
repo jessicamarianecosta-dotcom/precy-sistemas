@@ -16,7 +16,6 @@ export function ThemeRoot({
       className={`precyflow${className ? ` ${className}` : ''}`}
       data-pf-theme={theme}
       data-pf-accent={accent}
-      data-pf-dark="true"
     >
       {children}
     </div>
