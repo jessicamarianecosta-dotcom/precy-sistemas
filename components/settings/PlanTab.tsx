@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Crown, CheckCircle, Loader2, ExternalLink, AlertTriangle, Clock } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useSubscription } from '@/hooks/useSubscription'
+import { getProductDisplayName } from '@/lib/branding/productName'
 
 const BASIC_FEATURES = [
   'Dashboard com visão geral', 'Cadastro de produtos (até 20)',
@@ -58,7 +59,7 @@ export function PlanTab() {
             <div className="flex items-center gap-2">
               {plan === 'pro' && <Crown size={16} style={{ color: '#C4A47B' }} />}
               <span className="text-xl font-bold text-text-primary dark:text-stone-100">
-                Precy+ {plan === 'pro' ? 'Pro' : 'Basic'}
+                {plan === 'essencial' ? getProductDisplayName(plan) : `Precy+ ${plan === 'pro' ? 'Pro' : 'Basic'}`}
               </span>
             </div>
           </div>

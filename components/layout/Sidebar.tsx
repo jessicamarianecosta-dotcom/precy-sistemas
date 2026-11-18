@@ -17,6 +17,7 @@ import { useSidebar } from '@/providers/SidebarProvider'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSubscription } from '@/hooks/useSubscription'
 import { canAccessCatalog } from '@/lib/catalog/betaAccess'
+import { getProductDisplayName } from '@/lib/branding/productName'
 
 /* ─── Menu ─── */
 const menuItems = [
@@ -34,7 +35,7 @@ const menuItems = [
       { href: '/estoque',     icon: Boxes,       label: 'Estoque'   },
       { href: '/pedidos',     icon: ShoppingCart,label: 'Pedidos'   },
       { href: '/declaracao-conteudo', icon: FileStack, label: 'Declaração de Conteúdo' },
-      { href: '/agenda',      icon: CalendarDays,label: 'Agenda',   pro: true },
+      { href: '/agenda',      icon: CalendarDays,label: 'Agenda',   essencial: true },
       { href: '/clientes',    icon: Users,       label: 'Clientes'  },
       { href: '/fornecedores',icon: Truck,       label: 'Fornecedores' },
     ],
@@ -43,9 +44,9 @@ const menuItems = [
     title: 'Financeiro',
     items: [
       { href: '/orcamentos',  icon: FileText,   label: 'Orçamentos' },
-      { href: '/financeiro',  icon: DollarSign, label: 'Financeiro', pro: true },
+      { href: '/financeiro',  icon: DollarSign, label: 'Financeiro', essencial: true },
       { href: '/financeiro-avancado', icon: TrendingUp, label: 'Financeiro Avançado', pro: true },
-      { href: '/relatorios',  icon: BarChart2,  label: 'Relatórios', pro: true },
+      { href: '/relatorios',  icon: BarChart2,  label: 'Relatórios', essencial: true },
     ],
   },
   {
@@ -57,7 +58,7 @@ const menuItems = [
   },
 ]
 
-const BASE_COMING_SOON = ['Conteúdo', 'IA de Precificação', 'WhatsApp']
+const BASE_COMING_SOON = ['Conteúdo', 'IA de Precificação', 'WhatsApp', 'Materiais', 'Tarefas']
 
 /* Painel admin: item da sidebar restrito literalmente a este e-mail,
    mesmo padrão de comparação direta usado em middleware.ts (sem role no banco). */
@@ -72,6 +73,7 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
   const supabase  = createClient()
   const sub = useSubscription()
   const isPro = sub?.data?.isPro ?? false
+  const isEssencial = sub?.data?.isEssencial ?? false
   const isTrial = sub?.data?.isTrial ?? false
 
   // Catálogo Online: beta privado — só quem está em CATALOG_BETA_USERS
@@ -87,6 +89,7 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
   const hasCatalogAccess = canAccessCatalog(userEmail)
   const comingSoon = hasCatalogAccess ? BASE_COMING_SOON : [...BASE_COMING_SOON, 'Catálogo Online']
   const isAdmin = userEmail === ADMIN_EMAIL
+  const productName = getProductDisplayName(sub?.data?.plan)
 
   async function handleLogout() {
     queryClient.clear()   // Limpar dados sensíveis do cache antes do logout
@@ -95,9 +98,15 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
     router.push('/login')
   }
 
-  function NavLink({ href, icon: Icon, label, pro }: { href: string; icon: React.ElementType; label: string; pro?: boolean }) {
+  function NavLink({ href, icon: Icon, label, pro, essencial }: { href: string; icon: React.ElementType; label: string; pro?: boolean; essencial?: boolean }) {
     const active = pathname === href || pathname.startsWith(href + '/')
-    const locked = pro && !isPro
+    // Badge "PRO": item exclusivo do PRO, mesmo para quem já é Essencial.
+    // Badge "ESSENCIAL": item liberado a partir do Essencial — some assim
+    // que a empresa é Essencial ou PRO (Essencial e PRO sempre satisfazem
+    // isEssencial/isPro via effectivePlan em middleware.ts e useSubscription).
+    const lockedPro       = pro && !isPro
+    const lockedEssencial = essencial && !isEssencial && !isPro
+    const locked = lockedPro || lockedEssencial
     return (
       <Link
         href={href}
@@ -115,7 +124,7 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
         {!collapsed && <span className="truncate flex-1">{label}</span>}
         {!collapsed && locked && (
           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-primary/10 dark:bg-primary/20 text-primary flex-shrink-0">
-            <Crown size={8} />PRO
+            <Crown size={8} />{lockedPro ? 'PRO' : 'ESSENCIAL'}
           </span>
         )}
       </Link>
@@ -132,7 +141,9 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
               <span className="text-white font-bold text-sm">P+</span>
             </div>
             <span className="font-bold text-text-primary dark:text-stone-100">
-              Precy<span className="text-primary">+</span>
+              {productName === 'Precy+'
+                ? <>Precy<span className="text-primary">+</span></>
+                : productName}
             </span>
           </Link>
         ) : (
@@ -166,7 +177,7 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
                 .filter(item => !((item as any).hideOnTrial && isTrial))
                 .map(item => (
                   <li key={item.href}>
-                    <NavLink href={item.href} icon={item.icon} label={item.label} pro={(item as any).pro} />
+                    <NavLink href={item.href} icon={item.icon} label={item.label} pro={(item as any).pro} essencial={(item as any).essencial} />
                   </li>
                 ))}
               {group.title === 'Negócio' && hasCatalogAccess && (

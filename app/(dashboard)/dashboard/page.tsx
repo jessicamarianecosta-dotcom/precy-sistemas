@@ -22,6 +22,7 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { formatCurrency } from '@/lib/utils/format'
+import { getProductDisplayName } from '@/lib/branding/productName'
 
 /* ─── Helpers ─── */
 function fmt(v: number) {
@@ -335,7 +336,7 @@ export default function DashboardPage() {
                   <div className="flex items-start gap-3 mb-4">
                     <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 text-xl">🚀</div>
                     <div>
-                      <p className="text-sm font-bold text-text-primary dark:text-stone-100">Bem-vinda ao Precy+!</p>
+                      <p className="text-sm font-bold text-text-primary dark:text-stone-100">Bem-vinda ao {getProductDisplayName(sub?.plan)}!</p>
                       <p className="text-xs text-text-secondary dark:text-stone-400 mt-0.5 leading-relaxed">
                         Configure os 4 passos abaixo para começar a usar todos os recursos do sistema.
                       </p>

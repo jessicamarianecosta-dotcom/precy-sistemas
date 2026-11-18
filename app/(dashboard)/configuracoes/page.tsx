@@ -19,6 +19,7 @@ import { z } from 'zod'
 import { useToast } from '@/components/ui/Toaster'
 import { useRouter } from 'next/navigation'
 import { useSubscription } from '@/hooks/useSubscription'
+import { getProductDisplayName } from '@/lib/branding/productName'
 import { formatCep, formatCpfCnpj, onlyDigits } from '@/lib/utils/mask'
 import { useCepLookup } from '@/hooks/useCepLookup'
 import { PIX_TYPE_OPTIONS, type PixType } from '@/lib/company/pix'
@@ -385,6 +386,7 @@ export default function ConfiguracoesPage() {
      Lê de companies.current_plan/subscription_status (atualizado pelo webhook Stripe),
      nunca da tabela 'subscriptions' legada (que nunca é escrita em produção). */
   const { data: sub } = useSubscription()
+  const productName = getProductDisplayName(sub?.plan)
   const planName        = sub?.isPro ? 'pro' : 'basic'
   const planStatus       = sub?.isExpired ? 'expired' : sub?.isTrial ? 'trial' : sub?.isActive ? 'active' : 'trial'
   const trialEndsAt      = sub?.isTrial ? sub?.trialEnd : null
@@ -826,7 +828,7 @@ export default function ConfiguracoesPage() {
                 </div>
                 <div className="rounded-xl overflow-hidden border border-border dark:border-border-dark">
                   <div className="h-10 flex items-center px-4 gap-3" style={{ background: primaryColor }}>
-                    <span className="text-xs font-bold text-white">Precy+</span>
+                    <span className="text-xs font-bold text-white">{productName}</span>
                     <span className="text-[10px] text-white/70 ml-auto">Preview do cabeçalho do PDF</span>
                   </div>
                   <div className="p-3 flex items-center gap-3 bg-white dark:bg-surface-dark">
@@ -1511,7 +1513,7 @@ export default function ConfiguracoesPage() {
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div>
                     <p className="text-sm font-medium text-text-primary dark:text-stone-100">Baixar meus dados</p>
-                    <p className="text-xs text-text-muted dark:text-stone-400">Exporta um arquivo JSON com todos os seus dados no Precy+.</p>
+                    <p className="text-xs text-text-muted dark:text-stone-400">Exporta um arquivo JSON com todos os seus dados no {productName}.</p>
                   </div>
                   <a href="/api/lgpd/export" className="btn-secondary flex items-center gap-2 text-sm flex-shrink-0">
                     <Download size={14} /> Baixar meus dados
@@ -1573,7 +1575,7 @@ export default function ConfiguracoesPage() {
               </div>
               <button type="button" onClick={handleLogout}
                 className="w-full flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-error border border-error/30 hover:bg-error-light transition-all duration-200">
-                <LogOut size={15} /> Sair do Precy+
+                <LogOut size={15} /> Sair do {productName}
               </button>
             </div>
           </div>

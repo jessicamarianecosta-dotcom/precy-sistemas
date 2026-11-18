@@ -96,6 +96,10 @@ export default function RelatoriosPage() {
   const { companyId } = useCompanyId()
   const { data: sub }  = useSubscription()
   const isPro = sub?.isPro ?? false
+  // Aba Financeiro: liberada a partir do Essencial (não só PRO) — os dados
+  // já são protegidos por RLS via company_has_pro_access, então isto é só
+  // a gate de UI/UX dentro da página (ver middleware.ts para a comparação).
+  const hasFinanceiroAccess = isPro || (sub?.isEssencial ?? false)
   const [period, setPeriod] = useState<Period>('month')
   const [activeTab, setActiveTab] = useState<'financeiro'|'pedidos'|'clientes'|'produtos'|'estoque'|'orcamentos'>('financeiro')
   const [exporting, setExporting] = useState(false)
@@ -106,8 +110,8 @@ export default function RelatoriosPage() {
      carrega, tira quem não é PRO de lá para não abrir numa aba vazia/
      bloqueada por padrão. */
   useEffect(() => {
-    if (sub && !isPro && activeTab === 'financeiro') setActiveTab('pedidos')
-  }, [sub, isPro, activeTab])
+    if (sub && !hasFinanceiroAccess && activeTab === 'financeiro') setActiveTab('pedidos')
+  }, [sub, hasFinanceiroAccess, activeTab])
 
   /* ── Buscar dados da empresa para o PDF ── */
   const { data: companyData } = useQuery({
@@ -121,7 +125,7 @@ export default function RelatoriosPage() {
   })
 
   async function handleExportPDF(mode: 'pdf' | 'print' = 'pdf') {
-    if (activeTab === 'financeiro' && !isPro) return
+    if (activeTab === 'financeiro' && !hasFinanceiroAccess) return
     setExporting(true)
     try {
       const { generateReportPDF } = await import('@/lib/pdf/generateReportPDF')
@@ -154,7 +158,7 @@ export default function RelatoriosPage() {
   const q = { queryKey: [] as any[], enabled: !!companyId }
 
   const { data: finTx = [] } = useQuery<any[]>({
-    ...q, queryKey: ['rep-fin', companyId, start, end], enabled: !!companyId && isPro,
+    ...q, queryKey: ['rep-fin', companyId, start, end], enabled: !!companyId && hasFinanceiroAccess,
     queryFn: async () => {
       const { data } = await (supabase.from('financial_transactions') as any)
         .select('type, category, amount, date, status, cost_center_id')
@@ -165,7 +169,7 @@ export default function RelatoriosPage() {
 
   /* Centros de custo — carregados dinamicamente para o filtro */
   const { data: costCenters = [] } = useQuery<any[]>({
-    ...q, queryKey: ['cost-centers', companyId], enabled: !!companyId && isPro,
+    ...q, queryKey: ['cost-centers', companyId], enabled: !!companyId && hasFinanceiroAccess,
     queryFn: async () => {
       const { data } = await (supabase.from('cost_centers') as any)
         .select('id, name, icon')
@@ -352,7 +356,7 @@ export default function RelatoriosPage() {
             <p className="text-xs text-text-muted dark:text-stone-500">
               {start.split('-').reverse().join('/')} → {end.split('-').reverse().join('/')}
             </p>
-            {!(activeTab === 'financeiro' && !isPro) && (
+            {!(activeTab === 'financeiro' && !hasFinanceiroAccess) && (
               <>
                 <button onClick={() => handleExportPDF('pdf')} disabled={exporting}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 hover:opacity-90 transition-opacity shadow-sm"
@@ -373,7 +377,7 @@ export default function RelatoriosPage() {
         {/* ── Tabs de módulo ── */}
         <div className="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar">
           {TABS.map(({ key, label, icon: Icon }) => {
-            const locked = key === 'financeiro' && !isPro
+            const locked = key === 'financeiro' && !hasFinanceiroAccess
             return (
               <button
                 key={key}
@@ -396,13 +400,13 @@ export default function RelatoriosPage() {
         {/* ══════════════════════════════
             TAB: FINANCEIRO
         ══════════════════════════════ */}
-        {activeTab === 'financeiro' && !isPro && (
+        {activeTab === 'financeiro' && !hasFinanceiroAccess && (
           <div className="card flex flex-col items-center text-center py-14 gap-3 animate-fadeIn">
             <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
               <Crown size={20} className="text-primary" />
             </div>
             <p className="text-sm font-semibold text-text-primary dark:text-stone-100">
-              Relatório financeiro é exclusivo do plano PRO
+              Relatório financeiro é exclusivo dos planos Essencial e PRO
             </p>
             <p className="text-xs text-text-muted dark:text-stone-500 max-w-sm">
               Faça upgrade para ver receitas, despesas, saldo e margem em tempo real, com exportação em PDF.
@@ -412,12 +416,12 @@ export default function RelatoriosPage() {
               className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-white px-4 py-2.5 rounded-xl hover:opacity-90 transition-opacity"
               style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}
             >
-              <Crown size={13} /> Fazer upgrade para PRO
+              <Crown size={13} /> Fazer upgrade
             </a>
           </div>
         )}
 
-        {activeTab === 'financeiro' && isPro && (
+        {activeTab === 'financeiro' && hasFinanceiroAccess && (
           <div className="space-y-4 animate-fadeIn">
             <div className="flex items-center justify-end">
               <select

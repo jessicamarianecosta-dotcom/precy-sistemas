@@ -14,14 +14,20 @@ const PUBLIC = ['/', '/login', '/cadastro', '/recuperar-senha', '/nova-senha',
 const LEGAL_GATE_ALLOWLIST = ['/termos/reaceite', '/api/legal/accept']
 const REACCEPT_ROUTE = '/termos/reaceite'
 
-/* ── Rotas exclusivas PRO ──
-   /relatorios NÃO entra aqui: a página tem abas Basic (Pedidos, Clientes,
-   Produtos, Estoque, Orçamentos — dados que o Basic já acessa nos módulos
-   originais) e uma aba PRO (Financeiro, cujos dados já são bloqueados por
+/* ── Rotas liberadas a partir do Essencial (Essencial E Pro) ──
+   Agenda e Financeiro entram no plano Essencial (R$97/ano); apenas
+   Financeiro Avançado e Conteúdo continuam exclusivos do PRO (ver
+   PRO_ONLY_ROUTES abaixo). /relatorios NÃO entra em nenhuma das duas
+   listas: a página tem abas Basic (Pedidos, Clientes, Produtos, Estoque,
+   Orçamentos — dados que o Basic já acessa nos módulos originais) e uma
+   aba Financeiro (liberada a partir do Essencial, dados já protegidos por
    RLS via company_has_pro_access em financial_transactions/cost_centers).
    Bloquear a rota inteira contradizia a promessa de "Relatórios básicos"
    no plano Basic; o gate da aba Financeiro fica dentro da própria página. */
-const PRO_ROUTES = ['/agenda', '/financeiro', '/conteudo', '/financeiro-avancado']
+const ESSENCIAL_ROUTES = ['/agenda', '/financeiro']
+
+/* ── Rotas exclusivas PRO (nem o Essencial libera) ── */
+const PRO_ONLY_ROUTES = ['/conteudo', '/financeiro-avancado']
 
 /* ── Feedback: exclusivo de quem já paga (Basic ou PRO) ──
    Diferente das rotas PRO acima: aqui quem está em trial NÃO tem acesso,
@@ -244,12 +250,25 @@ export async function middleware(req: NextRequest) {
     res.headers.set('x-subscription-warning', 'past_due')
   }
 
-  /* ── Proteção de rotas PRO ── */
-  // trial válido → acesso PRO completo; trial expirado → reverte para plan do banco
+  /* ── Proteção de rotas Essencial/PRO ── */
+  // trial válido → acesso PRO completo (mesmo comportamento de antes do
+  // plano Essencial existir); trial expirado → reverte para plan do banco
   const effectivePlan: string = (!trialExpired && status === 'trialing') ? 'pro' : plan
+  const hasEssencialAccess = effectivePlan === 'essencial' || effectivePlan === 'pro'
+  const hasProAccess       = effectivePlan === 'pro'
 
-  const isProRoute = PRO_ROUTES.some(r => pathname === r || pathname.startsWith(r + '/'))
-  if (isProRoute && effectivePlan !== 'pro') {
+  const isEssencialRoute = ESSENCIAL_ROUTES.some(r => pathname === r || pathname.startsWith(r + '/'))
+  if (isEssencialRoute && !hasEssencialAccess) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Este recurso é exclusivo dos planos Essencial e PRO' }, { status: 403 })
+    }
+    const url = new URL(UPGRADE_ROUTE, req.url)
+    url.searchParams.set('from', pathname)
+    return NextResponse.redirect(url)
+  }
+
+  const isProOnlyRoute = PRO_ONLY_ROUTES.some(r => pathname === r || pathname.startsWith(r + '/'))
+  if (isProOnlyRoute && !hasProAccess) {
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Este recurso é exclusivo do Plano PRO' }, { status: 403 })
     }
