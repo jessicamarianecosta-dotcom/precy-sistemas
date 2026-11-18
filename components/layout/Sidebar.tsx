@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Package, Boxes, ShoppingCart,
   Users, FileText, DollarSign, Settings, Calculator,
   ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays, BarChart2, Crown, TrendingUp, Truck, Store,
-  MessageSquare, FileStack,
+  MessageSquare, FileStack, Layers,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { createClient } from '@/lib/supabase/client'
@@ -32,6 +32,7 @@ const menuItems = [
     title: 'Negócio',
     items: [
       { href: '/produtos',    icon: Package,     label: 'Produtos'  },
+      { href: '/materiais',   icon: Layers,      label: 'Materiais' },
       { href: '/estoque',     icon: Boxes,       label: 'Estoque'   },
       { href: '/pedidos',     icon: ShoppingCart,label: 'Pedidos'   },
       { href: '/declaracao-conteudo', icon: FileStack, label: 'Declaração de Conteúdo' },
@@ -58,7 +59,7 @@ const menuItems = [
   },
 ]
 
-const BASE_COMING_SOON = ['Conteúdo', 'IA de Precificação', 'WhatsApp', 'Materiais', 'Tarefas']
+const BASE_COMING_SOON = ['Conteúdo', 'IA de Precificação', 'WhatsApp', 'Tarefas']
 
 /* Painel admin: item da sidebar restrito literalmente a este e-mail,
    mesmo padrão de comparação direta usado em middleware.ts (sem role no banco). */
