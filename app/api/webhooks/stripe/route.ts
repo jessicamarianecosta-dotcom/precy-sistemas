@@ -34,6 +34,24 @@ export async function POST(req: NextRequest) {
 
   console.log(`[webhook] received: ${event.type} id=${event.id}`)
 
+  // ── Idempotência ──
+  // O Stripe pode reenviar o mesmo evento (timeout na resposta, retry
+  // automático de rede, etc.). Sem essa checagem, um evento reenviado
+  // reexecuta os side effects (ex.: marcar fatura como paga de novo).
+  // Checa ANTES de processar; só grava como "processado" DEPOIS de
+  // processar com sucesso — se o processamento falhar, o evento não é
+  // marcado, e o retry natural do Stripe tenta de novo normalmente.
+  const { data: alreadyProcessed } = await (supabaseAdmin
+    .from('processed_webhook_events') as any)
+    .select('event_id')
+    .eq('event_id', event.id)
+    .maybeSingle()
+
+  if (alreadyProcessed) {
+    console.log(`[webhook] evento já processado, ignorando: ${event.id}`)
+    return NextResponse.json({ received: true, event: event.type, duplicate: true })
+  }
+
   try {
     switch (event.type) {
 
@@ -131,6 +149,11 @@ export async function POST(req: NextRequest) {
       default:
         console.log(`[webhook] unhandled event: ${event.type}`)
     }
+
+    // Só marca como processado depois que o switch inteiro rodou sem
+    // lançar erro — ver comentário de idempotência acima.
+    await (supabaseAdmin.from('processed_webhook_events') as any)
+      .insert([{ event_id: event.id, event_type: event.type }])
 
     return NextResponse.json({ received: true, event: event.type })
   } catch (err: any) {
