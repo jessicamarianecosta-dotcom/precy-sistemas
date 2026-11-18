@@ -5,15 +5,17 @@ import { CheckCircle, Check, Lock, ArrowRight, Send, Loader2, Sparkles, ShieldCh
 
 /* ── Types ─────────────────────────────── */
 type Visibility = boolean | string
-interface Feature { label: string; basic: Visibility; essencial: Visibility; pro: Visibility; highlight?: boolean }
-type PlanId = 'basic' | 'essencial' | 'pro'
+interface Feature { label: string; essencial: Visibility; pro: Visibility; highlight?: boolean }
+type PlanId = 'essencial' | 'pro'
 
 /* ── Data ─────────────────────────────────────────────────────────
    Preços e limites espelham lib/stripe/plans.ts (PLANS/PLAN_LIMITS) e os
    gates reais em middleware.ts — nunca prometer aqui o que o produto não
-   libera de fato. Essencial é cobrado uma vez por ano (R$97), por isso o
-   equivalente mensal é só pra comparar visualmente com Basic/Pro, que são
-   mensais. ────────────────────────────────────────────────────── */
+   libera de fato. O plano Basic saiu da landing a pedido da Jessica (fica
+   só pra quem já é assinante, acessível em /configuracoes e no modal de
+   upgrade — não é mais oferecido a quem chega pela página). Essencial é
+   cobrado uma vez por ano (R$97); o equivalente mensal é só pra comparar
+   visualmente com o Pro, que é mensal. ──────────────────────────── */
 const PLAN_META: Record<PlanId, {
   name: string
   tagline: string
@@ -23,19 +25,12 @@ const PLAN_META: Record<PlanId, {
   badge?: string
   cta: string
 }> = {
-  basic: {
-    name: 'Basic',
-    tagline: 'Para quem está começando a organizar o negócio.',
-    price: 'R$ 17',
-    priceSuffix: '/mês',
-    cta: 'Começar grátis',
-  },
   essencial: {
     name: 'Essencial',
-    tagline: 'O ponto certo entre simples e completo — pagamento único no ano.',
+    tagline: 'Tudo que o seu negócio precisa pra organizar preço, estoque e pedidos — pagamento único no ano.',
     price: 'R$ 97',
     priceSuffix: '/ano',
-    priceNote: '≈ R$ 8,08/mês — menos da metade do Basic',
+    priceNote: '≈ R$ 8,08/mês — menos que uma assinatura de streaming',
     badge: 'Melhor custo-benefício',
     cta: 'Assinar Essencial',
   },
@@ -50,21 +45,15 @@ const PLAN_META: Record<PlanId, {
 }
 
 const PLAN_FEATURES: Record<PlanId, string[]> = {
-  basic: [
+  essencial: [
     'Dashboard com visão geral do negócio',
     'Precificação inteligente',
-    'Até 20 produtos cadastrados',
+    'Produtos e pedidos sem limite apertado (até 50/mês)',
     'Controle de estoque',
-    'Gestão de pedidos estilo Kanban (até 30/mês)',
+    'Gestão de pedidos estilo Kanban',
+    'Catálogo Online — sua vitrine virtual',
     'Cadastro de clientes e fornecedores',
     'Orçamentos profissionais em PDF',
-    'Relatórios básicos',
-    'Suporte por e-mail',
-  ],
-  essencial: [
-    'Tudo do Basic, sem limite de produtos',
-    'Catálogo Online — sua vitrine virtual',
-    'Até 50 pedidos por mês',
     'Agenda integrada com os pedidos',
     'Financeiro completo (centro de custos, contas a receber)',
     'Relatórios financeiros completos',
@@ -85,46 +74,45 @@ const COMPARE_GROUPS: { group: string; items: Feature[] }[] = [
   {
     group: 'Recursos principais',
     items: [
-      { label: 'Dashboard com dados reais',   basic: true,     essencial: true,         pro: true },
-      { label: 'Precificação inteligente',     basic: true,     essencial: true,         pro: true },
-      { label: 'Controle de estoque',          basic: true,     essencial: true,         pro: true },
-      { label: 'Kanban de pedidos',            basic: true,     essencial: true,         pro: true },
-      { label: 'Clientes e fornecedores',      basic: true,     essencial: true,         pro: true },
-      { label: 'Orçamentos profissionais PDF', basic: true,     essencial: true,         pro: true },
-      { label: 'Número de produtos',           basic: 'Até 20', essencial: '∞ Ilimitado', pro: '∞ Ilimitado' },
-      { label: 'Pedidos por mês',              basic: 'Até 30', essencial: 'Até 50',      pro: '∞ Ilimitado' },
+      { label: 'Dashboard com dados reais',   essencial: true,          pro: true },
+      { label: 'Precificação inteligente',     essencial: true,          pro: true },
+      { label: 'Controle de estoque',          essencial: true,          pro: true },
+      { label: 'Kanban de pedidos',            essencial: true,          pro: true },
+      { label: 'Clientes e fornecedores',      essencial: true,          pro: true },
+      { label: 'Orçamentos profissionais PDF', essencial: true,          pro: true },
+      { label: 'Pedidos por mês',              essencial: 'Até 50',      pro: '∞ Ilimitado' },
     ],
   },
   {
     group: 'Catálogo Online',
     items: [
-      { label: 'Vitrine virtual com link próprio', basic: true, essencial: true, pro: '🚀 Loja redesenhada (em breve)' },
+      { label: 'Vitrine virtual com link próprio', essencial: true, pro: '🚀 Loja redesenhada (em breve)' },
     ],
   },
   {
     group: 'Agenda & Relatórios',
     items: [
-      { label: 'Agenda integrada com pedidos',      basic: false, essencial: true, pro: true },
-      { label: 'Relatórios financeiros completos',  basic: false, essencial: true, pro: true, highlight: true },
+      { label: 'Agenda integrada com pedidos',      essencial: true, pro: true },
+      { label: 'Relatórios financeiros completos',  essencial: true, pro: true, highlight: true },
     ],
   },
   {
     group: 'Financeiro',
     items: [
-      { label: 'Lançamentos e centro de custos',     basic: false, essencial: true,  pro: true },
-      { label: 'Contas a receber',                   basic: false, essencial: true,  pro: true },
-      { label: 'Financeiro avançado (DRE e metas)',  basic: false, essencial: false, pro: true, highlight: true },
-      { label: 'Fluxo de caixa e projeção 90 dias',  basic: false, essencial: false, pro: true },
-      { label: 'Contas recorrentes e parcelamentos', basic: false, essencial: false, pro: true },
-      { label: 'Alertas financeiros automáticos',    basic: false, essencial: false, pro: true },
+      { label: 'Lançamentos e centro de custos',     essencial: true,  pro: true },
+      { label: 'Contas a receber',                   essencial: true,  pro: true },
+      { label: 'Financeiro avançado (DRE e metas)',  essencial: false, pro: true, highlight: true },
+      { label: 'Fluxo de caixa e projeção 90 dias',  essencial: false, pro: true },
+      { label: 'Contas recorrentes e parcelamentos', essencial: false, pro: true },
+      { label: 'Alertas financeiros automáticos',    essencial: false, pro: true },
     ],
   },
   {
     group: 'Premium',
     items: [
-      { label: 'Biblioteca Precy+',                basic: false, essencial: false, pro: true },
-      { label: 'Conteúdos exclusivos',             basic: false, essencial: false, pro: true },
-      { label: 'Suporte prioritário WhatsApp',     basic: false, essencial: false, pro: true },
+      { label: 'Biblioteca Precy+',                essencial: false, pro: true },
+      { label: 'Conteúdos exclusivos',             essencial: false, pro: true },
+      { label: 'Suporte prioritário WhatsApp',     essencial: false, pro: true },
     ],
   },
 ]
@@ -155,10 +143,10 @@ function useVisible(threshold = 0.1) {
 }
 
 /* ══════════════════════════════════════════
-   PLAN CARD COMPONENT — 3 variantes visuais:
-   Basic (claro, simples), Essencial (destacado,
-   "decoy" que ancora o melhor valor), Pro (dark
-   premium, pra quem quer tudo).
+   PLAN CARD COMPONENT — 2 variantes visuais:
+   Essencial (claro, com borda de destaque — é
+   o plano de entrada agora), Pro (dark premium,
+   pra quem quer tudo).
 ══════════════════════════════════════════ */
 function PlanCard({
   plan, delay = 0, visible
@@ -205,7 +193,7 @@ function PlanCard({
               ? 'bg-[rgba(139,108,79,0.2)] text-[#C4A47B]'
               : 'bg-[rgba(92,139,79,0.12)] text-[#5C8B4F]'
           }`}>
-            {isPro ? '🚀' : isEssencial ? '💎' : '🌱'} 7 dias grátis para testar
+            {isPro ? '🚀' : '💎'} 7 dias grátis para testar
           </span>
           {meta.badge && (
             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full text-white whitespace-nowrap"
@@ -322,14 +310,13 @@ export function PricingSection() {
           </div>
 
           {/* Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 items-stretch">
-            <PlanCard plan="basic"     delay={0.1}  visible={plansVisible} />
-            <PlanCard plan="essencial" delay={0.2}  visible={plansVisible} />
-            <PlanCard plan="pro"       delay={0.3}  visible={plansVisible} />
+          <div className="grid grid-cols-1 md:grid-cols-2 max-w-3xl mx-auto gap-6 mb-8 items-stretch">
+            <PlanCard plan="essencial" delay={0.1}  visible={plansVisible} />
+            <PlanCard plan="pro"       delay={0.2}  visible={plansVisible} />
           </div>
 
           {/* Destaque do Essencial — a conta que fecha sozinha */}
-          <div className="mb-8 rounded-2xl border flex flex-col sm:flex-row items-center gap-4 p-5 text-center sm:text-left"
+          <div className="mb-8 rounded-2xl border flex flex-col sm:flex-row items-center gap-4 p-5 text-center sm:text-left max-w-3xl mx-auto"
             style={{ background: 'rgba(139,108,79,0.06)', borderColor: 'rgba(139,108,79,0.25)' }}>
             <div className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0"
               style={{ background: 'rgba(139,108,79,0.16)' }}>
@@ -337,11 +324,11 @@ export function PricingSection() {
             </div>
             <div>
               <p className="text-sm font-bold" style={{ color: '#2C2018' }}>
-                O Essencial custa menos que o Basic — e faz muito mais
+                R$97 por ano, parcelado em nenhuma vez — menos de R$9/mês pra ter tudo isso
               </p>
               <p className="text-xs mt-0.5" style={{ color: '#7A6855' }}>
-                R$97 pagos uma vez no ano saem bem mais barato que R$17 todo mês (R$204/ano) — e no
-                Essencial você ainda ganha produtos ilimitados, Catálogo Online, Agenda e Financeiro.
+                Produtos sem limite apertado, Catálogo Online, Agenda e Financeiro completo — tudo
+                num único pagamento anual. Testa 7 dias grátis antes de decidir qualquer coisa.
               </p>
             </div>
           </div>
@@ -378,15 +365,11 @@ export function PricingSection() {
             }}
           >
             {/* Header fixo */}
-            <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr] sm:grid-cols-[1.9fr_1fr_1fr_1fr]" style={{ background: '#2C2018' }}>
+            <div className="grid grid-cols-[1.6fr_1fr_1fr] sm:grid-cols-[2.1fr_1fr_1fr]" style={{ background: '#2C2018' }}>
               <p className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider px-3 sm:px-4 py-4 flex items-end"
                 style={{ color: 'rgba(255,255,255,0.45)' }}>
                 Funcionalidade
               </p>
-              <div className="flex flex-col items-center justify-center gap-0.5 py-3.5 border-l" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
-                <span className="text-[11px] sm:text-xs font-bold" style={{ color: '#D8CFC2' }}>🌱 Basic</span>
-                <span className="text-[9px]" style={{ color: 'rgba(255,255,255,0.35)' }}>R$17/mês</span>
-              </div>
               <div className="flex flex-col items-center justify-center gap-0.5 py-3.5 border-l"
                 style={{
                   borderColor: 'rgba(255,255,255,0.08)',
@@ -410,7 +393,7 @@ export function PricingSection() {
                 {/* Group rows */}
                 {group.items.map((f, i) => (
                   <div key={f.label}
-                    className="grid grid-cols-[1.4fr_1fr_1fr_1fr] sm:grid-cols-[1.9fr_1fr_1fr_1fr] items-stretch border-b last:border-0 transition-colors hover:bg-black/[0.015]"
+                    className="grid grid-cols-[1.6fr_1fr_1fr] sm:grid-cols-[2.1fr_1fr_1fr] items-stretch border-b last:border-0 transition-colors hover:bg-black/[0.015]"
                     style={{
                       borderColor: '#EDE8E2',
                       background: f.highlight ? 'rgba(139,108,79,0.045)' : i % 2 === 0 ? 'white' : 'rgba(139,108,79,0.012)',
@@ -418,8 +401,6 @@ export function PricingSection() {
                     <span className="text-xs px-3 sm:px-4 py-3 flex items-center" style={{ color: f.highlight ? '#2C2018' : '#5A4A3B', fontWeight: f.highlight ? 600 : 400 }}>
                       {f.label}
                     </span>
-                    {/* Basic */}
-                    <FeatureCell value={f.basic} variant="basic" />
                     {/* Essencial */}
                     <FeatureCell value={f.essencial} variant="essencial" />
                     {/* Pro */}
@@ -455,9 +436,9 @@ export function PricingSection() {
   )
 }
 
-/* Célula da tabela comparativa — extraída porque agora repete 3x por linha
-   (Basic/Essencial/Pro) e o destaque visual do Essencial precisa de um
-   fundo levemente diferente dos outros dois pra guiar o olho até ele. */
+/* Célula da tabela comparativa — extraída porque repete 2x por linha
+   (Essencial/Pro) e o destaque visual do Essencial precisa de um fundo
+   levemente diferente do Pro pra guiar o olho até ele. */
 function FeatureCell({ value, variant }: { value: Visibility; variant: PlanId }) {
   const bg = variant === 'essencial' ? 'rgba(139,108,79,0.06)' : variant === 'pro' ? 'rgba(139,108,79,0.04)' : undefined
   return (

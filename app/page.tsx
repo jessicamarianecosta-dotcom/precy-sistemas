@@ -49,7 +49,6 @@ const jsonLd = {
   operatingSystem: 'Web',
   description: DESCRIPTION,
   offers: [
-    { '@type': 'Offer', name: 'Basic', price: '17.00', priceCurrency: 'BRL', billingDuration: 'P1M' },
     { '@type': 'Offer', name: 'Essencial', price: '97.00', priceCurrency: 'BRL', billingDuration: 'P1Y' },
     { '@type': 'Offer', name: 'Pro', price: '47.00', priceCurrency: 'BRL', billingDuration: 'P1M' },
   ],
@@ -103,7 +102,7 @@ const features = [
     icon: '🛍️',
     title: 'Catálogo Online',
     description:
-      'Já disponível nos planos Basic e Essencial: sua vitrine virtual publicada, com link próprio para o cliente ver seus produtos e fazer pedidos direto pelo catálogo.',
+      'Já disponível no Essencial: sua vitrine virtual publicada, com link próprio para o cliente ver seus produtos e fazer pedidos direto pelo catálogo.',
     badge: { label: '✅ Já disponível', color: '#5C8B4F' },
   },
   {
