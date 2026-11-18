@@ -57,7 +57,13 @@ function LoginForm() {
       })
 
       if (signInError) {
-        setError(signInError.message.includes('Invalid login credentials') ? 'E-mail ou senha incorretos.' : signInError.message)
+        if (signInError.message.includes('Invalid login credentials')) {
+          setError('E-mail ou senha incorretos.')
+        } else if (signInError.message.includes('Email not confirmed')) {
+          setError('Confirme seu e-mail antes de entrar. Procure o link de confirmação na sua caixa de entrada.')
+        } else {
+          setError(signInError.message)
+        }
         return
       }
 

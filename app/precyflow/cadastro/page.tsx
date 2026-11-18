@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Eye, EyeOff, Loader2, UserPlus } from 'lucide-react'
+import { CheckCircle, Eye, EyeOff, Loader2, UserPlus } from 'lucide-react'
 import { createClient } from '@/lib/precyflow/supabase-client'
 import { ThemeRoot } from '@/components/precyflow/ThemeRoot'
 import { Logo } from '@/components/precyflow/Logo'
@@ -25,6 +25,7 @@ export default function CadastroPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [needsConfirmation, setNeedsConfirmation] = useState(false)
 
   const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -35,10 +36,13 @@ export default function CadastroPage() {
     setError(null)
     try {
       const supabase = createClient()
-      const { error: signUpError } = await supabase.auth.signUp({
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: data.email,
         password: data.password,
-        options: { data: { name: data.name } },
+        options: {
+          data: { name: data.name },
+          emailRedirectTo: `${window.location.origin}/precyflow/login`,
+        },
       })
 
       if (signUpError) {
@@ -50,6 +54,15 @@ export default function CadastroPage() {
         return
       }
 
+      /* Com confirmação de e-mail ativada no Supabase Auth (padrão), o
+         signUp não devolve sessão — tentar seguir pro onboarding sem
+         sessão só batia no middleware e voltava pro login, sem explicar
+         nada. Mostra a instrução de confirmar o e-mail em vez de navegar. */
+      if (!signUpData.session) {
+        setNeedsConfirmation(true)
+        return
+      }
+
       router.push('/precyflow/onboarding')
       router.refresh()
     } catch {
@@ -57,6 +70,30 @@ export default function CadastroPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  if (needsConfirmation) {
+    return (
+      <ThemeRoot>
+        <div className="min-h-screen flex items-center justify-center px-4 py-10">
+          <div className="w-full max-w-sm">
+            <div className="flex flex-col items-center mb-6 text-center">
+              <Mascot size={56} />
+              <Logo className="mt-2" />
+            </div>
+
+            <div className="pf-card text-center">
+              <CheckCircle size={48} style={{ color: 'var(--pf-success)' }} className="mx-auto mb-4" />
+              <h1 className="text-xl font-bold mb-2" style={{ color: 'var(--pf-text)' }}>Confirme seu e-mail</h1>
+              <p className="text-sm mb-6" style={{ color: 'var(--pf-text-secondary)' }}>
+                Enviamos um link de confirmação para o seu e-mail. Clique nele para ativar sua conta e poder entrar.
+              </p>
+              <Link href="/precyflow/login" className="pf-btn-secondary inline-flex">Já confirmei, ir para o login</Link>
+            </div>
+          </div>
+        </div>
+      </ThemeRoot>
+    )
   }
 
   return (
