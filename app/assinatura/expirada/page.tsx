@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter }    from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { PLANS } from '@/lib/stripe/plans'
+import { getProductDisplayName } from '@/lib/branding/productName'
 
 const POLL_INTERVAL_MS = 2500
 const MAX_POLL_MS      = 5 * 60 * 1000 // 5min — nunca fica pra sempre
@@ -30,7 +31,7 @@ function isStillBlocked(row: CompanyRow): boolean {
 }
 
 export default function TrialExpiradaPage() {
-  const [loadingPlan, setLoadingPlan] = useState<'basic' | 'pro' | null>(null)
+  const [loadingPlan, setLoadingPlan] = useState<'basic' | 'essencial' | 'pro' | null>(null)
   const [errMsg,       setErrMsg]     = useState('')
   const [polling,      setPolling]    = useState(true)
   const supabase = createClient()
@@ -76,7 +77,7 @@ export default function TrialExpiradaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  async function handleAssinar(plan: 'basic' | 'pro') {
+  async function handleAssinar(plan: 'basic' | 'essencial' | 'pro') {
     setLoadingPlan(plan)
     setErrMsg('')
     try {
@@ -133,6 +134,13 @@ export default function TrialExpiradaPage() {
             style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)', boxShadow: '0 4px 20px rgba(139,108,79,0.4)' }}>
             {loadingPlan === 'pro' ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
             Assinar Plano Pro — {PLANS.pro.priceLabel}
+          </button>
+
+          <button onClick={() => handleAssinar('essencial')} disabled={loadingPlan !== null}
+            className="w-full py-3 rounded-xl text-sm font-medium text-stone-300 flex items-center justify-center gap-2 disabled:opacity-60 hover:bg-white/5 transition-colors"
+            style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
+            {loadingPlan === 'essencial' ? <Loader2 size={15} className="animate-spin" /> : <ArrowRight size={15} />}
+            Assinar {getProductDisplayName('essencial')} — {PLANS.essencial.priceLabel}
           </button>
 
           <button onClick={() => handleAssinar('basic')} disabled={loadingPlan !== null}

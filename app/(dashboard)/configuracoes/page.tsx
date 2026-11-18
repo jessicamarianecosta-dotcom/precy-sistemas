@@ -387,7 +387,9 @@ export default function ConfiguracoesPage() {
      nunca da tabela 'subscriptions' legada (que nunca é escrita em produção). */
   const { data: sub } = useSubscription()
   const productName = getProductDisplayName(sub?.plan)
-  const planName        = sub?.isPro ? 'pro' : 'basic'
+  // Antes só distinguia pro/basic — com o Essencial, um assinante desse
+  // plano caía incorretamente no badge "Plano Basic". Reflete o plano real.
+  const planName        = sub?.plan ?? 'basic'
   const planStatus       = sub?.isExpired ? 'expired' : sub?.isTrial ? 'trial' : sub?.isActive ? 'active' : 'trial'
   const trialEndsAt      = sub?.isTrial ? sub?.trialEnd : null
   const trialDaysLeft    = trialEndsAt
@@ -1387,7 +1389,7 @@ export default function ConfiguracoesPage() {
                       'inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full',
                       planName === 'pro' ? 'bg-primary text-white' : 'bg-primary-50 dark:bg-primary/10 text-primary'
                     )}>
-                      {planName === 'pro' ? '⭐ Plano Pro' : '🌱 Plano Basic'}
+                      {planName === 'pro' ? '⭐ Plano Pro' : planName === 'essencial' ? '💎 Plano Essencial' : '🌱 Plano Basic'}
                     </span>
                     <span className={clsx(
                       'text-xs font-semibold px-2.5 py-1 rounded-full',

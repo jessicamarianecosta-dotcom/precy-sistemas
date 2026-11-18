@@ -19,8 +19,9 @@ export async function GET(req: Request) {
   const checks = {
     secret_key:          !!process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.includes('xxx'),
     webhook_secret:      !!process.env.STRIPE_WEBHOOK_SECRET && !process.env.STRIPE_WEBHOOK_SECRET.includes('xxx'),
-    price_id_basic:      !!PLANS.basic.price_id && !PLANS.basic.price_id.includes('xxx') && PLANS.basic.price_id !== '',
-    price_id_pro:        !!PLANS.pro.price_id   && !PLANS.pro.price_id.includes('xxx')   && PLANS.pro.price_id !== '',
+    price_id_basic:      !!PLANS.basic.price_id     && !PLANS.basic.price_id.includes('xxx')     && PLANS.basic.price_id !== '',
+    price_id_essencial:  !!PLANS.essencial.price_id && !PLANS.essencial.price_id.includes('xxx') && PLANS.essencial.price_id !== '',
+    price_id_pro:        !!PLANS.pro.price_id       && !PLANS.pro.price_id.includes('xxx')       && PLANS.pro.price_id !== '',
     app_url:             !!process.env.NEXT_PUBLIC_APP_URL && process.env.NEXT_PUBLIC_APP_URL !== 'http://localhost:3000',
     is_live_mode:        !!process.env.STRIPE_SECRET_KEY?.startsWith('sk_live'),
   }
@@ -45,17 +46,19 @@ export async function GET(req: Request) {
     stripe_connected: stripeConnected,
     stripe_error:     stripeError,
     plans: {
-      basic: { name: PLANS.basic.name, amount: PLANS.basic.price / 100, configured: checks.price_id_basic },
-      pro:   { name: PLANS.pro.name,   amount: PLANS.pro.price   / 100, configured: checks.price_id_pro   },
+      basic:     { name: PLANS.basic.name,     amount: PLANS.basic.price     / 100, configured: checks.price_id_basic     },
+      essencial: { name: PLANS.essencial.name, amount: PLANS.essencial.price / 100, configured: checks.price_id_essencial },
+      pro:       { name: PLANS.pro.name,       amount: PLANS.pro.price       / 100, configured: checks.price_id_pro       },
     },
     instructions: allOk && stripeConnected ? null : {
       message: 'Configure as variáveis de ambiente no Vercel:',
       required: [
-        !checks.secret_key      && 'STRIPE_SECRET_KEY=sk_live_...',
-        !checks.webhook_secret  && 'STRIPE_WEBHOOK_SECRET=whsec_...',
-        !checks.price_id_basic  && 'STRIPE_PRICE_ID_BASIC=price_...',
-        !checks.price_id_pro    && 'STRIPE_PRICE_ID_PRO=price_...',
-        !checks.app_url         && 'NEXT_PUBLIC_APP_URL=https://precyplus.com.br',
+        !checks.secret_key        && 'STRIPE_SECRET_KEY=sk_live_...',
+        !checks.webhook_secret    && 'STRIPE_WEBHOOK_SECRET=whsec_...',
+        !checks.price_id_basic     && 'STRIPE_PRICE_ID_BASIC=price_...',
+        !checks.price_id_essencial && 'STRIPE_PRICE_ID_ESSENCIAL=price_...',
+        !checks.price_id_pro       && 'STRIPE_PRICE_ID_PRO=price_...',
+        !checks.app_url            && 'NEXT_PUBLIC_APP_URL=https://precyplus.com.br',
       ].filter(Boolean),
     },
   })

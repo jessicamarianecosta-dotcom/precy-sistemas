@@ -10,6 +10,11 @@ const BASIC_FEATURES = [
   'Controle de estoque', 'Precificação inteligente',
   'Gestão de pedidos Kanban (até 30)', 'Suporte por e-mail',
 ]
+const ESSENCIAL_FEATURES = [
+  'Tudo do Basic + produtos ilimitados', 'Catálogo Online (vitrine virtual)',
+  'Agenda integrada', 'Controle financeiro',
+  'Relatórios', 'Gestão de pedidos (até 50/mês)',
+]
 const PRO_FEATURES = [
   'Tudo do Basic + ilimitados', 'Cadastro completo de clientes',
   'Agenda integrada', 'Controle financeiro completo',
@@ -92,7 +97,7 @@ export function PlanTab() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div className={clsx('card border-2', plan === 'basic' ? 'border-primary' : 'border-transparent')}>
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -112,6 +117,35 @@ export function PlanTab() {
             <button onClick={() => handleUpgrade('basic')} disabled={loadingCheckout}
               className="w-full btn-primary text-xs py-2 flex items-center justify-center gap-1.5 disabled:opacity-50">
               {loadingCheckout && <Loader2 size={12} className="animate-spin" />} Assinar Basic
+            </button>
+          )}
+        </div>
+
+        <div className={clsx('card border-2', plan === 'essencial' ? 'border-primary' : 'border-transparent')}>
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm font-bold text-text-primary dark:text-stone-100">{getProductDisplayName('essencial')}</p>
+              <p className="text-xl font-bold text-primary mt-0.5">R$97<span className="text-xs font-normal text-text-muted">/ano</span></p>
+            </div>
+            {plan === 'essencial' && <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-primary/10 text-primary">Atual</span>}
+          </div>
+          <div className="space-y-1.5 mb-4">
+            {ESSENCIAL_FEATURES.map(f => (
+              <div key={f} className="flex items-center gap-2 text-xs text-text-secondary dark:text-stone-400">
+                <CheckCircle size={11} className="text-primary flex-shrink-0" />{f}
+              </div>
+            ))}
+          </div>
+          {plan !== 'essencial' ? (
+            <button onClick={() => handleUpgrade('essencial')} disabled={loadingCheckout}
+              className="w-full btn-primary text-xs py-2 flex items-center justify-center gap-1.5 disabled:opacity-50">
+              {loadingCheckout && <Loader2 size={12} className="animate-spin" />} Assinar {getProductDisplayName('essencial')}
+            </button>
+          ) : (
+            <button onClick={handlePortal} disabled={loadingPortal}
+              className="w-full btn-secondary text-xs py-2 flex items-center justify-center gap-1.5 disabled:opacity-50">
+              {loadingPortal ? <Loader2 size={12} className="animate-spin" /> : <ExternalLink size={12} />}
+              Gerenciar assinatura
             </button>
           )}
         </div>

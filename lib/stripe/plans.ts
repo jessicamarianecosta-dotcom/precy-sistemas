@@ -14,9 +14,12 @@ export const PLANS = {
   },
   // Plano anual intermediário — reaproveita quase 100% do sistema (ver
   // ESSENCIAL_ROUTES/PRO_ONLY_ROUTES em middleware.ts para o que ele libera
-  // além do Basic). Cobrança anual com parcelamento no cartão ainda não foi
-  // implementada no checkout — price_id fica vazio até a Fase 9 do projeto
-  // Precy Essencial configurar isso de verdade no Stripe.
+  // além do Basic). Cobrança anual à vista via Stripe (Fase 9 do projeto
+  // Precy Essencial) — o Stripe não suporta parcelamento de cartão
+  // brasileiro em nenhum modo (só México e Japão têm esse recurso, e mesmo
+  // lá só em modo Payment, nunca Subscription), então essa cobrança é
+  // sempre em parcela única. Price real já criado no Stripe
+  // (price_id em STRIPE_PRICE_ID_ESSENCIAL no Vercel).
   essencial: {
     id:         'essencial',
     name:       'Essencial',
