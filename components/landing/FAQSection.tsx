@@ -16,8 +16,12 @@ const faqs = [
     a: 'Não. A configuração inicial leva menos de 5 minutos e o sistema calcula tudo automaticamente a partir dos seus custos. Não é preciso saber fórmulas nem planilhas — só cadastrar seus materiais uma vez.',
   },
   {
-    q: 'Qual a diferença entre o plano Basic e o Pro?',
-    a: 'O Basic já inclui precificação, estoque, pedidos em Kanban, clientes, fornecedores e orçamentos em PDF — ideal para quem está começando. O Pro libera produtos e pedidos ilimitados, financeiro completo (fluxo de caixa, contas a pagar/receber, centros de custo) e a Biblioteca Precy+ com produtos prontos.',
+    q: 'Qual a diferença entre os planos Basic, Essencial e Pro?',
+    a: 'O Basic já inclui precificação, estoque, pedidos em Kanban, clientes, fornecedores e orçamentos em PDF — ideal para quem está começando. O Essencial libera produtos ilimitados, Catálogo Online, Agenda e Financeiro completo, por um pagamento único de R$97 no ano (bem mais barato que o Basic cobrado todo mês). Já o Pro é para quem já fatura bem: pedidos ilimitados, financeiro avançado (fluxo de caixa, DRE, metas, projeção de caixa) e a Biblioteca Precy+ com produtos prontos.',
+  },
+  {
+    q: 'O plano Essencial é cobrado todo mês ou uma vez no ano?',
+    a: 'O Essencial é uma cobrança única de R$97 por ano — não é mensal. Isso equivale a cerca de R$8,08 por mês, bem menos do que os R$17/mês do Basic, com muito mais recursos. Assim como nos outros planos, você ainda tem os 7 dias grátis para testar antes de pagar qualquer coisa.',
   },
   {
     q: 'Posso cancelar quando quiser? E se eu me arrepender depois de assinar?',
@@ -29,7 +33,7 @@ const faqs = [
   },
   {
     q: 'O que acontece quando os 7 dias grátis terminam?',
-    a: 'Você escolhe o plano Basic ou Pro para continuar usando. Se preferir não assinar, sua conta fica pausada — seus dados não são apagados, e você pode retomar quando quiser.',
+    a: 'Você escolhe o plano Basic, Essencial ou Pro para continuar usando. Se preferir não assinar, sua conta fica pausada — seus dados não são apagados, e você pode retomar quando quiser.',
   },
 ]
 

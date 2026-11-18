@@ -49,8 +49,9 @@ const jsonLd = {
   operatingSystem: 'Web',
   description: DESCRIPTION,
   offers: [
-    { '@type': 'Offer', name: 'Basic', price: '17.00', priceCurrency: 'BRL' },
-    { '@type': 'Offer', name: 'Pro', price: '47.00', priceCurrency: 'BRL' },
+    { '@type': 'Offer', name: 'Basic', price: '17.00', priceCurrency: 'BRL', billingDuration: 'P1M' },
+    { '@type': 'Offer', name: 'Essencial', price: '97.00', priceCurrency: 'BRL', billingDuration: 'P1Y' },
+    { '@type': 'Offer', name: 'Pro', price: '47.00', priceCurrency: 'BRL', billingDuration: 'P1M' },
   ],
   audience: {
     '@type': 'Audience',
@@ -89,8 +90,8 @@ const features = [
     icon: '💵',
     title: 'Financeiro Completo',
     description:
-      'Exclusivo do Plano PRO: fluxo de caixa, contas a pagar e receber, centros de custo, parcelamentos, relatórios financeiros e análises avançadas.',
-    badge: { label: '⭐ Exclusivo PRO', color: '#8B6C4F' },
+      'A partir do Essencial: centro de custos, contas a receber, relatórios financeiros completos. No PRO, vai além com fluxo de caixa, DRE, metas e projeção de 90 dias.',
+    badge: { label: '💎 A partir do Essencial', color: '#8B6C4F' },
   },
   {
     icon: '📊',
@@ -102,8 +103,8 @@ const features = [
     icon: '🛍️',
     title: 'Catálogo Online',
     description:
-      'Em breve você poderá criar sua loja virtual integrada ao Precy+, publicar produtos, receber pedidos online, integrar pagamentos e calcular fretes automaticamente.',
-    badge: { label: '🚀 Em breve', color: '#5C8B4F' },
+      'Já disponível nos planos Basic e Essencial: sua vitrine virtual publicada, com link próprio para o cliente ver seus produtos e fazer pedidos direto pelo catálogo.',
+    badge: { label: '✅ Já disponível', color: '#5C8B4F' },
   },
   {
     icon: '📚',
@@ -250,10 +251,14 @@ export default function LandingPage() {
               </div>
 
               {/* Trust */}
-              <div className="flex items-center gap-2 mt-8">
+              <div className="flex items-center gap-2 mt-8 flex-wrap">
                 <span className="inline-flex items-center gap-2 border border-[#EDE8E2] dark:border-[#3A3028] bg-white dark:bg-[#2A2220] text-[#5C8B4F] text-xs font-semibold px-4 py-1.5 rounded-full">
                   🌱 Sistema novo, construído com cuidado
                 </span>
+                <a href="#planos"
+                  className="inline-flex items-center gap-2 border border-[rgba(139,108,79,0.3)] bg-[rgba(139,108,79,0.06)] text-[#8B6C4F] text-xs font-semibold px-4 py-1.5 rounded-full hover:bg-[rgba(139,108,79,0.1)] transition-colors">
+                  💎 Planos a partir de R$8,08/mês
+                </a>
               </div>
               <p className="text-xs text-[#7A6855] dark:text-stone-400 mt-2">
                 Feito por quem também empreende — pra quem cansou de precificar no chute.
