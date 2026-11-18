@@ -9,6 +9,17 @@ const PUBLIC = ['/', '/login', '/cadastro', '/recuperar-senha', '/nova-senha',
                 '/termos', '/privacidade', '/reembolso', '/cancelamento', '/suporte',
                 '/loja', '/api/loja']
 
+/* ── PrecyFlow: produto separado do Precy+ dentro do mesmo deploy ──
+   Não tem billing/Stripe, trial, termos de reaceite nem painel admin do
+   Precy+ — nenhuma dessas regras deve se aplicar aqui. Só exige sessão
+   nas rotas autenticadas (/precyflow/app). Landing, cadastro, login,
+   recuperação de senha e a vitrine pública/checkout ficam livres. */
+const PRECYFLOW_PUBLIC = ['/precyflow', '/precyflow/cadastro', '/precyflow/login',
+                          '/precyflow/recuperar-senha', '/precyflow/nova-senha',
+                          '/precyflow/loja', '/api/precyflow/loja', '/api/precyflow/checkout']
+const PRECYFLOW_AUTH_PAGES = ['/precyflow/login', '/precyflow/cadastro']
+const PRECYFLOW_APP_ROOT = '/precyflow/app'
+
 /* ── Gate de re-aceite de Termos/Privacidade: liberado mesmo sem aceite
    atual, para não gerar loop de redirecionamento ── */
 const LEGAL_GATE_ALLOWLIST = ['/termos/reaceite', '/api/legal/accept']
@@ -110,6 +121,27 @@ export async function middleware(req: NextRequest) {
 
   /* ── Webhooks e assets: sempre livres ── */
   if (pathname.startsWith('/api/webhooks') || pathname.startsWith('/_next')) {
+    return res
+  }
+
+  /* ── PrecyFlow: tratado isoladamente, nunca cai nas regras de
+     companies/subscription/termos/admin do Precy+ abaixo ── */
+  if (pathname.startsWith('/precyflow') || pathname.startsWith('/api/precyflow')) {
+    const isPrecyflowPublic = PRECYFLOW_PUBLIC.some(r => pathname === r || pathname.startsWith(r + '/'))
+
+    if (isPrecyflowPublic) {
+      if (session && PRECYFLOW_AUTH_PAGES.includes(pathname)) {
+        return NextResponse.redirect(new URL(PRECYFLOW_APP_ROOT, req.url))
+      }
+      return res
+    }
+
+    if (!session) {
+      const url = new URL('/precyflow/login', req.url)
+      url.searchParams.set('redirect', pathname)
+      return NextResponse.redirect(url)
+    }
+
     return res
   }
 
