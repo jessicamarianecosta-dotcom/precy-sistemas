@@ -1,9 +1,10 @@
 'use client'
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { X } from 'lucide-react'
+import { X, Receipt, Copy, Check } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils/format'
 import type { OrderReceivable } from '@/lib/orders/receivables'
 
@@ -30,17 +31,28 @@ export function RecebimentosHistoryModal({
     enabled: !!companyId,
     queryFn: async () => {
       const { data } = await supabase.from('payment_history')
-        .select('id, amount, payment_date, payment_method, observation, schedule_id, created_at')
+        .select('id, amount, payment_date, payment_method, observation, schedule_id, created_at, public_token')
         .eq('order_id', receivable.orderId)
         .eq('company_id', companyId)
         .order('payment_date', { ascending: true })
         .order('created_at', { ascending: true })
       return (data ?? []) as Array<{
         id: string; amount: number; payment_date: string; payment_method: string | null; observation: string | null
-        schedule_id: string | null; created_at: string
+        schedule_id: string | null; created_at: string; public_token: string | null
       }>
     },
   })
+
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  async function copyReceiptLink(token: string, id: string) {
+    const url = `${window.location.origin}/loja/recibo/${token}`
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopiedId(id)
+      setTimeout(() => setCopiedId(null), 2000)
+    } catch { /* clipboard indisponível — ignora */ }
+  }
 
   /* Parcela de cada lançamento e saldo dela depois dele (acumulado em ordem cronológica). */
   const installmentById = new Map(receivable.installments.map(i => [i.id, i]))
@@ -99,6 +111,27 @@ export function RecebimentosHistoryModal({
                     )}
                     {r.observation && <p className="text-[11px] text-text-muted/80 mt-0.5 truncate">{r.observation}</p>}
                   </div>
+                  {r.public_token && (
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        type="button"
+                        title="Copiar link do recibo"
+                        onClick={() => copyReceiptLink(r.public_token!, r.id)}
+                        className="p-1.5 rounded-lg text-text-muted hover:bg-stone-100 dark:hover:bg-stone-800"
+                      >
+                        {copiedId === r.id ? <Check size={14} /> : <Copy size={14} />}
+                      </button>
+                      <a
+                        href={`/loja/recibo/${r.public_token}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Abrir / baixar recibo"
+                        className="p-1.5 rounded-lg text-text-muted hover:bg-stone-100 dark:hover:bg-stone-800"
+                      >
+                        <Receipt size={14} />
+                      </a>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

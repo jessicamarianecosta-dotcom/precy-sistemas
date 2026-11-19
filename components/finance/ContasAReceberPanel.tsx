@@ -8,13 +8,14 @@ import { ptBR } from 'date-fns/locale'
 import { clsx } from 'clsx'
 import {
   ChevronDown, ChevronUp, Wallet, AlertTriangle, Clock3,
-  MoreVertical, CheckCircle2, History, ExternalLink, ListTree,
+  MoreVertical, CheckCircle2, History, ExternalLink, ListTree, Banknote,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils/format'
 import { fetchOrderReceivables, type OrderReceivable, type ReceivableStatus } from '@/lib/orders/receivables'
 import { daysUntil } from '@/lib/orders/paymentSchedule'
 import { ReceberModal } from '@/components/finance/ReceberModal'
 import { RecebimentosHistoryModal } from '@/components/finance/RecebimentosHistoryModal'
+import { GerarCobrancaModal } from '@/components/finance/GerarCobrancaModal'
 
 type SupabaseClient = any
 
@@ -62,6 +63,7 @@ export function ContasAReceberPanel({ companyId, supabase }: { companyId: string
   const [receberInstallmentId, setReceberInstallmentId] = useState<string | null>(null)
   const [installmentsFor, setInstallmentsFor] = useState<string | null>(null)
   const [historyFor, setHistoryFor] = useState<OrderReceivable | null>(null)
+  const [cobrancaFor, setCobrancaFor] = useState<OrderReceivable | null>(null)
 
   const { data: receivables, isLoading } = useQuery<OrderReceivable[]>({
     queryKey: ['contas-a-receber', companyId],
@@ -230,6 +232,11 @@ export function ContasAReceberPanel({ companyId, supabase }: { companyId: string
                                         Registrar recebimento
                                       </MenuItem>
                                     )}
+                                    {canReceive && (
+                                      <MenuItem icon={<Banknote size={13} />} onClick={() => { setMenuFor(null); setCobrancaFor(row) }}>
+                                        Gerar cobrança
+                                      </MenuItem>
+                                    )}
                                     <MenuItem icon={<History size={13} />} onClick={() => { setMenuFor(null); setHistoryFor(row) }}>
                                       Ver histórico de recebimentos
                                     </MenuItem>
@@ -309,6 +316,14 @@ export function ContasAReceberPanel({ companyId, supabase }: { companyId: string
                             <CheckCircle2 size={14} /> Receber
                           </button>
                         )}
+                        {canReceive && (
+                          <button
+                            onClick={() => setCobrancaFor(row)}
+                            className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-medium border border-border dark:border-border-dark text-text-secondary dark:text-stone-300"
+                          >
+                            <Banknote size={14} />
+                          </button>
+                        )}
                         <button
                           onClick={() => setHistoryFor(row)}
                           className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-medium border border-border dark:border-border-dark text-text-secondary dark:text-stone-300"
@@ -346,6 +361,12 @@ export function ContasAReceberPanel({ companyId, supabase }: { companyId: string
           companyId={companyId}
           supabase={supabase}
           onClose={() => setHistoryFor(null)}
+        />
+      )}
+      {cobrancaFor && (
+        <GerarCobrancaModal
+          receivable={cobrancaFor}
+          onClose={() => setCobrancaFor(null)}
         />
       )}
     </div>
