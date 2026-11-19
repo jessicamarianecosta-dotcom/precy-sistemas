@@ -85,7 +85,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const { data: company, error: companyError } = await db
     .from('companies')
-    .select('id, name, cnpj, city')
+    .select('id, name, pix_type, pix_key, pix_label, city')
     .eq('id', companyId)
     .maybeSingle()
   if (companyError || !company) {

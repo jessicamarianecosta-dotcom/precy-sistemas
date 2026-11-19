@@ -56,6 +56,7 @@ import {
   ChevronUp,
   FileStack,
   Copy,
+  Banknote,
 } from 'lucide-react'
 
 import { useForm } from 'react-hook-form'
@@ -81,7 +82,8 @@ import {
   buildPaymentScheduleDraft, IMMEDIATE_CAPABLE_METHODS, daysUntil, effectiveScheduleStatus,
   SCHEDULE_STATUS_LABELS, ORDER_PAYMENT_METHODS, type OrderPaymentMethod,
 } from '@/lib/orders/paymentSchedule'
-import { fetchOrderReceivables } from '@/lib/orders/receivables'
+import { fetchOrderReceivables, type OrderReceivable } from '@/lib/orders/receivables'
+import { GerarCobrancaModal } from '@/components/finance/GerarCobrancaModal'
 import { extractPixSnapshot } from '@/lib/company/pix'
 import { VariantPickerModal, type VariantSelection } from '@/components/produtos/VariantPickerModal'
 import { useProductsWithVariants } from '@/hooks/useProductsWithVariants'
@@ -369,6 +371,7 @@ function PedidosPage() {
 
   /* Payment registration modal */
   const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [showGerarCobranca, setShowGerarCobranca] = useState(false)
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null)
   const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null)
   const [viewingPaymentId, setViewingPaymentId] = useState<string | null>(null)
@@ -3132,20 +3135,32 @@ function PedidosPage() {
                         <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2">
                           <History size={12} /> Histórico de Recebimentos
                         </h3>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingPaymentId(null)
-                            resetPayment({ fill_type: 'amount', amount: 0, percentage: 0, payment_date: new Date().toISOString().split('T')[0], payment_method: '', observation: '' })
-                            setAmountDisplayText('')
-                            setPercentageDisplayText('')
-                            setShowPaymentModal(true)
-                          }}
-                          className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 bg-primary-50 dark:bg-primary/10 px-3 py-1.5 rounded-xl transition-colors"
-                        >
-                          <PlusCircle size={13} />
-                          Registrar Recebimento
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {saldoRestante > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setShowGerarCobranca(true)}
+                              className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 bg-primary-50 dark:bg-primary/10 px-3 py-1.5 rounded-xl transition-colors"
+                            >
+                              <Banknote size={13} />
+                              Gerar cobrança
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingPaymentId(null)
+                              resetPayment({ fill_type: 'amount', amount: 0, percentage: 0, payment_date: new Date().toISOString().split('T')[0], payment_method: '', observation: '' })
+                              setAmountDisplayText('')
+                              setPercentageDisplayText('')
+                              setShowPaymentModal(true)
+                            }}
+                            className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 bg-primary-50 dark:bg-primary/10 px-3 py-1.5 rounded-xl transition-colors"
+                          >
+                            <PlusCircle size={13} />
+                            Registrar Recebimento
+                          </button>
+                        </div>
                       </div>
 
                       {/* Resumo financeiro */}
@@ -3589,6 +3604,33 @@ function PedidosPage() {
           </div>
         </div>
       )}
+
+      {/* ══════════════════════════════════
+          MODAL GERAR COBRANÇA (a partir do pedido)
+      ══════════════════════════════════ */}
+
+      {showGerarCobranca && editingId && (() => {
+        const currentOrder = (orders ?? []).find((o: any) => o.id === editingId)
+        const receivable: OrderReceivable = {
+          orderId: editingId,
+          orderNumber: currentOrder?.order_number ?? null,
+          customerId: watch('customer_id') || null,
+          customerName: selectedCustomer?.name ?? null,
+          serviceName: watch('service_name') || null,
+          total: orderTotal,
+          received: totalReceived,
+          balance: saldoRestante,
+          dueDate: watch('due_date') || null,
+          paymentMethod: watch('payment_method') || null,
+          status: saldoRestante <= 0 ? 'recebido' : totalReceived > 0 ? 'parcial' : 'a_receber',
+          orderStatus: watch('status') || currentOrder?.status || 'pending',
+          paidAt: currentOrder?.paid_at ?? null,
+          nextScheduleId: null,
+          installments: [],
+          installmentsPaid: 0,
+        }
+        return <GerarCobrancaModal receivable={receivable} onClose={() => setShowGerarCobranca(false)} />
+      })()}
 
       {/* ══════════════════════════════════
           MODAL REGISTRAR RECEBIMENTO

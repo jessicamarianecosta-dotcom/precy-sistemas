@@ -74,6 +74,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     try {
       pix = await renderChargePix({
         pixKey: charge.pix_key,
+        pixType: charge.pix_type,
         pixLabel: charge.pix_label || charge.companies?.name || 'RECEBEDOR',
         merchantCity: charge.companies?.city || 'BRASIL',
         amount: display.amountDue,

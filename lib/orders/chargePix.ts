@@ -1,58 +1,60 @@
 /**
- * Pix da cobrança (Financeiro → Cobrança) — SEMPRE a chave CNPJ da
- * empresa, nunca a chave Pix genérica configurada em
- * Configurações › Dados de pagamento (essa é livre/qualquer tipo e
- * usada em orçamentos/pedidos; a cobrança do Financeiro é
- * especificamente ligada ao CNPJ da empresa, por pedido explícito do
- * fluxo de cobrança).
+ * Pix da cobrança (Financeiro → Cobrança) — usa a MESMA chave Pix
+ * configurada em Configurações › Dados de pagamento, já usada em
+ * orçamentos e pedidos (mesmo padrão de app/api/loja/orcamento/[token]).
  *
- * Nunca inventa dado: se a empresa não tiver CNPJ e cidade cadastrados
- * em Configurações, a cobrança não pode ser gerada (ver
+ * Importante: não existe garantia de que toda empresa tenha um CNPJ
+ * válido cadastrado (negócios informais/MEI podem não ter, ou podem
+ * usar o campo "CNPJ" do cadastro da empresa para outra coisa, como
+ * um @ do Instagram). A chave Pix é o dado que a própria usuária
+ * escolheu e validou ao configurar "Dados de pagamento" — é essa que
+ * deve ser usada para gerar a cobrança, não o campo CNPJ bruto.
+ *
+ * Nunca inventa dado: se a empresa não tiver uma chave Pix configurada
+ * em Dados de pagamento, a cobrança não pode ser gerada (ver
  * `missingCompanyPixFields`).
  */
 
 import QRCode from 'qrcode'
-import { onlyDigits, isValidCnpjLength } from '@/lib/utils/mask'
 import { buildPixPayload, sanitizeTxid } from '@/lib/pix/brcode'
 
 export interface CompanyForChargePix {
   name?: string | null
-  cnpj?: string | null
+  pix_type?: string | null
+  pix_key?: string | null
+  pix_label?: string | null
   city?: string | null
 }
 
 /** Campos que faltam na empresa para poder gerar o Pix da cobrança (vazio = pode gerar). */
 export function missingCompanyPixFields(company: CompanyForChargePix | null | undefined): string[] {
   const missing: string[] = []
-  const cnpjDigits = onlyDigits(company?.cnpj)
-  if (!company || !isValidCnpjLength(cnpjDigits)) missing.push('CNPJ')
-  if (!company?.city) missing.push('Cidade')
-  if (!company?.name) missing.push('Nome da empresa')
+  if (!company || !company.pix_key || !company.pix_key.trim()) missing.push('Chave Pix (Dados de pagamento)')
   return missing
 }
 
 export interface ChargePixSnapshot {
-  pix_type: 'cnpj'
+  pix_type: string
   pix_key: string
   pix_label: string
 }
 
-/** Snapshot gravado em order_charges no momento da criação (congela CNPJ/nome). */
+/** Snapshot gravado em order_charges no momento da criação (congela a chave/nome do momento). */
 export function buildChargePixSnapshot(company: CompanyForChargePix): ChargePixSnapshot {
   const missing = missingCompanyPixFields(company)
   if (missing.length > 0) {
-    throw new Error(`Configure ${missing.join(', ')} da empresa em Configurações antes de gerar uma cobrança.`)
+    throw new Error(`Configure ${missing.join(', ')} em Configurações antes de gerar uma cobrança.`)
   }
   return {
-    pix_type: 'cnpj',
-    pix_key: onlyDigits(company.cnpj),
-    pix_label: (company.name || '').trim(),
+    pix_type: company.pix_type || 'outro',
+    pix_key: (company.pix_key || '').trim(),
+    pix_label: (company.pix_label || company.name || '').trim(),
   }
 }
 
 export interface RenderedChargePix {
   key: string
-  type: 'cnpj'
+  type: string
   label: string
   amount: number
   payload: string
@@ -67,6 +69,7 @@ export interface RenderedChargePix {
  */
 export async function renderChargePix(params: {
   pixKey: string
+  pixType?: string
   pixLabel: string
   merchantCity: string
   amount: number
@@ -83,7 +86,7 @@ export async function renderChargePix(params: {
   const qrCodeBase64 = await QRCode.toDataURL(payload, { margin: 1, width: 320 })
   return {
     key: params.pixKey,
-    type: 'cnpj',
+    type: params.pixType || 'outro',
     label: params.pixLabel,
     amount: params.amount,
     payload,
