@@ -57,6 +57,7 @@ import {
   FileStack,
   Copy,
   Banknote,
+  Receipt,
 } from 'lucide-react'
 
 import { useForm } from 'react-hook-form'
@@ -529,6 +530,7 @@ function PedidosPage() {
         created_by: string | null
         created_at: string
         updated_at: string
+        public_token: string | null
       }>
     },
   })
@@ -3324,6 +3326,17 @@ function PedidosPage() {
                                   </td>
                                   <td className="px-3 py-2.5 whitespace-nowrap text-right">
                                     <div className="flex items-center justify-end gap-1">
+                                      {p.public_token && (
+                                        <a
+                                          href={`/loja/recibo/${p.public_token}`}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 transition-colors"
+                                          title="Gerar/abrir recibo deste recebimento"
+                                        >
+                                          <Receipt size={12} />
+                                        </a>
+                                      )}
                                       <button
                                         type="button"
                                         onClick={() => setViewingPaymentId(p.id)}

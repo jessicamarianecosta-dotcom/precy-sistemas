@@ -15,7 +15,7 @@ import {
   Filter, Edit3, CheckCircle, Clock, AlertTriangle,
   Tag, User, ShoppingCart, FileText,
   Eye, Wallet, HandCoins, Layers, RefreshCw, CreditCard,
-  Truck, ChevronDown, UserCog,
+  Truck, ChevronDown, UserCog, Receipt,
 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isToday, parseISO, subMonths, addMonths, getDaysInMonth, getDay, isBefore, isAfter } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -38,6 +38,9 @@ interface Transaction {
   status?:           string
   client_name?:      string
   order_id?:         string | null
+  payment_history_id?: string | null
+  /** public_token do payment_history vinculado — permite abrir/gerar o recibo direto daqui. */
+  receipt_token?:    string | null
   notes?:            string
   recurring_bill_id?: string | null
   due_date?:          string | null
@@ -327,11 +330,14 @@ export default function FinanceiroPage() {
     enabled:  !!companyId,
     queryFn:  async () => {
       const { data, error } = await (supabase.from('financial_transactions') as any)
-        .select('*')
+        .select('*, payment_history(public_token)')
         .eq('company_id', companyId!)
         .order('date', { ascending: false })
       if (error) throw error
-      const real = (data ?? []) as Transaction[]
+      const real = (data ?? []).map((t: any) => ({
+        ...t,
+        receipt_token: t.payment_history?.public_token ?? null,
+      })) as Transaction[]
 
       /* Receitas previstas: saldo pendente de cada parcela de pedido (payment_schedule).
          A mesma consulta alimenta o filtro de período, então "Próx. mês" enxerga
@@ -1024,6 +1030,10 @@ export default function FinanceiroPage() {
                           <button onClick={() => setGroupViewId(t.expense_group_id!)} title="Ver parcelas"
                             className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Layers size={13}/></button>
                         )}
+                        {t.type === 'income' && t.receipt_token && (
+                          <a href={`/loja/recibo/${t.receipt_token}`} target="_blank" rel="noreferrer" title="Gerar/abrir recibo"
+                            className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Receipt size={13}/></a>
+                        )}
                         <button onClick={() => setViewTx(t)} title="Visualizar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Eye size={13}/></button>
                         {!t.forecast && <button onClick={() => openEdit(t)} title="Editar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>}
                         {!t.forecast && <button onClick={() => setDeleteId(t.id)} title="Excluir" className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors"><Trash2 size={13}/></button>}
@@ -1123,6 +1133,9 @@ export default function FinanceiroPage() {
                               )}
                               {t.expense_group_id && (
                                 <button onClick={() => setGroupViewId(t.expense_group_id!)} title="Ver parcelas" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Layers size={13}/></button>
+                              )}
+                              {t.type === 'income' && t.receipt_token && (
+                                <a href={`/loja/recibo/${t.receipt_token}`} target="_blank" rel="noreferrer" title="Gerar/abrir recibo" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Receipt size={13}/></a>
                               )}
                               <button onClick={() => setViewTx(t)} title="Visualizar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Eye size={13}/></button>
                               {!t.forecast && <button onClick={() => openEdit(t)} title="Editar" className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors"><Edit3 size={13}/></button>}
