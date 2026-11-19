@@ -52,32 +52,29 @@ export default function CadastroPage() {
     setError(null)
 
     try {
-      /* ── 1. Criar usuário ── */
+      /* ── 1. Criar usuário (já com e-mail confirmado, via Admin API
+         server-side — ver app/api/auth/signup) ── */
       setStep('Criando conta...')
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email:    data.email,
-        password: data.password,
-        options: {
-          data: {
-            name:         data.name,
-            company_name: data.company_name,
-          },
-        },
+      const signupRes = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email:        data.email,
+          password:     data.password,
+          name:         data.name,
+          company_name: data.company_name,
+        }),
       })
 
-      if (authError) {
-        setError(authError.message.includes('already registered')
-          ? 'Este e-mail já está cadastrado.'
-          : authError.message)
+      if (!signupRes.ok) {
+        const body = await signupRes.json().catch(() => ({}))
+        setError(body.error || 'Não foi possível criar a conta. Tente novamente.')
         return
       }
 
-      if (!authData.user) {
-        setError('Não foi possível criar a conta. Tente novamente.')
-        return
-      }
-
-      /* ── 2. Fazer login para ter sessão ativa ── */
+      /* ── 2. Fazer login para ter sessão ativa — como o usuário já
+         nasce confirmado, isso nunca cai no caso "Email not
+         confirmed" que mandava a pessoa de volta pro /login. ── */
       setStep('Configurando acesso...')
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email:    data.email,
@@ -85,9 +82,7 @@ export default function CadastroPage() {
       })
 
       if (signInError) {
-        // Confirmação de e-mail pode ser necessária
-        setSuccess(true)
-        setTimeout(() => router.push('/login'), 2000)
+        setError(signInError.message)
         return
       }
 
