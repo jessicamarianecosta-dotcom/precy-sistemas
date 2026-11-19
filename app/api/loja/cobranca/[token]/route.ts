@@ -27,7 +27,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     .select(`
       id, order_id, amount, due_date, notes, status, pix_type, pix_key, pix_label, pix_txid,
       sent_at, first_viewed_at, last_viewed_at, view_count, created_at,
-      orders(order_number, service_name, total, status, customer_id),
+      orders(order_number, service_name, description, total, status, customer_id),
       customers(name, phone, email, cpf_cnpj),
       companies(name, email, phone, cnpj, logo_url, primary_color, secondary_color, city)
     `)
@@ -98,6 +98,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     order: {
       order_number: order.order_number,
       service_name: order.service_name,
+      description: order.description,
       total: order.total,
     },
     customer: {

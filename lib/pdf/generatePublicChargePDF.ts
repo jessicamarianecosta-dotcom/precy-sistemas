@@ -12,7 +12,7 @@ export interface PublicChargePrintData {
   order: Record<string, unknown>
   customer: Record<string, unknown>
   company: Record<string, unknown>
-  pix: { key: string; label: string; payload: string; qrCodeBase64: string } | null
+  pix: { key: string; type?: string; label: string; payload: string; qrCodeBase64: string } | null
 }
 
 export function generatePublicChargePDF(data: PublicChargePrintData): void {
@@ -33,6 +33,7 @@ export function generatePublicChargePDF(data: PublicChargePrintData): void {
     order: {
       number: o.order_number,
       serviceName: o.service_name,
+      description: o.description,
     },
     customer: {
       name: cu.name,

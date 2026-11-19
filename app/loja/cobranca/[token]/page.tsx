@@ -3,9 +3,10 @@
 import { useState } from 'react'
 import { useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { Copy, Check, Download, AlertTriangle, Clock, CheckCircle2, Building2 } from 'lucide-react'
+import { Copy, Check, Download, AlertTriangle, Clock, CheckCircle2, Building2, ChevronDown, ChevronUp, Package } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils/format'
 import { generatePublicChargePDF } from '@/lib/pdf/generatePublicChargePDF'
+import { pixTypeLabel } from '@/lib/company/pix'
 
 interface ApiResponse {
   charge: {
@@ -17,7 +18,7 @@ interface ApiResponse {
     status_label: string
     created_at: string
   }
-  order: { order_number: string; service_name: string | null; total: number }
+  order: { order_number: string; service_name: string | null; description: string | null; total: number }
   customer: { name: string | null }
   company: {
     name: string; email: string | null; phone: string | null; cnpj: string | null
@@ -56,6 +57,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 export default function CobrancaPublicaPage() {
   const params = useParams()
   const token = String(params.token ?? '')
+  const [showOrderDetails, setShowOrderDetails] = useState(false)
 
   const { data, isLoading, error } = useQuery<ApiResponse>({
     queryKey: ['loja-cobranca', token],
@@ -122,10 +124,6 @@ export default function CobrancaPublicaPage() {
               <p className="font-medium text-stone-700 dark:text-stone-200">{customer.name || '—'}</p>
             </div>
             <div>
-              <p className="text-stone-400">Pedido</p>
-              <p className="font-medium text-stone-700 dark:text-stone-200">{order.order_number}</p>
-            </div>
-            <div className="col-span-2">
               <p className="text-stone-400">Vencimento</p>
               <p className="font-medium text-stone-700 dark:text-stone-200">
                 {new Date(charge.due_date + 'T00:00:00').toLocaleDateString('pt-BR')}
@@ -137,6 +135,22 @@ export default function CobrancaPublicaPage() {
               {charge.notes}
             </p>
           )}
+
+          <button
+            type="button"
+            onClick={() => setShowOrderDetails(v => !v)}
+            className="w-full flex items-center justify-between gap-2 pt-2 mt-2 border-t border-stone-100 dark:border-stone-800 text-xs font-semibold text-stone-500 dark:text-stone-400"
+          >
+            <span className="flex items-center gap-1.5"><Package size={13} /> Pedido {order.order_number}</span>
+            {showOrderDetails ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+          {showOrderDetails && (
+            <div className="pt-1 text-left text-xs text-stone-600 dark:text-stone-300 space-y-1">
+              {order.service_name && <p><b>{order.service_name}</b></p>}
+              {order.description && <p className="whitespace-pre-wrap text-stone-500 dark:text-stone-400">{order.description}</p>}
+              {!order.service_name && !order.description && <p className="text-stone-400">Sem detalhes adicionais.</p>}
+            </div>
+          )}
         </div>
 
         {pix && charge.status !== 'paga' && charge.status !== 'cancelada' ? (
@@ -147,7 +161,7 @@ export default function CobrancaPublicaPage() {
               <img src={pix.qrCodeBase64} alt="QR Code Pix" className="w-48 h-48 rounded-lg border border-stone-200 dark:border-stone-700" />
               <div className="text-xs text-stone-500 dark:text-stone-400 text-center space-y-0.5">
                 {pix.label && <p>Beneficiário: <b className="text-stone-700 dark:text-stone-200">{pix.label}</b></p>}
-                <p className="break-all">Chave Pix (CNPJ): <b className="text-stone-700 dark:text-stone-200">{pix.key}</b></p>
+                <p className="break-all">Chave {pixTypeLabel(pix.type) || 'Pix'}: <b className="text-stone-700 dark:text-stone-200">{pix.key}</b></p>
               </div>
             </div>
             <CopyButton value={pix.key} label="Copiar chave Pix" />

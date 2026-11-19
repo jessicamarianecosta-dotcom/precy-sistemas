@@ -10,6 +10,7 @@
    ============================================================ */
 
 import { formatCurrency } from '@/lib/utils/format'
+import { pixTypeLabel } from '@/lib/company/pix'
 
 const X = (s: unknown) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
@@ -31,10 +32,10 @@ const STATUS_BADGE: Record<string, { label: string; bg: string; fg: string }> = 
 
 export interface ChargePrintVM {
   company: { name: unknown; email?: unknown; phone?: unknown; cnpj?: unknown; logoUrl?: string | null; primaryColor?: unknown }
-  order: { number: unknown; serviceName?: unknown }
+  order: { number: unknown; serviceName?: unknown; description?: unknown }
   customer: { name?: unknown }
   charge: { amountDue: number; dueDate: string; status: string; notes?: unknown; createdAt?: unknown }
-  pix: { key: string; label: string; payload: string; qrCodeBase64: string } | null
+  pix: { key: string; type?: string; label: string; payload: string; qrCodeBase64: string } | null
 }
 
 export function renderChargePrintHTML(vm: ChargePrintVM): string {
@@ -82,6 +83,10 @@ export function renderChargePrintHTML(vm: ChargePrintVM): string {
   .pix-code{font-family:'Courier New',monospace;font-size:9.5px;word-break:break-all;background:#faf8f5;
     border:1px dashed #ddd;border-radius:6px;padding:8px 10px;margin-top:6px;color:#444;}
   .obs{margin:0 28px 20px;font-size:11.5px;color:#666;}
+  .order-desc{margin:0 28px 20px;padding-top:14px;border-top:1px solid #ede9e3;}
+  .order-desc .lbl{margin-bottom:5px;}
+  .order-desc .svc{font-size:12.5px;font-weight:700;color:#1a1208;margin-bottom:4px;}
+  .order-desc .txt{font-size:11.5px;color:#666;white-space:pre-wrap;}
   .footer{padding:16px 28px;border-top:1px solid #ede9e3;font-size:10px;color:#aaa;display:flex;justify-content:space-between;}
 </style>
 </head>
@@ -119,7 +124,7 @@ export function renderChargePrintHTML(vm: ChargePrintVM): string {
     <img class="pix-qr" src="${vm.pix.qrCodeBase64}" alt="QR Code Pix">
     <div class="pix-info">
       <div><b>Pagamento via Pix</b></div>
-      <div>Chave Pix (CNPJ): <b>${X(vm.pix.key)}</b></div>
+      <div>Chave ${X(pixTypeLabel(vm.pix.type) || 'Pix')}: <b>${X(vm.pix.key)}</b></div>
       ${vm.pix.label ? `<div>Beneficiário: ${X(vm.pix.label)}</div>` : ''}
       <div>Pix copia e cola:</div>
       <div class="pix-code">${X(vm.pix.payload)}</div>
@@ -127,6 +132,13 @@ export function renderChargePrintHTML(vm: ChargePrintVM): string {
   </div>` : ''}
 
   ${vm.charge.notes ? `<div class="obs"><b>Observações:</b> ${X(vm.charge.notes)}</div>` : ''}
+
+  ${(vm.order.serviceName || vm.order.description) ? `
+  <div class="order-desc">
+    <div class="lbl">Sobre o pedido</div>
+    ${vm.order.serviceName ? `<div class="svc">${X(vm.order.serviceName)}</div>` : ''}
+    ${vm.order.description ? `<div class="txt">${X(vm.order.description)}</div>` : ''}
+  </div>` : ''}
 
   <div class="footer">
     <span>${coName}</span>
