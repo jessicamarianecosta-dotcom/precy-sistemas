@@ -7,7 +7,14 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/client'
-import { Eye, EyeOff, Loader2, UserPlus, CheckCircle } from 'lucide-react'
+import { Eye, EyeOff, Loader2, UserPlus, CheckCircle, Check } from 'lucide-react'
+
+type TrialPlan = 'essencial' | 'pro'
+
+const TRIAL_PLAN_OPTIONS: { id: TrialPlan; label: string; price: string; desc: string }[] = [
+  { id: 'essencial', label: 'Essencial', price: 'R$ 97/ano',  desc: 'Catálogo Online, Agenda e Financeiro' },
+  { id: 'pro',       label: 'Pro',       price: 'R$ 47/mês',  desc: 'Financeiro avançado e Biblioteca Precy+' },
+]
 
 const cadastroSchema = z.object({
   name:            z.string().min(2, 'Nome deve ter ao menos 2 caracteres'),
@@ -34,6 +41,7 @@ export default function CadastroPage() {
   const [error,        setError]        = useState<string | null>(null)
   const [success,      setSuccess]      = useState(false)
   const [step,         setStep]         = useState<string>('Criando conta...')
+  const [trialPlan,    setTrialPlan]    = useState<TrialPlan>('essencial')
 
   const { register, handleSubmit, formState: { errors } } = useForm<CadastroForm>({
     resolver: zodResolver(cadastroSchema),
@@ -85,7 +93,11 @@ export default function CadastroPage() {
 
       /* ── 3. Criar empresa via API route (usa supabaseAdmin = sem RLS) ── */
       setStep('Configurando seu negócio...')
-      const res = await fetch('/api/setup-company', { method: 'POST' })
+      const res = await fetch('/api/setup-company', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: trialPlan }),
+      })
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -196,6 +208,42 @@ export default function CadastroPage() {
           <input type="password" autoComplete="new-password" placeholder="Repita a senha"
             className="input" {...register('confirmPassword')} />
           {errors.confirmPassword && <p className="mt-1 text-xs text-error">{errors.confirmPassword.message}</p>}
+        </div>
+
+        {/* Qual plano testar durante os 7 dias grátis */}
+        <div>
+          <label className="block text-sm font-medium text-text-primary dark:text-stone-200 mb-1.5">
+            Qual plano você quer testar?
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {TRIAL_PLAN_OPTIONS.map(opt => {
+              const selected = trialPlan === opt.id
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setTrialPlan(opt.id)}
+                  className={`relative text-left rounded-xl border-2 p-3 transition-all ${
+                    selected
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border dark:border-[#3A3028] hover:border-primary/40'
+                  }`}
+                >
+                  {selected && (
+                    <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-primary flex items-center justify-center">
+                      <Check size={10} className="text-white" strokeWidth={3} />
+                    </span>
+                  )}
+                  <p className="text-sm font-bold text-text-primary dark:text-stone-100">{opt.label}</p>
+                  <p className="text-xs text-text-muted dark:text-stone-500">{opt.price}</p>
+                  <p className="text-xs text-text-secondary dark:text-stone-400 mt-1">{opt.desc}</p>
+                </button>
+              )
+            })}
+          </div>
+          <p className="mt-1.5 text-xs text-text-muted dark:text-stone-500">
+            Durante os 7 dias grátis você vê exatamente o que o plano escolhido libera. Pode trocar depois, sem perder nada.
+          </p>
         </div>
 
         {/* Aceite de Termos/Privacidade */}

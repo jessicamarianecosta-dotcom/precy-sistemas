@@ -22,6 +22,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
     }
 
+    // Plano que o usuário escolheu testar no cadastro (seletor "Essencial
+    // ou Pro" em app/(auth)/cadastro/page.tsx). Chamadas sem corpo (ex.:
+    // fallback em hooks/useCompanyId.ts) ou com valor inválido caem no
+    // default 'essencial' — nunca 'basic', que não é mais oferecido no
+    // trial. Isso só decide QUAL nível de acesso o trial de 7 dias libera
+    // (ver effectivePlan em middleware.ts e isPro/isEssencial em
+    // useSubscription.ts); depois que o trial acaba, o usuário escolhe de
+    // verdade na tela de assinatura.
+    const body = await request.json().catch(() => ({} as any))
+    const requestedPlan = body?.plan === 'pro' ? 'pro' : 'essencial'
+
     // device_id: cookie httpOnly de primeira parte usado para antiabuso de
     // trial (ver lib/trial/antiAbuse.ts) — precisa ser lido/gerado antes de
     // qualquer return, para ser sempre gravado na resposta.
@@ -75,9 +86,14 @@ export async function POST(request: NextRequest) {
     const ipHash = hashIp(ip)
     const abusive = await isTrialAbusive(deviceId, ipHash)
 
+    // Duração do trial é fixa em 7 dias pra qualquer plano escolhido —
+    // PLANS.essencial/basic.trialDays valem 7, PLANS.pro.trialDays é 0
+    // porque esse campo nunca foi pensado pra ser lido por plano aqui
+    // (é usado em app/api/stripe/checkout/route.ts pra outra coisa).
+    const TRIAL_DAYS = PLANS.essencial.trialDays
     const trialEnd = abusive
-      ? new Date().toISOString() // trial já "usado" — sem bônus, cai direto no Basic normal
-      : new Date(Date.now() + PLANS.basic.trialDays * 24 * 60 * 60 * 1000).toISOString()
+      ? new Date().toISOString() // trial já "usado" — sem bônus, acesso cai no plano escolhido sem nível de trial
+      : new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
     // Upsert com ignoreDuplicates: a garantia de "nunca duplicar" vem da
     // constraint UNIQUE(user_id) no banco, não deste código — se duas
@@ -94,7 +110,7 @@ export async function POST(request: NextRequest) {
         fixed_costs:          0,
         currency:             'BRL',
         timezone:             'America/Sao_Paulo',
-        current_plan:         'basic',
+        current_plan:         requestedPlan,
         subscription_status:  'trialing',
         trial_end:            trialEnd,
       },

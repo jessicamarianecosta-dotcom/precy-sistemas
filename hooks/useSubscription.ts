@@ -65,10 +65,15 @@ export function useSubscription() {
       const trialActive = status === 'trialing' && !!data.trial_end && new Date() < new Date(data.trial_end)
       const isTrial     = trialActive
       const isActive    = status === 'active' || trialActive
-      // Trial continua liberando o nível mais alto (Pro) enquanto vigente,
-      // igual já era antes do plano Essencial existir — isso não mudou.
-      const isPro       = (plan === 'pro' && status === 'active') || trialActive
-      const isEssencial = (plan === 'essencial' && status === 'active') || trialActive
+      // Empresas antigas (criadas antes do seletor de plano no cadastro)
+      // ficaram com current_plan='basic' e, nessas, o trial continua
+      // liberando PRO completo — a promessa original nunca mudou pra quem
+      // já estava em trial. Cadastros novos gravam 'essencial' ou 'pro' de
+      // propósito (ver app/api/setup-company), então o trial passa a
+      // refletir o nível realmente escolhido: testando Essencial não
+      // libera o que é exclusivo do PRO.
+      const isPro       = (plan === 'pro' && status === 'active') || (trialActive && (plan === 'pro' || plan === 'basic'))
+      const isEssencial = (plan === 'essencial' && status === 'active') || (trialActive && (plan === 'essencial' || plan === 'pro' || plan === 'basic'))
       const isExpired   = (status === 'trialing' && !trialActive) || ['canceled', 'past_due', 'expired'].includes(status)
 
       return {

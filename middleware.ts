@@ -258,9 +258,17 @@ export async function middleware(req: NextRequest) {
   }
 
   /* ── Proteção de rotas Essencial/PRO ── */
-  // trial válido → acesso PRO completo (mesmo comportamento de antes do
-  // plano Essencial existir); trial expirado → reverte para plan do banco
-  const effectivePlan: string = (!trialExpired && status === 'trialing') ? 'pro' : plan
+  // Trial válido → acesso no nível do plano ESCOLHIDO no cadastro (ver
+  // app/(auth)/cadastro/page.tsx + app/api/setup-company): testando
+  // Essencial, rotas exclusivas do PRO ficam bloqueadas durante o trial
+  // também, pra mostrar de verdade a diferença entre os planos. Empresas
+  // antigas com current_plan='basic' (de antes desse seletor existir)
+  // continuam caindo em PRO completo durante o trial — comportamento
+  // original, preservado pra não surpreender quem já estava em trial.
+  // Trial expirado → reverte para plan do banco.
+  const effectivePlan: string = (!trialExpired && status === 'trialing')
+    ? (plan === 'essencial' ? 'essencial' : 'pro')
+    : plan
   const hasEssencialAccess = effectivePlan === 'essencial' || effectivePlan === 'pro'
   const hasProAccess       = effectivePlan === 'pro'
 
