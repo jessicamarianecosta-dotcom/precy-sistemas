@@ -307,3 +307,27 @@ export function tightenRollLength(result: PackingResult, marginTopMm: number, ma
     utilizationPct: totalArea > 0 ? (result.usedAreaMm2 / totalArea) * 100 : 0,
   }
 }
+
+/**
+ * A largura da bobina informada serve só pra calcular quantos adesivos
+ * cabem lado a lado (ex: "minha bobina é de 120cm, quantos cabem?") — a
+ * impressão de fato roda noutro programa, então se a largura física é
+ * 120cm mas as colunas só usam 108cm, o arquivo exportado deve ter 108cm de
+ * largura, não 120cm. Mesma lógica de `tightenRollLength`, no eixo da
+ * largura.
+ */
+export function tightenRollWidth(result: PackingResult, marginLeftMm: number, marginRightMm: number, spacingXMm: number): PackingResult {
+  if (!result.fits) return result
+  const gridWidth = spaceForCount(result.cols, result.itemWidthMm, spacingXMm)
+  const tightWidth = marginLeftMm + marginRightMm + gridWidth
+  if (tightWidth >= result.containerWidthMm - EPS) return result
+
+  const totalArea = tightWidth * result.containerHeightMm
+  return {
+    ...result,
+    containerWidthMm: tightWidth,
+    totalAreaMm2: totalArea,
+    wasteAreaMm2: totalArea - result.usedAreaMm2,
+    utilizationPct: totalArea > 0 ? (result.usedAreaMm2 / totalArea) * 100 : 0,
+  }
+}

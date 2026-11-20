@@ -7,7 +7,7 @@ import { useMontagemStore, useMontagemComparison } from '@/lib/montagem/store'
 import { exportPng, downloadBlob } from '@/lib/montagem/exportPng'
 import { exportPdf } from '@/lib/montagem/exportPdf'
 import { exportCutContourPdf, exportCutContourSvg } from '@/lib/montagem/exportCutContour'
-import { tightenRollLength } from '@/lib/montagem/packing'
+import { tightenRollLength, tightenRollWidth } from '@/lib/montagem/packing'
 
 type Background = 'white' | 'transparent'
 
@@ -33,13 +33,16 @@ export function ExportPanel() {
   const canUseTransparent = !!art?.hasAlpha
   const effectiveBackground: Background = canUseTransparent ? background : 'white'
 
-  // No modo "informar comprimento" da bobina, o comprimento calculado para
-  // aproveitamento/desperdício é o que a pessoa disse ter disponível — mas o
-  // arquivo exportado não deve incluir a sobra em branco no fim, só o que
-  // de fato tem peça impressa.
+  // A largura/comprimento de bobina informados servem só pra calcular quantos
+  // adesivos cabem — a impressão real roda noutro programa, então o arquivo
+  // exportado deve ter só o tamanho de fato usado pelas colunas/linhas, não o
+  // valor digitado (que é só um limite físico de referência).
   const isBobinaLengthMode = mode === 'bobina' && bobina.desiredQty == null
-  const exportResult = result && isBobinaLengthMode
-    ? tightenRollLength(result, margins.top, margins.bottom, spacing.y)
+  const exportResult = result && mode === 'bobina'
+    ? tightenRollWidth(
+        isBobinaLengthMode ? tightenRollLength(result, margins.top, margins.bottom, spacing.y) : result,
+        margins.left, margins.right, spacing.x,
+      )
     : result
 
   async function handleExportPng() {
