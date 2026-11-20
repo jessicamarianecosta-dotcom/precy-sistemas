@@ -5,9 +5,13 @@ import { canAccessCatalog }       from '@/lib/catalog/betaAccess'
 import { TERMS_VERSION, PRIVACY_VERSION } from '@/lib/legal/versions'
 
 /* ── Rotas públicas ── */
+// /api/auth/signup precisa ser pública: é chamada por um visitante ainda SEM
+// sessão (ver app/(auth)/cadastro/page.tsx) — sem isso, o middleware barra a
+// chamada e manda pro /login antes de criar a conta, quebrando o cadastro de
+// usuários novos.
 const PUBLIC = ['/', '/login', '/cadastro', '/recuperar-senha', '/nova-senha',
                 '/termos', '/privacidade', '/reembolso', '/cancelamento', '/suporte',
-                '/loja', '/api/loja']
+                '/loja', '/api/loja', '/api/auth/signup']
 
 /* ── Gate de re-aceite de Termos/Privacidade: liberado mesmo sem aceite
    atual, para não gerar loop de redirecionamento ── */
