@@ -7,7 +7,7 @@ import { useMontagemStore, useMontagemComparison } from '@/lib/montagem/store'
 import { exportPng, downloadBlob } from '@/lib/montagem/exportPng'
 import { exportPdf } from '@/lib/montagem/exportPdf'
 import { exportCutContourPdf, exportCutContourSvg } from '@/lib/montagem/exportCutContour'
-import { singleItemResult, tightenRollLength, tightenRollWidth } from '@/lib/montagem/packing'
+import { tightenRollLength, tightenRollWidth } from '@/lib/montagem/packing'
 
 type Background = 'white' | 'transparent'
 
@@ -25,7 +25,6 @@ export function ExportPanel() {
   const [includeCutContour, setIncludeCutContour] = useState(true)
   const [busy, setBusy] = useState<'pdf' | 'png' | 'faca-pdf' | 'faca-svg' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [scope, setScope] = useState<'grid' | 'single'>('grid')
 
   const isUnidade = mode === 'unidade'
   const margins = mode === 'folha' ? folha.margins : mode === 'bobina' ? bobina.margins : { top: 0, right: 0, bottom: 0, left: 0 }
@@ -40,7 +39,7 @@ export function ExportPanel() {
   // valor digitado (que é só um limite físico de referência). No modo "peça
   // única" o resultado já vem pronto (1×1, sem margem) direto da store.
   const isBobinaLengthMode = mode === 'bobina' && bobina.desiredQty == null
-  const gridResult = result && mode === 'bobina'
+  const exportResult = result && mode === 'bobina'
     ? tightenRollWidth(
         isBobinaLengthMode ? tightenRollLength(result, margins.top, margins.bottom, spacing.y) : result,
         margins.left, margins.right, spacing.x,
@@ -51,17 +50,6 @@ export function ExportPanel() {
   const exportSpacingX = spacing.x
   const exportSpacingY = spacing.y
   const canExport = isUnidade ? !!art : !!art && !!result?.fits
-
-  // "Peça única": baixa só a arte final (já com borda/faca, se ativas) no
-  // tamanho dela mesma, sem multiplicar em folha ou bobina — reaproveita as
-  // mesmas funções de exportação com um resultado sintético de 1×1, sem
-  // margem nem espaçamento.
-  const exportResult = scope === 'single' && art ? singleItemResult(art.widthMm, art.heightMm) : gridResult
-  const exportMarginLeft = scope === 'single' ? 0 : margins.left
-  const exportMarginTop = scope === 'single' ? 0 : margins.top
-  const exportSpacingX = scope === 'single' ? 0 : spacing.x
-  const exportSpacingY = scope === 'single' ? 0 : spacing.y
-  const canExport = scope === 'single' ? !!art : !!art && !!result?.fits
 
   async function handleExportPng() {
     if (!art || !exportResult) return
@@ -128,36 +116,6 @@ export function ExportPanel() {
           Modo &ldquo;Peça única&rdquo;: baixa só esta arte (com borda/faca, se ativas), no tamanho dela mesma — sem montar em folha ou bobina.
         </p>
       )}
-
-      <div>
-        <label className="text-xs font-medium text-text-secondary dark:text-stone-400">O que exportar</label>
-        <div className="flex gap-1.5 mt-1.5">
-          <button
-            onClick={() => setScope('grid')}
-            className={clsx(
-              'flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors',
-              scope === 'grid' ? 'bg-primary text-white border-primary' : 'border-border dark:border-border-dark text-text-secondary',
-            )}
-          >
-            Grade completa
-          </button>
-          <button
-            onClick={() => setScope('single')}
-            disabled={!art}
-            className={clsx(
-              'flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
-              scope === 'single' ? 'bg-primary text-white border-primary' : 'border-border dark:border-border-dark text-text-secondary',
-            )}
-          >
-            Peça única
-          </button>
-        </div>
-        {scope === 'single' && (
-          <p className="text-[11px] text-text-muted mt-1.5">
-            Baixa só esta arte (com borda/faca, se ativas), no tamanho dela mesma — sem multiplicar em folha ou bobina.
-          </p>
-        )}
-      </div>
 
       <div>
         <label className="text-xs font-medium text-text-secondary dark:text-stone-400">Resolução PNG (DPI)</label>
