@@ -109,19 +109,85 @@ export async function trimBackground(art: ImportedArt, tolerance = 18): Promise<
   }
 }
 
+export interface RemoveBackgroundOptions {
+  tolerance?: number
+  /**
+   * false (padrão): remove só o fundo conectado à borda externa da imagem
+   * — nunca mexe em áreas de cor parecida que estejam cercadas pela própria
+   * arte (ex: o miolo de uma letra "O"), porque elas não têm caminho até a
+   * borda. true: depois de limpar a borda, também remove essas áreas
+   * fechadas ("buracos").
+   */
+  removeHoles?: boolean
+}
+
 /**
- * Torna transparentes os pixels que correspondem à cor de fundo detectada
- * (mesma lógica de detecção do recorte), preservando intactos os pixels da
- * arte — não altera matiz/cor de nada, só zera o canal alfa onde era fundo.
- * Útil quando o arquivo original (JPG, ou PNG sem alfa) tem fundo sólido e
- * se quer exportar com fundo transparente.
+ * Pura (sem DOM, testável): a partir de pixels RGBA, decide quais devem
+ * virar transparentes. O fundo só é removido por preenchimento por inundação
+ * (flood fill, 4-conectado) a partir das bordas da imagem, andando só por
+ * pixels de cor parecida com o fundo — nunca atravessa a arte. Por isso uma
+ * área de cor parecida cercada pela própria arte (um "buraco", ex: o miolo
+ * de uma letra "O") só entra se `removeHoles` for true.
  *
- * Usa uma faixa de transição suave entre `tolerance` e `tolerance+feather`
- * para a borda não ficar serrilhada: pixels bem parecidos com o fundo ficam
- * 100% transparentes, pixels na faixa de transição ficam parcialmente
- * transparentes, pixels claramente da arte ficam intactos.
+ * Retorna uma máscara (1 = tornar transparente) do mesmo tamanho width*height.
  */
-export async function removeBackgroundColor(art: ImportedArt, tolerance = 20, feather = 14): Promise<ImportedArt> {
+export function computeBackgroundRemovalMask(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  tolerance: number,
+  removeHoles: boolean,
+): Uint8Array {
+  const { r: bgR, g: bgG, b: bgB } = detectBackgroundColor(data, width, height)
+
+  const total = width * height
+  const isBgColor = new Uint8Array(total)
+  for (let p = 0; p < total; p++) {
+    const i = p * 4
+    const dr = data[i] - bgR, dg = data[i + 1] - bgG, db = data[i + 2] - bgB
+    isBgColor[p] = Math.sqrt(dr * dr + dg * dg + db * db) <= tolerance ? 1 : 0
+  }
+
+  const exterior = new Uint8Array(total)
+  const stack: number[] = []
+  function seed(x: number, y: number) {
+    const idx = y * width + x
+    if (isBgColor[idx] && !exterior[idx]) { exterior[idx] = 1; stack.push(idx) }
+  }
+  for (let x = 0; x < width; x++) { seed(x, 0); seed(x, height - 1) }
+  for (let y = 0; y < height; y++) { seed(0, y); seed(width - 1, y) }
+
+  while (stack.length) {
+    const cur = stack.pop() as number
+    const cx = cur % width
+    const cy = (cur - cx) / width
+    const neighbors4: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    for (const [dx, dy] of neighbors4) {
+      const nx = cx + dx, ny = cy + dy
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue
+      const nidx = ny * width + nx
+      if (isBgColor[nidx] && !exterior[nidx]) { exterior[nidx] = 1; stack.push(nidx) }
+    }
+  }
+
+  const result = new Uint8Array(total)
+  for (let p = 0; p < total; p++) {
+    const isHole = isBgColor[p] === 1 && exterior[p] === 0
+    result[p] = exterior[p] === 1 || (removeHoles && isHole) ? 1 : 0
+  }
+  return result
+}
+
+/**
+ * Torna transparente o fundo sólido ao redor da arte, sem alterar matiz/cor
+ * de nenhum pixel (só zera o canal alfa onde `computeBackgroundRemovalMask`
+ * decidiu). Útil quando o arquivo original (JPG, ou PNG sem alfa) tem fundo
+ * sólido e se quer exportar com fundo transparente.
+ */
+export async function removeBackgroundColor(art: ImportedArt, opts: RemoveBackgroundOptions = {}): Promise<ImportedArt> {
+  const tolerance = opts.tolerance ?? 30
+  const removeHoles = opts.removeHoles ?? false
+
   const img = await loadImageElement(art.dataUrl)
   const canvas = document.createElement('canvas')
   canvas.width = img.naturalWidth
@@ -132,20 +198,10 @@ export async function removeBackgroundColor(art: ImportedArt, tolerance = 20, fe
   const { width, height } = canvas
   const imageData = ctx.getImageData(0, 0, width, height)
   const data = imageData.data
-  const { r: bgR, g: bgG, b: bgB } = detectBackgroundColor(data, width, height)
+  const mask = computeBackgroundRemovalMask(data, width, height, tolerance, removeHoles)
 
-  const outerRadius = tolerance + feather
-  for (let i = 0; i < data.length; i += 4) {
-    const dr = data[i] - bgR
-    const dg = data[i + 1] - bgG
-    const db = data[i + 2] - bgB
-    const distance = Math.sqrt(dr * dr + dg * dg + db * db)
-    if (distance <= tolerance) {
-      data[i + 3] = 0
-    } else if (distance < outerRadius) {
-      const keepFactor = (distance - tolerance) / feather
-      data[i + 3] = Math.round(data[i + 3] * keepFactor)
-    }
+  for (let p = 0; p < mask.length; p++) {
+    if (mask[p]) data[p * 4 + 3] = 0
   }
   ctx.putImageData(imageData, 0, 0)
 

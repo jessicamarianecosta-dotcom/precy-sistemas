@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf'
-import { computeCropMarks, computeTilePositions } from './layout'
-import type { CropMarksConfig, PackingResult } from './types'
+import { computeContourTilePaths, computeCropMarks, computeTilePositions } from './layout'
+import type { CropMarksConfig, CutContour, PackingResult } from './types'
 import { downloadBlob } from './exportPng'
 
 export interface PdfExportOptions {
@@ -12,6 +12,8 @@ export interface PdfExportOptions {
    * aparece o papel (a página do PDF já é branca por padrão).
    */
   background: 'white' | 'transparent'
+  /** Linha de corte a desenhar junto (em magenta), ou omitido/null para não incluir. */
+  cutContour?: CutContour | null
 }
 
 export function exportPdf(
@@ -47,6 +49,19 @@ export function exportPdf(
     doc.setLineWidth(0.15)
     for (const m of marks) {
       doc.line(m.x1Mm, m.y1Mm, m.x2Mm, m.y2Mm)
+    }
+  }
+
+  if (opts.cutContour) {
+    const paths = computeContourTilePaths(tiles, opts.cutContour)
+    doc.setDrawColor(255, 0, 255)
+    doc.setLineWidth(0.1)
+    for (const path of paths) {
+      for (let i = 0; i < path.length; i++) {
+        const a = path[i]
+        const b = path[(i + 1) % path.length]
+        doc.line(a.x, a.y, b.x, b.y)
+      }
     }
   }
 

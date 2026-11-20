@@ -43,8 +43,6 @@ export interface BobinaConfig {
   spacing: SpacingMm
   manualCols: number | null
   manualRows: number | null
-  /** null = deixa o motor escolher a orientação com mais peças; true/false = escolha explícita do usuário. */
-  preferRotated: boolean | null
 }
 
 export interface FolhaConfig {
@@ -56,7 +54,6 @@ export interface FolhaConfig {
   desiredQty: number | null
   manualCols: number | null
   manualRows: number | null
-  preferRotated: boolean | null
 }
 
 export interface CropMarksConfig {
@@ -92,3 +89,11 @@ export interface PackingComparison {
   normal: PackingResult
   rotated: PackingResult
 }
+
+export interface Point {
+  x: number
+  y: number
+}
+
+/** Contorno de corte (faca) local à arte, em mm, origem (0,0) no canto superior-esquerdo da arte. */
+export type CutContour = Point[][]

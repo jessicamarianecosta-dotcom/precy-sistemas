@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react'
 import { UploadCloud, FileImage, FileText, RotateCw, RefreshCw, Lock, Unlock, Crop, Sparkles, Loader2, Eraser } from 'lucide-react'
+import { Toggle } from '@/components/ui/Toggle'
 import { clsx } from 'clsx'
 import {
   importImageFile, openPdfFile, renderPdfPage, rotateArt,
@@ -28,7 +29,9 @@ export function FileImportPanel() {
   const clearArt = useMontagemStore((s) => s.clearArt)
   const setRotation = useMontagemStore((s) => s.setRotation)
   const trimArtBackground = useMontagemStore((s) => s.trimArtBackground)
-  const removeArtBackground = useMontagemStore((s) => s.removeArtBackground)
+  const backgroundRemoval = useMontagemStore((s) => s.backgroundRemoval)
+  const setBackgroundRemovalEnabled = useMontagemStore((s) => s.setBackgroundRemovalEnabled)
+  const setBackgroundRemovalRemoveHoles = useMontagemStore((s) => s.setBackgroundRemovalRemoveHoles)
   const upscaleArt = useMontagemStore((s) => s.upscaleArt)
   const processing = useMontagemStore((s) => s.loading)
   const processingError = useMontagemStore((s) => s.error)
@@ -220,17 +223,34 @@ export function FileImportPanel() {
           Rastreia a arte e corta a margem de fundo (branco ou transparente), ajustando a medida para o tamanho real.
         </p>
 
-        <button
-          onClick={() => removeArtBackground()}
-          disabled={processing}
-          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold border border-border dark:border-border-dark text-text-primary dark:text-stone-100 hover:border-primary disabled:opacity-50"
-        >
-          {processing ? <Loader2 size={14} className="animate-spin" /> : <Eraser size={14} className="text-primary" />}
-          Remover fundo (deixar transparente)
-        </button>
-        <p className="text-[11px] text-text-muted -mt-2">
-          Torna transparente o fundo sólido ao redor da arte, sem alterar cores. Necessário antes de exportar com fundo transparente, se o arquivo original não tiver transparência (ex: JPG).
-        </p>
+        <div className="rounded-lg border border-border dark:border-border-dark p-3 space-y-2.5">
+          <label className="flex items-center justify-between gap-3 cursor-pointer">
+            <span className="flex items-center gap-2 text-sm font-semibold text-text-primary dark:text-stone-100">
+              {processing ? <Loader2 size={14} className="animate-spin flex-shrink-0" /> : <Eraser size={14} className="text-primary flex-shrink-0" />}
+              Remover fundo (deixar transparente)
+            </span>
+            <Toggle
+              checked={backgroundRemoval.enabled}
+              onChange={(v) => setBackgroundRemovalEnabled(v)}
+              disabled={processing}
+              label="Remover fundo"
+            />
+          </label>
+          <p className="text-[11px] text-text-muted">
+            Torna transparente só o fundo ao redor da arte, sem alterar cores. Reversível — pode ligar e desligar quando quiser.
+          </p>
+          {backgroundRemoval.enabled && (
+            <label className="flex items-center gap-2 text-xs text-text-secondary dark:text-stone-400 pt-1 border-t border-border dark:border-border-dark cursor-pointer">
+              <input
+                type="checkbox"
+                checked={backgroundRemoval.removeHoles}
+                onChange={(e) => setBackgroundRemovalRemoveHoles(e.target.checked)}
+                disabled={processing}
+              />
+              Remover também buracos internos (ex: miolo de letras fechadas)
+            </label>
+          )}
+        </div>
 
         <div>
           <label className="text-xs font-medium text-text-secondary dark:text-stone-400">Melhorar definição (upscale)</label>

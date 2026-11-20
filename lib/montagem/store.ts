@@ -3,7 +3,8 @@ import { create } from 'zustand'
 import { SHEET_PRESETS, packBobina, packFolha } from './packing'
 import { rotateArt } from './fileImport'
 import { trimBackground, upscaleImage, removeBackgroundColor } from './imageProcessing'
-import type { AssemblyMode, BobinaConfig, CropMarksConfig, FolhaConfig, ImportedArt, PackingComparison, Rotation } from './types'
+import { generateCutContourForArt } from './cutContour'
+import type { AssemblyMode, BobinaConfig, CropMarksConfig, CutContour, FolhaConfig, ImportedArt, PackingComparison, Rotation } from './types'
 
 const DEFAULT_MARGINS = { top: 10, right: 10, bottom: 10, left: 10 }
 const DEFAULT_SPACING = { x: 2, y: 2 }
@@ -17,7 +18,6 @@ function defaultBobina(): BobinaConfig {
     spacing: { ...DEFAULT_SPACING },
     manualCols: null,
     manualRows: null,
-    preferRotated: null,
   }
 }
 
@@ -31,12 +31,20 @@ function defaultFolha(): FolhaConfig {
     desiredQty: null,
     manualCols: null,
     manualRows: null,
-    preferRotated: null,
   }
 }
 
 function defaultCropMarks(): CropMarksConfig {
   return { enabled: false, bleedMm: 0, markLengthMm: 4, markOffsetMm: 2 }
+}
+
+interface BackgroundRemovalConfig {
+  enabled: boolean
+  removeHoles: boolean
+}
+
+function defaultBackgroundRemoval(): BackgroundRemovalConfig {
+  return { enabled: false, removeHoles: false }
 }
 
 interface Snapshot {
@@ -45,16 +53,22 @@ interface Snapshot {
   folha: FolhaConfig
   cropMarks: CropMarksConfig
   rotation: Rotation
+  backgroundRemoval: BackgroundRemovalConfig
 }
 
 interface MontagemState {
+  /** Arte como veio do arquivo (já com recorte/upscale aplicados — esses são permanentes). Nunca tem rotação nem remoção de fundo aplicadas. */
   originalArt: ImportedArt | null
-  art: ImportedArt | null // já rotacionado conforme `rotation`
+  /** Arte final (derivada de originalArt + remoção de fundo opcional + rotação) — é o que de fato é ladrilhado, visualizado e exportado. */
+  art: ImportedArt | null
   mode: AssemblyMode
   bobina: BobinaConfig
   folha: FolhaConfig
   cropMarks: CropMarksConfig
   rotation: Rotation
+  backgroundRemoval: BackgroundRemovalConfig
+  cutContour: CutContour | null
+  cutContourOffsetMm: number
   zoom: number
   loading: boolean
   error: string | null
@@ -71,8 +85,12 @@ interface MontagemState {
   updateCropMarks: (patch: Partial<CropMarksConfig>) => void
   setRotation: (rotation: Rotation) => Promise<void>
   trimArtBackground: () => Promise<void>
-  removeArtBackground: () => Promise<void>
+  setBackgroundRemovalEnabled: (enabled: boolean) => Promise<void>
+  setBackgroundRemovalRemoveHoles: (removeHoles: boolean) => Promise<void>
   upscaleArt: (factor: 2 | 3 | 4) => Promise<void>
+  generateCutContour: () => Promise<void>
+  clearCutContour: () => void
+  setCutContourOffsetMm: (offsetMm: number) => void
   setZoom: (zoom: number) => void
   undo: () => void
   redo: () => void
@@ -88,6 +106,37 @@ function snapshotOf(s: MontagemState): Snapshot {
     folha: { ...s.folha, margins: { ...s.folha.margins }, spacing: { ...s.folha.spacing } },
     cropMarks: { ...s.cropMarks },
     rotation: s.rotation,
+    backgroundRemoval: { ...s.backgroundRemoval },
+  }
+}
+
+type Get = () => MontagemState
+type Set = (partial: Partial<MontagemState> | ((s: MontagemState) => Partial<MontagemState>)) => void
+
+/**
+ * Recalcula `art` a partir de `originalArt` + remoção de fundo (se ligada) +
+ * rotação — ponto único por onde toda mudança que afeta a imagem final
+ * passa. Reversível: desligar a remoção de fundo volta exatamente ao
+ * `originalArt`, sem precisar reimportar o arquivo. Qualquer recálculo
+ * invalida a linha de corte gerada (ela precisa ser gerada de novo sobre a
+ * imagem atualizada).
+ */
+async function recomputeArt(get: Get, set: Set) {
+  const { originalArt, rotation, backgroundRemoval } = get()
+  if (!originalArt) {
+    set({ art: null, cutContour: null })
+    return
+  }
+  set({ loading: true, error: null })
+  try {
+    let base = originalArt
+    if (backgroundRemoval.enabled) {
+      base = await removeBackgroundColor(originalArt, { removeHoles: backgroundRemoval.removeHoles })
+    }
+    const final = rotation === 0 ? base : await rotateArt(base, rotation)
+    set({ art: final, loading: false, cutContour: null })
+  } catch (e) {
+    set({ loading: false, error: e instanceof Error ? e.message : 'Falha ao processar a arte.' })
   }
 }
 
@@ -99,14 +148,26 @@ export const useMontagemStore = create<MontagemState>((set, get) => ({
   folha: defaultFolha(),
   cropMarks: defaultCropMarks(),
   rotation: 0,
+  backgroundRemoval: defaultBackgroundRemoval(),
+  cutContour: null,
+  cutContourOffsetMm: 2,
   zoom: 1,
   loading: false,
   error: null,
   past: [],
   future: [],
 
-  setArt: (art) => set({ originalArt: art, art, rotation: 0, error: null }),
-  clearArt: () => set({ originalArt: null, art: null, rotation: 0 }),
+  setArt: (art) => set({
+    originalArt: art, art, rotation: 0,
+    backgroundRemoval: defaultBackgroundRemoval(),
+    cutContour: null, error: null,
+  }),
+
+  clearArt: () => set({
+    originalArt: null, art: null, rotation: 0,
+    backgroundRemoval: defaultBackgroundRemoval(),
+    cutContour: null,
+  }),
 
   setMode: (mode) => {
     const snap = snapshotOf(get())
@@ -141,56 +202,63 @@ export const useMontagemStore = create<MontagemState>((set, get) => ({
   updateCropMarks: (patch) => set((s) => ({ cropMarks: { ...s.cropMarks, ...patch } })),
 
   setRotation: async (rotation) => {
-    const { originalArt } = get()
-    if (!originalArt) return
     const snap = snapshotOf(get())
-    set({ loading: true })
-    try {
-      const rotated = await rotateArt(originalArt, rotation)
-      set((s) => ({ art: rotated, rotation, loading: false, past: [...s.past, snap], future: [] }))
-    } catch (e) {
-      set({ loading: false, error: e instanceof Error ? e.message : 'Falha ao rotacionar a arte.' })
-    }
+    set({ rotation, past: [...get().past, snap], future: [] })
+    await recomputeArt(get, set)
   },
 
   trimArtBackground: async () => {
-    const { originalArt, rotation } = get()
+    const { originalArt } = get()
     if (!originalArt) return
     set({ loading: true, error: null })
     try {
       const trimmed = await trimBackground(originalArt)
-      const rotated = rotation === 0 ? trimmed : await rotateArt(trimmed, rotation)
-      set({ originalArt: trimmed, art: rotated, loading: false })
+      set({ originalArt: trimmed, loading: false })
+      await recomputeArt(get, set)
     } catch (e) {
       set({ loading: false, error: e instanceof Error ? e.message : 'Falha ao recortar o fundo da arte.' })
     }
   },
 
-  removeArtBackground: async () => {
-    const { originalArt, rotation } = get()
-    if (!originalArt) return
-    set({ loading: true, error: null })
-    try {
-      const transparent = await removeBackgroundColor(originalArt)
-      const rotated = rotation === 0 ? transparent : await rotateArt(transparent, rotation)
-      set({ originalArt: transparent, art: rotated, loading: false })
-    } catch (e) {
-      set({ loading: false, error: e instanceof Error ? e.message : 'Falha ao remover o fundo da arte.' })
-    }
+  setBackgroundRemovalEnabled: async (enabled) => {
+    const snap = snapshotOf(get())
+    set((s) => ({ backgroundRemoval: { ...s.backgroundRemoval, enabled }, past: [...s.past, snap], future: [] }))
+    await recomputeArt(get, set)
+  },
+
+  setBackgroundRemovalRemoveHoles: async (removeHoles) => {
+    const snap = snapshotOf(get())
+    set((s) => ({ backgroundRemoval: { ...s.backgroundRemoval, removeHoles }, past: [...s.past, snap], future: [] }))
+    if (get().backgroundRemoval.enabled) await recomputeArt(get, set)
   },
 
   upscaleArt: async (factor) => {
-    const { originalArt, rotation } = get()
+    const { originalArt } = get()
     if (!originalArt) return
     set({ loading: true, error: null })
     try {
       const upscaled = await upscaleImage(originalArt, factor)
-      const rotated = rotation === 0 ? upscaled : await rotateArt(upscaled, rotation)
-      set({ originalArt: upscaled, art: rotated, loading: false })
+      set({ originalArt: upscaled, loading: false })
+      await recomputeArt(get, set)
     } catch (e) {
       set({ loading: false, error: e instanceof Error ? e.message : 'Falha ao melhorar a definição da arte.' })
     }
   },
+
+  generateCutContour: async () => {
+    const { art, cutContourOffsetMm } = get()
+    if (!art) return
+    set({ loading: true, error: null })
+    try {
+      const contour = await generateCutContourForArt(art, cutContourOffsetMm)
+      set({ cutContour: contour, loading: false })
+    } catch (e) {
+      set({ loading: false, error: e instanceof Error ? e.message : 'Falha ao gerar a linha de corte.' })
+    }
+  },
+
+  clearCutContour: () => set({ cutContour: null }),
+  setCutContourOffsetMm: (offsetMm) => set({ cutContourOffsetMm: offsetMm }),
 
   setZoom: (zoom) => set({ zoom: Math.min(4, Math.max(0.1, zoom)) }),
 
@@ -204,6 +272,7 @@ export const useMontagemStore = create<MontagemState>((set, get) => ({
       past: s.past.slice(0, -1),
       future: [currentSnap, ...s.future],
     }))
+    void recomputeArt(get, set)
   },
 
   redo: () => {
@@ -216,6 +285,7 @@ export const useMontagemStore = create<MontagemState>((set, get) => ({
       future: s.future.slice(1),
       past: [...s.past, currentSnap],
     }))
+    void recomputeArt(get, set)
   },
 
   setLoading: (loading) => set({ loading }),

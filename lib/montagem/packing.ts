@@ -98,21 +98,24 @@ export function bestSheetPacking(input: Omit<SheetPackingInput, 'rotate'>): Pack
   return { best, normal, rotated }
 }
 
-/** Resultado de uma montagem em folha a partir de um FolhaConfig completo (com override manual). */
-/** Escolhe normal ou rotada: `preferRotated` null deixa o motor escolher a de maior total. */
-function pickOrientation(comparison: PackingComparison, preferRotated: boolean | null): PackingResult {
-  if (preferRotated === null) return comparison.rotated.total > comparison.normal.total ? comparison.rotated : comparison.normal
-  return preferRotated ? comparison.rotated : comparison.normal
-}
-
+/**
+ * Resultado de uma montagem em folha a partir de um FolhaConfig completo
+ * (com override manual).
+ *
+ * `comparison.normal` — calculado com as dimensões ATUAIS da arte — é
+ * sempre o layout realmente usado (o que de fato é ladrilhado e exportado).
+ * `comparison.rotated` é só informativo: "se você girar a arte 90°, caberia
+ * mais". A UI oferece girar a arte de verdade (ação que gira o bitmap,
+ * ver `rotateArt`/`setRotation`) em vez de só trocar a conta sem girar a
+ * imagem — do contrário a arte sairia esticada/distorcida ao ladrilhar.
+ */
 export function packFolha(config: FolhaConfig, itemWidthMm: number, itemHeightMm: number): PackingComparison {
   const base = { sheetWidthMm: config.sheetWidthMm, sheetHeightMm: config.sheetHeightMm, itemWidthMm, itemHeightMm, margins: config.margins, spacing: config.spacing }
   const comparison = bestSheetPacking(base)
-  const chosenAuto = pickOrientation(comparison, config.preferRotated)
 
-  if (config.manualCols == null && config.manualRows == null) return { ...comparison, best: chosenAuto }
+  if (config.manualCols == null && config.manualRows == null) return { ...comparison, best: comparison.normal }
 
-  const manual = applyManualOverride(chosenAuto, config.manualCols, config.manualRows, config.spacing, chosenAuto.usableWidthMm, chosenAuto.usableHeightMm)
+  const manual = applyManualOverride(comparison.normal, config.manualCols, config.manualRows, config.spacing, comparison.normal.usableWidthMm, comparison.normal.usableHeightMm)
   return { ...comparison, best: manual }
 }
 
@@ -209,11 +212,10 @@ export function packBobina(config: BobinaConfig, itemWidthMm: number, itemHeight
     rollLengthMm: config.rollLengthMm, desiredQty: config.desiredQty,
   }
   const comparison = bestRollPacking(base)
-  const chosenAuto = pickOrientation(comparison, config.preferRotated)
 
-  if (config.manualCols == null && config.manualRows == null) return { ...comparison, best: chosenAuto }
+  if (config.manualCols == null && config.manualRows == null) return { ...comparison, best: comparison.normal }
 
-  const manual = applyManualOverride(chosenAuto, config.manualCols, config.manualRows, config.spacing, chosenAuto.usableWidthMm, chosenAuto.usableHeightMm, config.rollWidthMm)
+  const manual = applyManualOverride(comparison.normal, config.manualCols, config.manualRows, config.spacing, comparison.normal.usableWidthMm, comparison.normal.usableHeightMm, config.rollWidthMm)
   return { ...comparison, best: manual }
 }
 
