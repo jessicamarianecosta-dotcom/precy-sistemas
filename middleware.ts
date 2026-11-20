@@ -2,6 +2,7 @@ import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
 import { NextResponse }           from 'next/server'
 import type { NextRequest }       from 'next/server'
 import { canAccessCatalog }       from '@/lib/catalog/betaAccess'
+import { canAccessNotasFiscais }  from '@/lib/notasFiscais/betaAccess'
 import { TERMS_VERSION, PRIVACY_VERSION } from '@/lib/legal/versions'
 
 /* ── Rotas públicas ── */
@@ -46,6 +47,14 @@ const FEEDBACK_LOCKED_ROUTE = '/feedback-indisponivel'
    público) continua liberado, só a administração do catálogo é restrita ── */
 const CATALOG_ROUTES = ['/catalogo', '/api/catalogo']
 const CATALOG_SOON_ROUTE = '/catalogo-em-breve'
+
+/* ── Notas Fiscais (emissão via Bling): beta privado, restrito ao ID
+   estável de uma única conta (ver lib/notasFiscais/betaAccess.ts) — não
+   depende de plano nem de e-mail enviado pelo client. Cobre a UI
+   (/notas-fiscais) e as rotas de API do módulo (/api/notas-fiscais,
+   /api/bling) — usuárias fora do beta recebem 404 na UI (nunca revela
+   que a rota existe) e 403 nas rotas de API. ── */
+const NOTAS_FISCAIS_ROUTES = ['/notas-fiscais', '/api/notas-fiscais', '/api/bling']
 
 /* ── Rotas de bloqueio ── */
 const BLOCKED_ROUTE       = '/assinatura/bloqueada'   // era pagante, parou de pagar
@@ -276,6 +285,20 @@ export async function middleware(req: NextRequest) {
       return NextResponse.json({ error: 'Catálogo Online ainda não está disponível para esta conta.' }, { status: 403 })
     }
     return NextResponse.redirect(new URL(CATALOG_SOON_ROUTE, req.url))
+  }
+
+  /* ── Notas Fiscais: beta de uma única conta, checado pelo ID estável
+     da sessão (session.user.id vem do JWT validado pelo
+     createMiddlewareClient — nunca de um header/e-mail que o próprio
+     browser poderia mandar). Fora do beta: 404 na UI (não revela que a
+     rota existe) e 403 nas rotas de API — reconferido de novo dentro de
+     cada rota em lib/notasFiscais/server-auth.ts, nunca só aqui. ── */
+  const isNotasFiscaisRoute = NOTAS_FISCAIS_ROUTES.some(r => pathname === r || pathname.startsWith(r + '/'))
+  if (isNotasFiscaisRoute && !canAccessNotasFiscais(session.user.id)) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Notas Fiscais ainda não está disponível para esta conta.' }, { status: 403 })
+    }
+    return NextResponse.rewrite(new URL('/404', req.url))
   }
 
   /* ── Proteção de rotas Essencial/PRO ── */
