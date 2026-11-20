@@ -92,14 +92,22 @@ export function FileImportPanel() {
     }
   }
 
+  const MIN_DIM_MM = 1
+
   function updateDims(patch: { widthMm?: number; heightMm?: number }) {
     if (!art || !originalArt) return
-    const aspect = originalArt.widthMm / originalArt.heightMm
-    let widthMm = patch.widthMm ?? art.widthMm
-    let heightMm = patch.heightMm ?? art.heightMm
+    // Nunca aceita uma medida zero/negativa aqui — além de não fazer sentido
+    // fisicamente, com a proporção travada uma medida 0 vira divisão por
+    // zero (aspect NaN) e trava o outro campo pra sempre, sem deixar
+    // digitar uma medida nova depois.
+    const safeAspect = originalArt.widthMm > 0 && originalArt.heightMm > 0
+      ? originalArt.widthMm / originalArt.heightMm
+      : 1
+    let widthMm = Math.max(MIN_DIM_MM, patch.widthMm ?? art.widthMm)
+    let heightMm = Math.max(MIN_DIM_MM, patch.heightMm ?? art.heightMm)
     if (art.aspectLocked) {
-      if (patch.widthMm != null) heightMm = widthMm / aspect
-      else if (patch.heightMm != null) widthMm = heightMm * aspect
+      if (patch.widthMm != null) heightMm = Math.max(MIN_DIM_MM, widthMm / safeAspect)
+      else if (patch.heightMm != null) widthMm = Math.max(MIN_DIM_MM, heightMm * safeAspect)
     }
     useMontagemStore.setState((s) => ({
       art: s.art ? { ...s.art, widthMm, heightMm } : s.art,

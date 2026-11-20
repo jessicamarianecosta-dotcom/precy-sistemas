@@ -46,7 +46,15 @@ export function NumberInput({ value, onChange, className, placeholder, id, title
 
   function handleBlur() {
     setFocused(false)
-    const parsed = parseLocaleNumber(text) ?? 0
+    const parsed = parseLocaleNumber(text)
+    // Campo ficou vazio (ou num estado inválido, tipo só "," ou "-") ao
+    // desfocar: volta pro último valor válido em vez de zerar — zerar aqui
+    // travava quem apagava o campo pra digitar uma medida nova (com a
+    // proporção travada, 0 vira divisão por zero e quebra o outro campo).
+    if (parsed === null) {
+      setText(formatValue(value))
+      return
+    }
     setText(formatValue(parsed))
     if (parsed !== value) onChange(parsed)
   }
