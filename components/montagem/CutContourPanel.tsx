@@ -2,7 +2,7 @@
 
 import { Scissors as ScissorsIcon, Loader2 } from 'lucide-react'
 import { useMontagemStore } from '@/lib/montagem/store'
-import { NumberField } from './NumberField'
+import { SliderField } from '@/components/ui/SliderField'
 import { Toggle } from '@/components/ui/Toggle'
 
 export function CutContourPanel() {
@@ -23,6 +23,11 @@ export function CutContourPanel() {
     else clearCutContour()
   }
 
+  function handleOffsetCommit(v: number) {
+    setCutContourOffsetMm(v)
+    if (enabled) generateCutContour()
+  }
+
   return (
     <div className="card rounded-2xl p-4 space-y-3">
       <label className="flex items-center justify-between gap-3 cursor-pointer">
@@ -41,22 +46,18 @@ export function CutContourPanel() {
 
       {canGenerate && (
         <>
-          <NumberField
-            label="Distância da arte (mm)"
+          <SliderField
+            label="Distância da arte"
             value={cutContourOffsetMm}
+            min={0}
+            max={15}
+            step={0.1}
             onChange={setCutContourOffsetMm}
+            onCommit={handleOffsetCommit}
+            disabled={loading}
           />
-          {enabled && (
-            <button
-              onClick={() => generateCutContour()}
-              disabled={loading}
-              className="w-full py-1.5 rounded-lg text-xs font-semibold border border-border dark:border-border-dark text-text-secondary hover:border-primary disabled:opacity-50"
-            >
-              Atualizar contorno
-            </button>
-          )}
           <p className="text-[11px] text-text-muted">
-            Contorno vetorizado ao redor da arte (não a volta de cada letra), pronto para abrir em CorelDRAW, FlexiSign ou SignCut.
+            Contorno vetorizado ao redor da arte (não a volta de cada letra), atualiza ao soltar. Pronto para abrir em CorelDRAW, FlexiSign ou SignCut.
           </p>
         </>
       )}

@@ -64,4 +64,28 @@ describe('computeBackgroundRemovalMask', () => {
     expect(maskRemoveHole[0]).toBe(1)
     expect(maskRemoveHole[4 * size + 4]).toBe(0)
   })
+
+  it('edgeCleanupPx encolhe a silhueta e mata uma franja escura residual na borda', () => {
+    // Fundo branco, quadrado 10x10 preto (x5-14,y5-14) com uma franja cinza-escura
+    // de 1px ao redor dele (x4,14 e y4,14) — simula um contorno fraco que já veio
+    // na arte original e não bate na tolerância de cor do fundo branco.
+    const size = 24
+    const data = makeRgba(size, size, (x, y) => {
+      const inSolid = x >= 5 && x <= 14 && y >= 5 && y <= 14
+      const inHalo = x >= 4 && x <= 15 && y >= 4 && y <= 15
+      if (inSolid) return BLACK
+      if (inHalo) return [60, 60, 60]
+      return WHITE
+    })
+
+    const withoutCleanup = computeBackgroundRemovalMask(data, size, size, 30, false, 0)
+    // Sem limpeza, a franja escura (não parecida com o fundo branco) fica presa como arte.
+    expect(withoutCleanup[4 * size + 9]).toBe(0)
+
+    const withCleanup = computeBackgroundRemovalMask(data, size, size, 30, false, 2)
+    // Com limpeza de borda, a franja é removida...
+    expect(withCleanup[4 * size + 9]).toBe(1)
+    // ...mas o miolo sólido da arte continua intacto.
+    expect(withCleanup[9 * size + 9]).toBe(0)
+  })
 })

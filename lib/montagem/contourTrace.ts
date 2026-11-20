@@ -30,7 +30,63 @@ const DIRS = [
   { dx: -1, dy: -1 }, // NW
 ] as const
 
-/** Dilatação morfológica binária (8-conectada), `iterations` vezes. */
+/**
+ * Transformada de distância (chamfer 1/√2, duas passadas) — para cada pixel,
+ * a distância até o pixel de "fonte" (valor 1 em `sourceMask`) mais próximo.
+ * Base para dilatação/erosão por raio em qualquer tamanho sem custo
+ * proporcional ao raio (ao contrário de aplicar 1px por iteração).
+ */
+function distanceTransform(sourceMask: Uint8Array, width: number, height: number): Float32Array {
+  const INF = 1e8
+  const dist = new Float32Array(width * height)
+  for (let p = 0; p < dist.length; p++) dist[p] = sourceMask[p] ? 0 : INF
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x
+      let d = dist[idx]
+      if (x > 0) d = Math.min(d, dist[idx - 1] + 1)
+      if (y > 0) d = Math.min(d, dist[idx - width] + 1)
+      if (x > 0 && y > 0) d = Math.min(d, dist[idx - width - 1] + Math.SQRT2)
+      if (x < width - 1 && y > 0) d = Math.min(d, dist[idx - width + 1] + Math.SQRT2)
+      dist[idx] = d
+    }
+  }
+  for (let y = height - 1; y >= 0; y--) {
+    for (let x = width - 1; x >= 0; x--) {
+      const idx = y * width + x
+      let d = dist[idx]
+      if (x < width - 1) d = Math.min(d, dist[idx + 1] + 1)
+      if (y < height - 1) d = Math.min(d, dist[idx + width] + 1)
+      if (x < width - 1 && y < height - 1) d = Math.min(d, dist[idx + width + 1] + Math.SQRT2)
+      if (x > 0 && y < height - 1) d = Math.min(d, dist[idx + width - 1] + Math.SQRT2)
+      dist[idx] = d
+    }
+  }
+  return dist
+}
+
+/** Cresce a região de frente (1) em `radiusPx` — mais rápido e mais arredondado (euclidiano) que iterar 1px por vez. */
+export function dilateMaskByRadius(mask: Uint8Array, width: number, height: number, radiusPx: number): Uint8Array {
+  if (radiusPx <= 0) return mask.slice()
+  const dist = distanceTransform(mask, width, height)
+  const out = new Uint8Array(mask.length)
+  for (let p = 0; p < out.length; p++) out[p] = dist[p] <= radiusPx ? 1 : 0
+  return out
+}
+
+/** Encolhe a região de frente (1) em `radiusPx` — usado pra limpar uma franja fina residual na borda de um recorte. */
+export function erodeMaskByRadius(mask: Uint8Array, width: number, height: number, radiusPx: number): Uint8Array {
+  if (radiusPx <= 0) return mask.slice()
+  const inverted = new Uint8Array(mask.length)
+  for (let p = 0; p < mask.length; p++) inverted[p] = mask[p] ? 0 : 1
+  const distToBackground = distanceTransform(inverted, width, height)
+  const out = new Uint8Array(mask.length)
+  for (let p = 0; p < out.length; p++) out[p] = mask[p] === 1 && distToBackground[p] >= radiusPx ? 1 : 0
+  return out
+}
+
+/** Dilatação morfológica binária (8-conectada), `iterations` vezes — crescimento em "xadrez", não arredondado. Mantida para o pipeline de contorno em pequena escala; para raios maiores, prefira `dilateMaskByRadius`. */
 export function dilateMask(mask: Uint8Array, width: number, height: number, iterations: number): Uint8Array {
   let current = mask
   for (let it = 0; it < iterations; it++) {
@@ -178,8 +234,10 @@ export interface TraceContoursOptions {
 
 /** Pipeline completo: dilata (opcional) → encontra componentes → traça → simplifica. */
 export function traceMaskContours(mask: Uint8Array, width: number, height: number, opts: TraceContoursOptions = {}): Point[][] {
+  // Raio euclidiano (via transformada de distância), não "iterações" em xadrez:
+  // mais arredondado e com custo independente do tamanho do raio.
   const dilated = opts.dilateIterations && opts.dilateIterations > 0
-    ? dilateMask(mask, width, height, opts.dilateIterations)
+    ? dilateMaskByRadius(mask, width, height, opts.dilateIterations)
     : mask
 
   const components = findConnectedComponents(dilated, width, height)

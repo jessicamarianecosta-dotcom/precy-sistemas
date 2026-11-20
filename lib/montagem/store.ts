@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { SHEET_PRESETS, packBobina, packFolha } from './packing'
 import { rotateArt } from './fileImport'
 import { trimBackground, upscaleImage, removeBackgroundColor } from './imageProcessing'
+import { addBorderToArt } from './addBorder'
 import { generateCutContourForArt } from './cutContour'
 import type { AssemblyMode, BobinaConfig, CropMarksConfig, CutContour, FolhaConfig, ImportedArt, PackingComparison, Rotation } from './types'
 
@@ -47,6 +48,16 @@ function defaultBackgroundRemoval(): BackgroundRemovalConfig {
   return { enabled: false, removeHoles: false }
 }
 
+interface BorderConfig {
+  enabled: boolean
+  widthMm: number
+  color: string
+}
+
+function defaultBorder(): BorderConfig {
+  return { enabled: false, widthMm: 2, color: '#ffffff' }
+}
+
 interface Snapshot {
   mode: AssemblyMode
   bobina: BobinaConfig
@@ -54,6 +65,7 @@ interface Snapshot {
   cropMarks: CropMarksConfig
   rotation: Rotation
   backgroundRemoval: BackgroundRemovalConfig
+  border: BorderConfig
 }
 
 interface MontagemState {
@@ -67,6 +79,7 @@ interface MontagemState {
   cropMarks: CropMarksConfig
   rotation: Rotation
   backgroundRemoval: BackgroundRemovalConfig
+  border: BorderConfig
   cutContour: CutContour | null
   cutContourOffsetMm: number
   zoom: number
@@ -87,6 +100,9 @@ interface MontagemState {
   trimArtBackground: () => Promise<void>
   setBackgroundRemovalEnabled: (enabled: boolean) => Promise<void>
   setBackgroundRemovalRemoveHoles: (removeHoles: boolean) => Promise<void>
+  setBorderEnabled: (enabled: boolean) => Promise<void>
+  setBorderWidthMm: (widthMm: number) => Promise<void>
+  setBorderColor: (color: string) => Promise<void>
   upscaleArt: (factor: 2 | 3 | 4) => Promise<void>
   generateCutContour: () => Promise<void>
   clearCutContour: () => void
@@ -107,6 +123,7 @@ function snapshotOf(s: MontagemState): Snapshot {
     cropMarks: { ...s.cropMarks },
     rotation: s.rotation,
     backgroundRemoval: { ...s.backgroundRemoval },
+    border: { ...s.border },
   }
 }
 
@@ -115,14 +132,14 @@ type Set = (partial: Partial<MontagemState> | ((s: MontagemState) => Partial<Mon
 
 /**
  * Recalcula `art` a partir de `originalArt` + remoção de fundo (se ligada) +
- * rotação — ponto único por onde toda mudança que afeta a imagem final
- * passa. Reversível: desligar a remoção de fundo volta exatamente ao
- * `originalArt`, sem precisar reimportar o arquivo. Qualquer recálculo
- * invalida a linha de corte gerada (ela precisa ser gerada de novo sobre a
- * imagem atualizada).
+ * borda (se ligada) + rotação — ponto único por onde toda mudança que afeta
+ * a imagem final passa. Reversível: desligar a remoção de fundo ou a borda
+ * volta exatamente ao estado anterior, sem precisar reimportar o arquivo.
+ * Qualquer recálculo invalida a linha de corte gerada (ela precisa ser
+ * gerada de novo sobre a imagem atualizada).
  */
 async function recomputeArt(get: Get, set: Set) {
-  const { originalArt, rotation, backgroundRemoval } = get()
+  const { originalArt, rotation, backgroundRemoval, border } = get()
   if (!originalArt) {
     set({ art: null, cutContour: null })
     return
@@ -132,6 +149,9 @@ async function recomputeArt(get: Get, set: Set) {
     let base = originalArt
     if (backgroundRemoval.enabled) {
       base = await removeBackgroundColor(originalArt, { removeHoles: backgroundRemoval.removeHoles })
+    }
+    if (border.enabled) {
+      base = await addBorderToArt(base, { widthMm: border.widthMm, color: border.color })
     }
     const final = rotation === 0 ? base : await rotateArt(base, rotation)
     set({ art: final, loading: false, cutContour: null })
@@ -149,6 +169,7 @@ export const useMontagemStore = create<MontagemState>((set, get) => ({
   cropMarks: defaultCropMarks(),
   rotation: 0,
   backgroundRemoval: defaultBackgroundRemoval(),
+  border: defaultBorder(),
   cutContour: null,
   cutContourOffsetMm: 2,
   zoom: 1,
@@ -160,12 +181,14 @@ export const useMontagemStore = create<MontagemState>((set, get) => ({
   setArt: (art) => set({
     originalArt: art, art, rotation: 0,
     backgroundRemoval: defaultBackgroundRemoval(),
+    border: defaultBorder(),
     cutContour: null, error: null,
   }),
 
   clearArt: () => set({
     originalArt: null, art: null, rotation: 0,
     backgroundRemoval: defaultBackgroundRemoval(),
+    border: defaultBorder(),
     cutContour: null,
   }),
 
@@ -230,6 +253,24 @@ export const useMontagemStore = create<MontagemState>((set, get) => ({
     const snap = snapshotOf(get())
     set((s) => ({ backgroundRemoval: { ...s.backgroundRemoval, removeHoles }, past: [...s.past, snap], future: [] }))
     if (get().backgroundRemoval.enabled) await recomputeArt(get, set)
+  },
+
+  setBorderEnabled: async (enabled) => {
+    const snap = snapshotOf(get())
+    set((s) => ({ border: { ...s.border, enabled }, past: [...s.past, snap], future: [] }))
+    await recomputeArt(get, set)
+  },
+
+  setBorderWidthMm: async (widthMm) => {
+    const snap = snapshotOf(get())
+    set((s) => ({ border: { ...s.border, widthMm }, past: [...s.past, snap], future: [] }))
+    if (get().border.enabled) await recomputeArt(get, set)
+  },
+
+  setBorderColor: async (color) => {
+    const snap = snapshotOf(get())
+    set((s) => ({ border: { ...s.border, color }, past: [...s.past, snap], future: [] }))
+    if (get().border.enabled) await recomputeArt(get, set)
   },
 
   upscaleArt: async (factor) => {

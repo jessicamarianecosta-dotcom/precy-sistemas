@@ -9,6 +9,7 @@ import { ResultsSummary } from './ResultsSummary'
 import { CanvasPreview } from './CanvasPreview'
 import { ExportPanel } from './ExportPanel'
 import { CutContourPanel } from './CutContourPanel'
+import { BorderPanel } from './BorderPanel'
 import { useMontagemStore } from '@/lib/montagem/store'
 
 interface Props {
@@ -52,15 +53,16 @@ export function MontagemStudio({ variant }: Props) {
           )}
         </div>
 
-        {/* Centro: visualização */}
-        <div className="order-3 lg:order-2 min-h-[420px]">
+        {/* Centro: visualização — sempre antes dos resultados/exportação no mobile, pra poder conferir antes de baixar */}
+        <div className="order-2 min-h-[420px]">
           <CanvasPreview />
         </div>
 
         {/* Direita: resultados + exportação */}
-        <div className="space-y-4 order-2 lg:order-3">
+        <div className="space-y-4 order-3">
           <ResultsSummary />
           {art && <CropMarksPanel />}
+          {art && art.kind !== 'shape' && <BorderPanel />}
           {art && art.kind !== 'shape' && <CutContourPanel />}
           {art && <ExportPanel />}
         </div>
