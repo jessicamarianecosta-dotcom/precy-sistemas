@@ -7,7 +7,12 @@ import { TERMS_VERSION, PRIVACY_VERSION } from '@/lib/legal/versions'
 /* ── Rotas públicas ── */
 const PUBLIC = ['/', '/login', '/cadastro', '/recuperar-senha', '/nova-senha',
                 '/termos', '/privacidade', '/reembolso', '/cancelamento', '/suporte',
-                '/loja', '/api/loja']
+                '/loja', '/api/loja',
+                // PRECY MONTAGEM — ferramenta pública, sem cadastro. Rota literal
+                // '/montagem' apenas: NÃO usar prefixo que bata em '/montagem-studio'
+                // (painel interno, autenticado e restrito por e-mail em
+                // app/(dashboard)/montagem-studio/layout.tsx).
+                '/montagem']
 
 /* ── Gate de re-aceite de Termos/Privacidade: liberado mesmo sem aceite
    atual, para não gerar loop de redirecionamento ── */
