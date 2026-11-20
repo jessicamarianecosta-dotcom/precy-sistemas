@@ -302,11 +302,18 @@ export const useMontagemStore = create<MontagemState>((set, get) => ({
   },
 
   generateCutContour: async () => {
-    const { art, cutContourOffsetMm } = get()
+    const { art, cutContourOffsetMm, border } = get()
     if (!art) return
     set({ loading: true, error: null })
     try {
-      const contour = await generateCutContourForArt(art, cutContourOffsetMm)
+      // "Distância da arte" sempre conta a partir da arte ORIGINAL, não da
+      // borda já adicionada — a borda entra como parte da silhueta que a
+      // faca contorna, então só dilata além dela o que sobrar depois de
+      // descontar a espessura da borda (ex: borda 2mm + distância 2mm =
+      // faca exatamente na borda, 2mm da arte; não 4mm).
+      const borderWidthMm = border.enabled ? border.widthMm : 0
+      const effectiveOffsetMm = Math.max(0, cutContourOffsetMm - borderWidthMm)
+      const contour = await generateCutContourForArt(art, effectiveOffsetMm)
       set({ cutContour: contour, loading: false })
     } catch (e) {
       set({ loading: false, error: e instanceof Error ? e.message : 'Falha ao gerar a linha de corte.' })

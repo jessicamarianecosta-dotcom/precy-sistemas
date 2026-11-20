@@ -152,7 +152,7 @@ export function CanvasPreview() {
   }
 
   return (
-    <div className="card rounded-2xl p-4 flex flex-col h-full min-h-[420px]">
+    <div className="card rounded-2xl p-4 flex flex-col min-h-[420px] h-[70vh] max-h-[80vh]">
       <div className="flex items-center justify-between mb-3 flex-shrink-0">
         <h3 className="font-semibold text-text-primary dark:text-stone-100">Visualização</h3>
         <div className="flex items-center gap-1">

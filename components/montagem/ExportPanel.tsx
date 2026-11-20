@@ -7,6 +7,7 @@ import { useMontagemStore, useMontagemComparison } from '@/lib/montagem/store'
 import { exportPng, downloadBlob } from '@/lib/montagem/exportPng'
 import { exportPdf } from '@/lib/montagem/exportPdf'
 import { exportCutContourPdf, exportCutContourSvg } from '@/lib/montagem/exportCutContour'
+import { tightenRollLength } from '@/lib/montagem/packing'
 
 type Background = 'white' | 'transparent'
 
@@ -32,11 +33,20 @@ export function ExportPanel() {
   const canUseTransparent = !!art?.hasAlpha
   const effectiveBackground: Background = canUseTransparent ? background : 'white'
 
+  // No modo "informar comprimento" da bobina, o comprimento calculado para
+  // aproveitamento/desperdício é o que a pessoa disse ter disponível — mas o
+  // arquivo exportado não deve incluir a sobra em branco no fim, só o que
+  // de fato tem peça impressa.
+  const isBobinaLengthMode = mode === 'bobina' && bobina.desiredQty == null
+  const exportResult = result && isBobinaLengthMode
+    ? tightenRollLength(result, margins.top, margins.bottom, spacing.y)
+    : result
+
   async function handleExportPng() {
-    if (!art || !result) return
+    if (!art || !exportResult) return
     setBusy('png'); setError(null)
     try {
-      const blob = await exportPng(result, margins.left, margins.top, spacing.x, spacing.y, art.dataUrl, {
+      const blob = await exportPng(exportResult, margins.left, margins.top, spacing.x, spacing.y, art.dataUrl, {
         dpi, transparentBg: effectiveBackground === 'transparent', cropMarks,
       })
       downloadBlob(blob, `precy-montagem-${Date.now()}.png`)
@@ -48,10 +58,10 @@ export function ExportPanel() {
   }
 
   function handleExportPdf() {
-    if (!art || !result) return
+    if (!art || !exportResult) return
     setBusy('pdf'); setError(null)
     try {
-      exportPdf(result, margins.left, margins.top, spacing.x, spacing.y, art.dataUrl, {
+      exportPdf(exportResult, margins.left, margins.top, spacing.x, spacing.y, art.dataUrl, {
         cropMarks, background: effectiveBackground,
         cutContour: includeCutContour ? cutContour : null,
       }, `precy-montagem-${Date.now()}.pdf`)
@@ -63,10 +73,10 @@ export function ExportPanel() {
   }
 
   function handleExportFacaPdf() {
-    if (!result || !cutContour) return
+    if (!exportResult || !cutContour) return
     setBusy('faca-pdf'); setError(null)
     try {
-      exportCutContourPdf(result, margins.left, margins.top, spacing.x, spacing.y, cutContour, `precy-faca-${Date.now()}.pdf`)
+      exportCutContourPdf(exportResult, margins.left, margins.top, spacing.x, spacing.y, cutContour, `precy-faca-${Date.now()}.pdf`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Falha ao exportar a faca.')
     } finally {
@@ -75,10 +85,10 @@ export function ExportPanel() {
   }
 
   function handleExportFacaSvg() {
-    if (!result || !cutContour) return
+    if (!exportResult || !cutContour) return
     setBusy('faca-svg'); setError(null)
     try {
-      exportCutContourSvg(result, margins.left, margins.top, spacing.x, spacing.y, cutContour, `precy-faca-${Date.now()}.svg`)
+      exportCutContourSvg(exportResult, margins.left, margins.top, spacing.x, spacing.y, cutContour, `precy-faca-${Date.now()}.svg`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Falha ao exportar a faca.')
     } finally {
