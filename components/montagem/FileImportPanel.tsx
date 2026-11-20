@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useRef, useState } from 'react'
-import { UploadCloud, FileImage, FileText, RotateCw, RefreshCw, Lock, Unlock, Crop, Sparkles, Loader2 } from 'lucide-react'
+import { UploadCloud, FileImage, FileText, RotateCw, RefreshCw, Lock, Unlock, Crop, Sparkles, Loader2, Eraser } from 'lucide-react'
 import { clsx } from 'clsx'
 import {
   importImageFile, openPdfFile, renderPdfPage, rotateArt,
@@ -10,6 +10,7 @@ import {
 import { useMontagemStore } from '@/lib/montagem/store'
 import { fromMm, toMm, type Unit } from '@/lib/montagem/units'
 import type { Rotation } from '@/lib/montagem/types'
+import { NumberInput } from '@/components/ui/NumberInput'
 
 export function FileImportPanel() {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -27,6 +28,7 @@ export function FileImportPanel() {
   const clearArt = useMontagemStore((s) => s.clearArt)
   const setRotation = useMontagemStore((s) => s.setRotation)
   const trimArtBackground = useMontagemStore((s) => s.trimArtBackground)
+  const removeArtBackground = useMontagemStore((s) => s.removeArtBackground)
   const upscaleArt = useMontagemStore((s) => s.upscaleArt)
   const processing = useMontagemStore((s) => s.loading)
   const processingError = useMontagemStore((s) => s.error)
@@ -162,18 +164,18 @@ export function FileImportPanel() {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="text-xs font-medium text-text-secondary dark:text-stone-400">Largura</label>
-          <input
-            type="number" step="0.1" className="input mt-1"
+          <NumberInput
+            className="input mt-1 w-full"
             value={round2(fromMm(art.widthMm, unit))}
-            onChange={(e) => updateDims({ widthMm: toMm(parseFloat(e.target.value) || 0, unit) })}
+            onChange={(v) => updateDims({ widthMm: toMm(v, unit) })}
           />
         </div>
         <div>
           <label className="text-xs font-medium text-text-secondary dark:text-stone-400">Altura</label>
-          <input
-            type="number" step="0.1" className="input mt-1"
+          <NumberInput
+            className="input mt-1 w-full"
             value={round2(fromMm(art.heightMm, unit))}
-            onChange={(e) => updateDims({ heightMm: toMm(parseFloat(e.target.value) || 0, unit) })}
+            onChange={(v) => updateDims({ heightMm: toMm(v, unit) })}
           />
         </div>
       </div>
@@ -216,6 +218,18 @@ export function FileImportPanel() {
         </button>
         <p className="text-[11px] text-text-muted -mt-2">
           Rastreia a arte e corta a margem de fundo (branco ou transparente), ajustando a medida para o tamanho real.
+        </p>
+
+        <button
+          onClick={() => removeArtBackground()}
+          disabled={processing}
+          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold border border-border dark:border-border-dark text-text-primary dark:text-stone-100 hover:border-primary disabled:opacity-50"
+        >
+          {processing ? <Loader2 size={14} className="animate-spin" /> : <Eraser size={14} className="text-primary" />}
+          Remover fundo (deixar transparente)
+        </button>
+        <p className="text-[11px] text-text-muted -mt-2">
+          Torna transparente o fundo sólido ao redor da arte, sem alterar cores. Necessário antes de exportar com fundo transparente, se o arquivo original não tiver transparência (ex: JPG).
         </p>
 
         <div>

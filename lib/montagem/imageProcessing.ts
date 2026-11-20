@@ -27,6 +27,22 @@ function get2dContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
 }
 
 /**
+ * Cor de referência do fundo: média dos 4 cantos da imagem (mais robusto
+ * que olhar 1 pixel só, contra ruído de compressão JPEG perto da borda).
+ */
+function detectBackgroundColor(data: Uint8ClampedArray, width: number, height: number) {
+  const corners = [
+    0,
+    (width - 1) * 4,
+    (height - 1) * width * 4,
+    ((height - 1) * width + width - 1) * 4,
+  ]
+  let r = 0, g = 0, b = 0
+  for (const i of corners) { r += data[i]; g += data[i + 1]; b += data[i + 2] }
+  return { r: r / 4, g: g / 4, b: b / 4 }
+}
+
+/**
  * Recorta a imagem na menor caixa que contém toda a arte, removendo a
  * margem de fundo (branco ou transparente) ao redor. A medida física (mm)
  * é recalculada proporcionalmente ao recorte, para refletir o tamanho real
@@ -42,18 +58,7 @@ export async function trimBackground(art: ImportedArt, tolerance = 18): Promise<
 
   const { width, height } = canvas
   const { data } = ctx.getImageData(0, 0, width, height)
-
-  // Cor de referência do fundo: média dos 4 cantos (mais robusto que 1 pixel
-  // só, contra ruído de compressão JPEG perto da borda).
-  const corners = [
-    0,
-    (width - 1) * 4,
-    (height - 1) * width * 4,
-    ((height - 1) * width + width - 1) * 4,
-  ]
-  let bgR = 0, bgG = 0, bgB = 0
-  for (const i of corners) { bgR += data[i]; bgG += data[i + 1]; bgB += data[i + 2] }
-  bgR /= 4; bgG /= 4; bgB /= 4
+  const { r: bgR, g: bgG, b: bgB } = detectBackgroundColor(data, width, height)
 
   let minX = width, minY = height, maxX = -1, maxY = -1
   for (let y = 0; y < height; y++) {
@@ -102,6 +107,49 @@ export async function trimBackground(art: ImportedArt, tolerance = 18): Promise<
     widthMm: trimmedW * mmPerPxX,
     heightMm: trimmedH * mmPerPxY,
   }
+}
+
+/**
+ * Torna transparentes os pixels que correspondem à cor de fundo detectada
+ * (mesma lógica de detecção do recorte), preservando intactos os pixels da
+ * arte — não altera matiz/cor de nada, só zera o canal alfa onde era fundo.
+ * Útil quando o arquivo original (JPG, ou PNG sem alfa) tem fundo sólido e
+ * se quer exportar com fundo transparente.
+ *
+ * Usa uma faixa de transição suave entre `tolerance` e `tolerance+feather`
+ * para a borda não ficar serrilhada: pixels bem parecidos com o fundo ficam
+ * 100% transparentes, pixels na faixa de transição ficam parcialmente
+ * transparentes, pixels claramente da arte ficam intactos.
+ */
+export async function removeBackgroundColor(art: ImportedArt, tolerance = 20, feather = 14): Promise<ImportedArt> {
+  const img = await loadImageElement(art.dataUrl)
+  const canvas = document.createElement('canvas')
+  canvas.width = img.naturalWidth
+  canvas.height = img.naturalHeight
+  const ctx = get2dContext(canvas)
+  ctx.drawImage(img, 0, 0)
+
+  const { width, height } = canvas
+  const imageData = ctx.getImageData(0, 0, width, height)
+  const data = imageData.data
+  const { r: bgR, g: bgG, b: bgB } = detectBackgroundColor(data, width, height)
+
+  const outerRadius = tolerance + feather
+  for (let i = 0; i < data.length; i += 4) {
+    const dr = data[i] - bgR
+    const dg = data[i + 1] - bgG
+    const db = data[i + 2] - bgB
+    const distance = Math.sqrt(dr * dr + dg * dg + db * db)
+    if (distance <= tolerance) {
+      data[i + 3] = 0
+    } else if (distance < outerRadius) {
+      const keepFactor = (distance - tolerance) / feather
+      data[i + 3] = Math.round(data[i + 3] * keepFactor)
+    }
+  }
+  ctx.putImageData(imageData, 0, 0)
+
+  return { ...art, dataUrl: canvas.toDataURL('image/png'), hasAlpha: true }
 }
 
 /** Maior lado, em pixels, que o upscale pode gerar — protege de travar o navegador em arquivos já grandes. */

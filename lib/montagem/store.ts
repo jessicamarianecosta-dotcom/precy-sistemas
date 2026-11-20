@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 import { SHEET_PRESETS, packBobina, packFolha } from './packing'
 import { rotateArt } from './fileImport'
-import { trimBackground, upscaleImage } from './imageProcessing'
+import { trimBackground, upscaleImage, removeBackgroundColor } from './imageProcessing'
 import type { AssemblyMode, BobinaConfig, CropMarksConfig, FolhaConfig, ImportedArt, PackingComparison, Rotation } from './types'
 
 const DEFAULT_MARGINS = { top: 10, right: 10, bottom: 10, left: 10 }
@@ -71,6 +71,7 @@ interface MontagemState {
   updateCropMarks: (patch: Partial<CropMarksConfig>) => void
   setRotation: (rotation: Rotation) => Promise<void>
   trimArtBackground: () => Promise<void>
+  removeArtBackground: () => Promise<void>
   upscaleArt: (factor: 2 | 3 | 4) => Promise<void>
   setZoom: (zoom: number) => void
   undo: () => void
@@ -162,6 +163,19 @@ export const useMontagemStore = create<MontagemState>((set, get) => ({
       set({ originalArt: trimmed, art: rotated, loading: false })
     } catch (e) {
       set({ loading: false, error: e instanceof Error ? e.message : 'Falha ao recortar o fundo da arte.' })
+    }
+  },
+
+  removeArtBackground: async () => {
+    const { originalArt, rotation } = get()
+    if (!originalArt) return
+    set({ loading: true, error: null })
+    try {
+      const transparent = await removeBackgroundColor(originalArt)
+      const rotated = rotation === 0 ? transparent : await rotateArt(transparent, rotation)
+      set({ originalArt: transparent, art: rotated, loading: false })
+    } catch (e) {
+      set({ loading: false, error: e instanceof Error ? e.message : 'Falha ao remover o fundo da arte.' })
     }
   },
 
