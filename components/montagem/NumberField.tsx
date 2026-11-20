@@ -28,12 +28,13 @@ export function NumberField({ label, value, onChange, suffix }: Props) {
 interface MarginsProps {
   margins: { top: number; right: number; bottom: number; left: number }
   onChange: (margins: { top: number; right: number; bottom: number; left: number }) => void
+  unit?: string
 }
 
-export function MarginsFields({ margins, onChange }: MarginsProps) {
+export function MarginsFields({ margins, onChange, unit = 'mm' }: MarginsProps) {
   return (
     <div>
-      <label className="text-xs font-medium text-text-secondary dark:text-stone-400">Margens (mm)</label>
+      <label className="text-xs font-medium text-text-secondary dark:text-stone-400">Margens ({unit})</label>
       <div className="grid grid-cols-4 gap-2 mt-1.5">
         <NumberInput className="input text-center" title="Superior" placeholder="Sup."
           value={margins.top} onChange={(top) => onChange({ ...margins, top })} />
@@ -51,13 +52,32 @@ export function MarginsFields({ margins, onChange }: MarginsProps) {
 interface SpacingProps {
   spacing: { x: number; y: number }
   onChange: (spacing: { x: number; y: number }) => void
+  unit?: string
 }
 
-export function SpacingFields({ spacing, onChange }: SpacingProps) {
+export function SpacingFields({ spacing, onChange, unit = 'mm' }: SpacingProps) {
   return (
     <div className="grid grid-cols-2 gap-3">
-      <NumberField label="Espaçamento horizontal (mm)" value={spacing.x} onChange={(x) => onChange({ ...spacing, x })} />
-      <NumberField label="Espaçamento vertical (mm)" value={spacing.y} onChange={(y) => onChange({ ...spacing, y })} />
+      <NumberField label={`Espaçamento horizontal (${unit})`} value={spacing.x} onChange={(x) => onChange({ ...spacing, x })} />
+      <NumberField label={`Espaçamento vertical (${unit})`} value={spacing.y} onChange={(y) => onChange({ ...spacing, y })} />
+    </div>
+  )
+}
+
+/** Seletor de unidade compacto (mm/cm/m) — mesmo padrão usado na importação da arte. */
+export function UnitToggle({ unit, onChange }: { unit: 'mm' | 'cm' | 'm'; onChange: (u: 'mm' | 'cm' | 'm') => void }) {
+  return (
+    <div className="flex gap-1.5">
+      {(['mm', 'cm', 'm'] as const).map((u) => (
+        <button
+          key={u}
+          type="button"
+          onClick={() => onChange(u)}
+          className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${unit === u ? 'bg-primary text-white border-primary' : 'border-border dark:border-border-dark text-text-secondary dark:text-stone-400'}`}
+        >
+          {u}
+        </button>
+      ))}
     </div>
   )
 }
