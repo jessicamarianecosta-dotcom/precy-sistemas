@@ -262,7 +262,8 @@ export function EssencialPricingCalculator() {
     <div className="page-enter">
       <Header title="Precificação" subtitle="Calcule o preço ideal considerando custos diretos e indiretos" />
 
-      <div className="p-4 sm:p-6 space-y-5 max-w-3xl">
+      <div className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-5 gap-4 lg:items-start">
+      <div className="lg:col-span-3 space-y-5">
         {/* ── 1. Tipo de atividade ── */}
         <div className="card">
           <div className="flex items-center gap-2 mb-4">
@@ -507,7 +508,10 @@ export function EssencialPricingCalculator() {
             </div>
           )}
         </div>
+      </div>
 
+      {/* ── Coluna fixa: resultado sempre visível enquanto preenche o formulário ── */}
+      <div className="lg:col-span-2 space-y-5 lg:sticky lg:top-4">
         {/* ── 5. Resultado ── */}
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="card bg-primary-50/60 dark:bg-primary/5 border-primary/20 space-y-2">
           <div className="flex items-center gap-2 mb-1">
@@ -553,6 +557,7 @@ export function EssencialPricingCalculator() {
             </>
           )}
         </div>
+      </div>
       </div>
     </div>
   )
