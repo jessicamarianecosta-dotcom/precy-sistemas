@@ -41,9 +41,9 @@ export function MontagemStudio({ variant }: Props) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr_320px] gap-5 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)_320px] gap-5 items-start">
         {/* Painel esquerdo: importação + configuração */}
-        <div className="space-y-4 order-1">
+        <div className="space-y-4 order-1 min-w-0">
           <FileImportPanel />
           {art && (
             <div className="card rounded-2xl p-4 space-y-4">
@@ -60,13 +60,19 @@ export function MontagemStudio({ variant }: Props) {
            `self-start` é essencial: sem ele, um item de grid pode esticar
            para a altura da coluna mais alta (import+config ou resultados),
            e aí não sobra espaço pra "sticky" ter efeito — a altura máxima
-           fica definida dentro do próprio CanvasPreview (card), não aqui. */}
-        <div className="order-2 sticky top-2 self-start z-10">
+           fica definida dentro do próprio CanvasPreview (card), não aqui.
+           `min-w-0` (junto com `minmax(0,1fr)` na coluna) é essencial: sem
+           ele, a prévia em tamanho real (que pode ficar bem larga numa
+           bobina grande) força essa coluna do grid a crescer além do
+           disponível, empurrando a coluna de resultados/exportação pra fora
+           da tela — exatamente o bug de "sumir e não ter acesso" no
+           computador, dependendo da medida da arte/bobina. */}
+        <div className="order-2 sticky top-2 self-start z-10 min-w-0">
           <CanvasPreview />
         </div>
 
         {/* Direita: resultados + exportação */}
-        <div className="space-y-4 order-3">
+        <div className="space-y-4 order-3 min-w-0">
           <ResultsSummary />
           {art && <CropMarksPanel />}
           {art && art.kind !== 'shape' && <BorderPanel />}
