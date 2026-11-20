@@ -7,6 +7,18 @@ import { computeContourTilePaths, computeCropMarks, computeTilePositions } from 
 
 const RULER_SIZE = 20
 
+/** Padrão quadriculado (convenção universal de "fundo transparente") desenhado atrás de cada peça, pra deixar visível onde a arte é transparente de verdade (ex: pra conferir o tamanho de uma borda branca) — a folha/bobina física continua branca, isso é só um guia visual. */
+function drawCheckerboard(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+  const cell = 6
+  for (let yy = 0; yy < h; yy += cell) {
+    for (let xx = 0; xx < w; xx += cell) {
+      const light = (Math.floor(xx / cell) + Math.floor(yy / cell)) % 2 === 0
+      ctx.fillStyle = light ? '#f2f2f2' : '#d4d4d4'
+      ctx.fillRect(x + xx, y + yy, Math.min(cell, w - xx), Math.min(cell, h - yy))
+    }
+  }
+}
+
 export function CanvasPreview() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -92,10 +104,12 @@ export function CanvasPreview() {
       const img = new Image()
       img.onload = () => {
         for (const t of tiles) {
-          ctx.drawImage(img, t.xMm * pxPerMm, t.yMm * pxPerMm, t.widthMm * pxPerMm, t.heightMm * pxPerMm)
+          const tx = t.xMm * pxPerMm, ty = t.yMm * pxPerMm, tw = t.widthMm * pxPerMm, th = t.heightMm * pxPerMm
+          if (art.hasAlpha) drawCheckerboard(ctx, tx, ty, tw, th)
+          ctx.drawImage(img, tx, ty, tw, th)
           ctx.strokeStyle = 'rgba(139,108,79,0.25)'
           ctx.lineWidth = 0.5
-          ctx.strokeRect(t.xMm * pxPerMm, t.yMm * pxPerMm, t.widthMm * pxPerMm, t.heightMm * pxPerMm)
+          ctx.strokeRect(tx, ty, tw, th)
         }
         if (cropMarks.enabled) {
           const marks = computeCropMarks(tiles, cropMarks.markLengthMm, cropMarks.markOffsetMm)
