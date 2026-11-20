@@ -200,7 +200,7 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
                   <NavLink href="/catalogo" icon={Store} label="Catálogo Online" />
                 </li>
               )}
-              {group.title === 'Negócio' && hasNotasFiscaisAccess && (
+              {group.title === 'Financeiro' && hasNotasFiscaisAccess && (
                 <li>
                   <NavLink href="/notas-fiscais" icon={Receipt} label="Notas Fiscais" />
                 </li>
