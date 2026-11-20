@@ -18,7 +18,8 @@ export interface SpacingMm {
 
 export interface ImportedArt {
   name: string
-  kind: 'image' | 'pdf'
+  /** 'shape': forma simples (quadrado/retângulo ou círculo) criada sem arquivo, só para calcular aproveitamento. */
+  kind: 'image' | 'pdf' | 'shape'
   /** Imagem já rotacionada conforme `rotation`, pronta para ser ladrilhada. */
   dataUrl: string
   widthPx: number

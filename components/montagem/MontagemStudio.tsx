@@ -61,7 +61,7 @@ export function MontagemStudio({ variant }: Props) {
         <div className="space-y-4 order-2 lg:order-3">
           <ResultsSummary />
           {art && <CropMarksPanel />}
-          {art && <CutContourPanel />}
+          {art && art.kind !== 'shape' && <CutContourPanel />}
           {art && <ExportPanel />}
         </div>
       </div>
