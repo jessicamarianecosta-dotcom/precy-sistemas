@@ -21,7 +21,7 @@ interface MissingField {
 interface PreviewData {
   order: { id: string; order_number: string; total: number }
   customer: { id: string; name: string } | null
-  items: { id: string; name: string | null; quantity: number; unit_price: number; product_ncm: string | null; product_cfop: string | null }[]
+  items: { id: string; name: string | null; quantity: number; unit_price: number; product_ncm: string | null }[]
   company: { name: string }
   missingFields: MissingField[]
   existingInvoice: null | {
@@ -147,8 +147,8 @@ export default function NotaFiscalPedidoPage() {
             <div key={item.id} className="px-3 py-2 text-xs flex items-center justify-between">
               <span className="text-text-secondary dark:text-stone-300">
                 {item.quantity}x {item.name ?? 'Item'}
-                {(!item.product_ncm || !item.product_cfop) && (
-                  <span className="text-amber-600 ml-1">(NCM/CFOP faltando)</span>
+                {!item.product_ncm && (
+                  <span className="text-amber-600 ml-1">(NCM faltando)</span>
                 )}
               </span>
               <span className="text-text-muted">{formatCurrency(item.unit_price)}</span>
@@ -164,6 +164,10 @@ export default function NotaFiscalPedidoPage() {
             disabled={!!existingInvoice}
             className="input w-full sm:w-80"
           />
+          <p className="text-[11px] text-text-muted mt-1">
+            Precisa ser o nome exato de uma natureza de operação já cadastrada na sua conta Bling
+            (Cadastros → Naturezas de Operação) — o Bling usa esse cadastro para definir o CFOP da nota.
+          </p>
         </div>
       </div>
 

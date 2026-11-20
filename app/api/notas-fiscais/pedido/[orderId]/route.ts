@@ -28,11 +28,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ord
   if (!order) return NextResponse.json({ error: 'Pedido não encontrado' }, { status: 404 })
 
   const { data: items, error: itemsErr } = await (supabaseAdmin.from('order_items') as any)
-    .select('id, name, quantity, unit_price, product_id, product:products(id, name, ncm, cfop)')
+    .select('id, name, quantity, unit_price, product_id, product:products(id, name, unit, ncm), variant:product_variants(sku)')
     .eq('order_id', order.id)
 
   if (itemsErr) return NextResponse.json({ error: itemsErr.message }, { status: 500 })
 
+  // Dados da empresa não entram no payload da NF-e (ver lib/notasFiscais/fieldMapping.ts) —
+  // seguem aqui só para exibição na tela de revisão.
   const { data: company, error: companyErr } = await (supabaseAdmin.from('companies') as any)
     .select('name, cnpj, inscricao_estadual, regime_tributario, street, number, neighborhood, city, state, zip_code')
     .eq('id', auth.companyId)
@@ -45,11 +47,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ord
     name: item.name ?? item.product?.name ?? null,
     quantity: item.quantity,
     unit_price: item.unit_price,
+    unit: item.product?.unit ?? null,
+    code: item.variant?.sku || item.product?.id || item.id,
     product_ncm: item.product?.ncm ?? null,
-    product_cfop: item.product?.cfop ?? null,
   }))
 
-  const missingFields = getMissingFields(company, order.customer, mappedItems)
+  const missingFields = getMissingFields(order.customer, mappedItems)
 
   const { data: existingInvoice } = await (supabaseAdmin.from('fiscal_invoices') as any)
     .select('*')

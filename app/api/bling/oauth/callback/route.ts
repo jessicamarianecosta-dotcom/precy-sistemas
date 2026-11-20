@@ -51,7 +51,11 @@ export async function GET(req: NextRequest) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: '1.0', // formato exato do header na doc oficial do Bling
         Authorization: `Basic ${basicAuth}`,
+        // Token opaco está sendo descontinuado pelo Bling — enable-jwt precisa ir
+        // desde a primeira obtenção de token pra já recebermos o formato JWT.
+        'enable-jwt': '1',
       },
       body: new URLSearchParams({
         grant_type: 'authorization_code',

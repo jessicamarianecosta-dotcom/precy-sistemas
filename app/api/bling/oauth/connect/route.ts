@@ -32,6 +32,12 @@ export async function GET() {
   const state = signState({ companyId: auth.companyId, ts: Date.now(), nonce: randomUUID() })
   const redirectUri = `${appUrl}/api/bling/oauth/callback`
 
+  // IMPORTANTE (confirmado na doc oficial — "Como cadastrar" um app): o Bling trata
+  // redirect_uri (e scope) como opcionais e SEMPRE usa o valor cadastrado no próprio
+  // app em developer.bling.com.br/aplicativos, ignorando o que vier aqui na query
+  // string. Enviar de novo abaixo não tem efeito nocivo, mas o callback real só
+  // funciona se o "Link de redirecionamento" do app cadastrado for EXATAMENTE
+  // `redirectUri` abaixo — nunca confiar só nesta query string pra isso.
   const authUrl = new URL('https://www.bling.com.br/Api/v3/oauth/authorize')
   authUrl.searchParams.set('response_type', 'code')
   authUrl.searchParams.set('client_id', clientId)

@@ -2,8 +2,32 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireNotasFiscaisAccess } from '@/lib/notasFiscais/server-auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getActiveBlingAccessToken } from '@/lib/notasFiscais/blingConnection'
-import { criarNfeNoBling, BlingApiError } from '@/lib/notasFiscais/blingClient'
+import { criarNfeNoBling, consultarNfeNoBling, buscarNaturezasOperacao, SITUACAO_NFE_LABELS, BlingApiError } from '@/lib/notasFiscais/blingClient'
 import { buildNfePayload, getMissingFields } from '@/lib/notasFiscais/fieldMapping'
+
+/**
+ * `naturezaOperacao` da NF-e é `{ id }`, referenciando um registro já
+ * cadastrado na conta Bling (GET /naturezas-operacoes) — a API não aceita
+ * texto livre nem cria uma nova (ver lib/notasFiscais/fieldMapping.ts).
+ * A usuária digita a descrição na tela de revisão (ex.: "Venda de
+ * mercadoria"); aqui resolvemos pelo match exato (case-insensitive) de
+ * descrição entre as naturezas ativas da conta. Sem match: erro claro
+ * pedindo pra cadastrar essa natureza de operação no Bling primeiro —
+ * nunca inventamos um id.
+ */
+async function resolveNaturezaOperacaoId(accessToken: string, descricao: string): Promise<number> {
+  const response: any = await buscarNaturezasOperacao(accessToken, descricao)
+  const candidates: any[] = response?.data ?? []
+  const exact = candidates.find(n => String(n?.descricao ?? '').trim().toLowerCase() === descricao.trim().toLowerCase())
+  const match = exact ?? candidates[0]
+  if (!match?.id) {
+    throw new Error(
+      `Nenhuma natureza de operação chamada "${descricao}" foi encontrada na conta Bling conectada. ` +
+      `Cadastre-a em Bling → Cadastros → Naturezas de Operação antes de criar a nota.`
+    )
+  }
+  return Number(match.id)
+}
 
 /**
  * POST /api/notas-fiscais/pedido/[orderId]/criar
@@ -38,7 +62,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ord
   if (!order) return NextResponse.json({ error: 'Pedido não encontrado' }, { status: 404 })
 
   const { data: items } = await (supabaseAdmin.from('order_items') as any)
-    .select('id, name, quantity, unit_price, product:products(ncm, cfop)')
+    .select('id, name, quantity, unit_price, product:products(id, unit, ncm), variant:product_variants(sku)')
     .eq('order_id', order.id)
 
   const mappedItems = (items ?? []).map((item: any) => ({
@@ -46,16 +70,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ord
     name: item.name,
     quantity: item.quantity,
     unit_price: item.unit_price,
+    unit: item.product?.unit ?? null,
+    // `codigo` é obrigatório na NF-e (NotasFiscaisItemDTO) — usa o SKU da
+    // variação do pedido quando existe, senão cai pro id do produto (o
+    // cadastro de produto do Precy+ não tem um campo de SKU próprio).
+    code: item.variant?.sku || item.product?.id || item.id,
     product_ncm: item.product?.ncm ?? null,
-    product_cfop: item.product?.cfop ?? null,
   }))
 
-  const { data: company } = await (supabaseAdmin.from('companies') as any)
-    .select('name, cnpj, inscricao_estadual, regime_tributario, street, number, neighborhood, city, state, zip_code')
-    .eq('id', auth.companyId)
-    .maybeSingle()
-
-  const missingFields = getMissingFields(company, order.customer, mappedItems)
+  const missingFields = getMissingFields(order.customer, mappedItems)
   if (missingFields.length > 0) {
     return NextResponse.json({ error: 'Faltam campos obrigatórios antes de emitir', missingFields }, { status: 422 })
   }
@@ -63,6 +86,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ord
   const accessToken = await getActiveBlingAccessToken(auth.companyId)
   if (!accessToken) {
     return NextResponse.json({ error: 'Conecte sua conta do Bling antes de emitir notas fiscais.' }, { status: 400 })
+  }
+
+  let naturezaOperacaoId: number
+  try {
+    naturezaOperacaoId = await resolveNaturezaOperacaoId(accessToken, naturezaOperacao)
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Falha ao resolver a natureza de operação' }, { status: 422 })
   }
 
   // Já existe uma nota deste pedido que CHEGOU a ser criada no Bling
@@ -95,10 +125,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ord
     .maybeSingle()
 
   const payload = buildNfePayload({
-    company,
     customer: order.customer,
     items: mappedItems,
-    naturezaOperacao,
+    naturezaOperacaoId,
     orderNumber: order.order_number,
   })
 
@@ -121,14 +150,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ord
 
   try {
     const response = await criarNfeNoBling(accessToken, payload)
-    const blingInvoiceId = (response as any)?.data?.id ?? (response as any)?.id ?? null
+    const blingInvoiceId = (response as any)?.data?.id ?? null
+
+    // POST /nfe não devolve `situacao` (confirmado na doc oficial — só id/numero/serie/contato) —
+    // uma consulta GET /nfe/{id} em seguida é o que de fato confirma o estado da nota recém-criada.
+    let situacaoResponse: unknown = response
+    let situacaoCodigo: number | null = null
+    if (blingInvoiceId) {
+      try {
+        situacaoResponse = await consultarNfeNoBling(accessToken, String(blingInvoiceId))
+        situacaoCodigo = (situacaoResponse as any)?.data?.situacao ?? null
+      } catch {
+        // Consulta falhou (ex.: rede) mas a nota já existe no Bling — não é erro fatal,
+        // só fica sem o status confirmado agora; `bling_status` guarda o que sabemos.
+      }
+    }
 
     const { data: updated, error: updateErr } = await (supabaseAdmin.from('fiscal_invoices') as any)
       .update({
         status: 'rascunho',
         bling_invoice_id: blingInvoiceId ? String(blingInvoiceId) : null,
-        bling_status: (response as any)?.data?.situacao ?? (response as any)?.situacao ?? null,
-        last_response: response,
+        bling_status: situacaoCodigo != null ? `${situacaoCodigo} (${SITUACAO_NFE_LABELS[situacaoCodigo] ?? 'desconhecido'})` : null,
+        last_response: { criar: response, consultar: situacaoResponse },
         request_payload: payload,
         error_message: null,
       })

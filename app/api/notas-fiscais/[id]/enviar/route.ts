@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireNotasFiscaisAccess } from '@/lib/notasFiscais/server-auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getActiveBlingAccessToken } from '@/lib/notasFiscais/blingConnection'
-import { enviarNfeNoBling, BlingApiError } from '@/lib/notasFiscais/blingClient'
+import { enviarNfeNoBling, consultarNfeNoBling, SITUACAO_NFE_LABELS, BlingApiError } from '@/lib/notasFiscais/blingClient'
 
 /**
  * POST /api/notas-fiscais/[id]/enviar
@@ -49,14 +49,28 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     .eq('id', invoice.id)
 
   try {
+    // POST /nfe/{id}/enviar responde só { data: { xml } } (confirmado na doc oficial)
+    // — não tem `situacao`. A consulta GET /nfe/{id} em seguida é o que confirma se
+    // o envio deu entrada (3 Aguardando recibo / 8 Aguardando protocolo) ou já voltou
+    // autorizada/rejeitada/denegada da SEFAZ.
     const response = await enviarNfeNoBling(accessToken, invoice.bling_invoice_id)
-    const situacao = (response as any)?.data?.situacao ?? (response as any)?.situacao ?? null
+
+    let situacaoResponse: unknown = response
+    let situacaoCodigo: number | null = null
+    try {
+      situacaoResponse = await consultarNfeNoBling(accessToken, invoice.bling_invoice_id)
+      situacaoCodigo = (situacaoResponse as any)?.data?.situacao ?? null
+    } catch {
+      // Envio já foi aceito pelo Bling (chamada anterior não lançou) — só a consulta
+      // de confirmação falhou; status interno fica "processando" até a próxima consulta manual.
+    }
 
     const { data: updated, error: updateErr } = await (supabaseAdmin.from('fiscal_invoices') as any)
       .update({
         status: 'processando',
-        bling_status: situacao,
-        last_response: response,
+        bling_status: situacaoCodigo != null ? `${situacaoCodigo} (${SITUACAO_NFE_LABELS[situacaoCodigo] ?? 'desconhecido'})` : null,
+        access_key: (situacaoResponse as any)?.data?.chaveAcesso ?? null,
+        last_response: { enviar: response, consultar: situacaoResponse },
         error_message: null,
       })
       .eq('id', invoice.id)
