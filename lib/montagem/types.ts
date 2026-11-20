@@ -1,6 +1,6 @@
 import type { Unit } from './units'
 
-export type AssemblyMode = 'bobina' | 'folha'
+export type AssemblyMode = 'bobina' | 'folha' | 'unidade'
 export type Rotation = 0 | 90 | 180 | 270
 export type SheetPreset = 'A4' | 'A3' | 'A5' | 'custom'
 

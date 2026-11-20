@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
-import { SHEET_PRESETS, packBobina, packFolha } from './packing'
+import { SHEET_PRESETS, packBobina, packFolha, singleItemResult } from './packing'
 import { rotateArt } from './fileImport'
 import { trimBackground, upscaleImage, removeBackgroundColor } from './imageProcessing'
 import { addBorderToArt } from './addBorder'
@@ -359,10 +359,22 @@ export const useMontagemStore = create<MontagemState>((set, get) => ({
   getComparison: () => {
     const s = get()
     if (!s.art) return null
-    if (s.mode === 'folha') return packFolha(s.folha, s.art.widthMm, s.art.heightMm)
-    return packBobina(s.bobina, s.art.widthMm, s.art.heightMm)
+    return comparisonForMode(s.mode, s.folha, s.bobina, s.art.widthMm, s.art.heightMm)
   },
 }))
+
+/**
+ * "Peça única": sem folha nem bobina, só a arte sozinha — reaproveita o
+ * mesmo `PackingComparison` genérico com um resultado 1×1 do tamanho exato
+ * da arte, pra toda a UI (resumo, prévia, exportação) tratar os três modos
+ * de forma uniforme.
+ */
+function comparisonForMode(mode: AssemblyMode, folha: FolhaConfig, bobina: BobinaConfig, widthMm: number, heightMm: number): PackingComparison {
+  if (mode === 'folha') return packFolha(folha, widthMm, heightMm)
+  if (mode === 'bobina') return packBobina(bobina, widthMm, heightMm)
+  const single = singleItemResult(widthMm, heightMm)
+  return { best: single, normal: single, rotated: single }
+}
 
 /**
  * Hook reativo para o resultado do cálculo — recalcula sempre que arte, modo
@@ -377,7 +389,6 @@ export function useMontagemComparison(): PackingComparison | null {
 
   return useMemo(() => {
     if (!art) return null
-    if (mode === 'folha') return packFolha(folha, art.widthMm, art.heightMm)
-    return packBobina(bobina, art.widthMm, art.heightMm)
+    return comparisonForMode(mode, folha, bobina, art.widthMm, art.heightMm)
   }, [art, mode, bobina, folha])
 }
