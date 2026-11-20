@@ -10,6 +10,7 @@ export function ResultsSummary() {
   const mode = useMontagemStore((s) => s.mode)
   const folha = useMontagemStore((s) => s.folha)
   const bobina = useMontagemStore((s) => s.bobina)
+  const art = useMontagemStore((s) => s.art)
   const rotation = useMontagemStore((s) => s.rotation)
   const setRotation = useMontagemStore((s) => s.setRotation)
   const loading = useMontagemStore((s) => s.loading)
@@ -27,8 +28,9 @@ export function ResultsSummary() {
   // No modo "quantidade desejada" da bobina a escolha de orientação já é
   // automática (a que precisa de menos linhas/comprimento) — mostrar os dois
   // totais lado a lado só confunde, porque nenhum dos dois é "a quantidade
-  // pedida", e sim o total arredondado pra completar a última linha.
-  const showRotateSuggestion = !isBobinaQtyMode && rotated.total > normal.total && rotated.fits
+  // pedida", e sim o total arredondado pra completar a última linha. No modo
+  // "peça única" não há grade pra reaproveitar girando.
+  const showRotateSuggestion = mode !== 'unidade' && !isBobinaQtyMode && rotated.total > normal.total && rotated.fits
 
   function rotateAndRecalculate() {
     const next = ((rotation + 90) % 360) as Rotation
@@ -41,7 +43,7 @@ export function ResultsSummary() {
   return (
     <div className="card rounded-2xl p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-text-primary dark:text-stone-100">Aproveitamento</h3>
+        <h3 className="font-semibold text-text-primary dark:text-stone-100">{mode === 'unidade' ? 'Peça única' : 'Aproveitamento'}</h3>
         {best.fits ? (
           <span className="flex items-center gap-1 text-xs font-semibold text-success"><CheckCircle2 size={14} /> Encaixa</span>
         ) : (
@@ -53,7 +55,14 @@ export function ResultsSummary() {
         <p className="text-sm text-error bg-error-light rounded-lg px-3 py-2">{best.reason}</p>
       )}
 
-      {best.fits && (
+      {best.fits && mode === 'unidade' && art && (
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <Metric label="Largura" value={formatMm(art.widthMm, 'mm')} big />
+          <Metric label="Altura" value={formatMm(art.heightMm, 'mm')} big />
+        </div>
+      )}
+
+      {best.fits && mode !== 'unidade' && (
         <>
           <div className="grid grid-cols-2 gap-3 text-sm">
             <Metric label="Colunas" value={String(best.cols)} />

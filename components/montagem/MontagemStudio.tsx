@@ -48,7 +48,13 @@ export function MontagemStudio({ variant }: Props) {
           {art && (
             <div className="card rounded-2xl p-4 space-y-4">
               <ModeTabs />
-              {mode === 'folha' ? <FolhaForm /> : <BobinaForm />}
+              {mode === 'folha' && <FolhaForm />}
+              {mode === 'bobina' && <BobinaForm />}
+              {mode === 'unidade' && (
+                <p className="text-xs text-text-muted">
+                  Exporta só esta arte (com borda/faca, se ativas), no tamanho dela mesma — sem montar em folha ou bobina.
+                </p>
+              )}
             </div>
           )}
         </div>

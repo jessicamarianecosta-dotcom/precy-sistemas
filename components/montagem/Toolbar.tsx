@@ -23,6 +23,12 @@ export function ModeTabs() {
       >
         Montagem em Bobina
       </button>
+      <button
+        onClick={() => setMode('unidade')}
+        className={clsx('flex-1 py-2 rounded-lg text-sm font-semibold transition-colors', mode === 'unidade' ? 'bg-white dark:bg-surface-dark shadow-sm text-primary' : 'text-text-secondary dark:text-stone-400')}
+      >
+        Peça única
+      </button>
     </div>
   )
 }
