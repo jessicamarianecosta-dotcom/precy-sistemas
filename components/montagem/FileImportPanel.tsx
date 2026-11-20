@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useRef, useState } from 'react'
-import { UploadCloud, FileImage, FileText, RotateCw, RefreshCw, Lock, Unlock } from 'lucide-react'
+import { UploadCloud, FileImage, FileText, RotateCw, RefreshCw, Lock, Unlock, Crop, Sparkles, Loader2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import {
   importImageFile, openPdfFile, renderPdfPage, rotateArt,
@@ -26,6 +26,10 @@ export function FileImportPanel() {
   const setArt = useMontagemStore((s) => s.setArt)
   const clearArt = useMontagemStore((s) => s.clearArt)
   const setRotation = useMontagemStore((s) => s.setRotation)
+  const trimArtBackground = useMontagemStore((s) => s.trimArtBackground)
+  const upscaleArt = useMontagemStore((s) => s.upscaleArt)
+  const processing = useMontagemStore((s) => s.loading)
+  const processingError = useMontagemStore((s) => s.error)
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -198,6 +202,44 @@ export function FileImportPanel() {
           {art.aspectLocked ? 'Proporção travada' : 'Proporção livre'}
         </button>
       </div>
+
+      <div className="border-t border-border dark:border-border-dark pt-4 space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Ajustes da arte</p>
+
+        <button
+          onClick={() => trimArtBackground()}
+          disabled={processing}
+          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold border border-border dark:border-border-dark text-text-primary dark:text-stone-100 hover:border-primary disabled:opacity-50"
+        >
+          {processing ? <Loader2 size={14} className="animate-spin" /> : <Crop size={14} className="text-primary" />}
+          Recortar fundo automaticamente
+        </button>
+        <p className="text-[11px] text-text-muted -mt-2">
+          Rastreia a arte e corta a margem de fundo (branco ou transparente), ajustando a medida para o tamanho real.
+        </p>
+
+        <div>
+          <label className="text-xs font-medium text-text-secondary dark:text-stone-400">Melhorar definição (upscale)</label>
+          <div className="flex gap-1.5 mt-1.5">
+            {([2, 3, 4] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => upscaleArt(f)}
+                disabled={processing}
+                className="flex-1 py-1.5 rounded-lg text-xs font-semibold border border-border dark:border-border-dark text-text-secondary dark:text-stone-400 hover:border-primary disabled:opacity-50 flex items-center justify-center gap-1"
+              >
+                {processing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} className="text-primary" />}
+                {f}×
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-text-muted mt-1.5">
+            Aumenta a resolução e a nitidez sem mudar cor, conteúdo ou o tamanho físico de impressão.
+          </p>
+        </div>
+      </div>
+
+      {processingError && <p className="text-sm text-error">{processingError}</p>}
 
       <div>
         <label className="text-xs font-medium text-text-secondary dark:text-stone-400">Rotação</label>
