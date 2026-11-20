@@ -36,7 +36,7 @@ const menuItems = [
       { href: '/estoque',     icon: Boxes,       label: 'Estoque'   },
       { href: '/pedidos',     icon: ShoppingCart,label: 'Pedidos'   },
       { href: '/tarefas',     icon: ListChecks,  label: 'Tarefas'   },
-      { href: '/declaracao-conteudo', icon: FileStack, label: 'Declaração de Conteúdo' },
+      { href: '/declaracao-conteudo', icon: FileStack, label: 'Declaração de Conteúdo', hideForEssencial: true },
       { href: '/agenda',      icon: CalendarDays,label: 'Agenda',   essencial: true },
       { href: '/clientes',    icon: Users,       label: 'Clientes'  },
       { href: '/fornecedores',icon: Truck,       label: 'Fornecedores' },
@@ -47,7 +47,7 @@ const menuItems = [
     items: [
       { href: '/orcamentos',  icon: FileText,   label: 'Orçamentos' },
       { href: '/financeiro',  icon: DollarSign, label: 'Financeiro', essencial: true },
-      { href: '/financeiro-avancado', icon: TrendingUp, label: 'Financeiro Avançado', pro: true },
+      { href: '/financeiro-avancado', icon: TrendingUp, label: 'Financeiro Avançado', pro: true, hideForEssencial: true },
       { href: '/relatorios',  icon: BarChart2,  label: 'Relatórios', essencial: true },
     ],
   },
@@ -177,6 +177,7 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
             <ul className="space-y-0.5">
               {group.items
                 .filter(item => !((item as any).hideOnTrial && isTrial))
+                .filter(item => !((item as any).hideForEssencial && isEssencial && !isPro))
                 .map(item => (
                   <li key={item.href}>
                     <NavLink href={item.href} icon={item.icon} label={item.label} pro={(item as any).pro} essencial={(item as any).essencial} />
