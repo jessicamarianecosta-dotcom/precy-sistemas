@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bestRollPacking, bestSheetPacking, computeRollPacking, computeSheetPacking, fitCount, packBobina, packFolha, spaceForCount } from './packing'
+import { bestRollPacking, bestSheetPacking, computeRollPacking, computeSheetPacking, fitCount, packBobina, packFolha, spaceForCount, tightenRollLength } from './packing'
 import type { BobinaConfig, FolhaConfig } from './types'
 
 const NO_MARGIN = { top: 0, right: 0, bottom: 0, left: 0 }
@@ -142,5 +142,50 @@ describe('spaceForCount', () => {
     expect(spaceForCount(5, 10, 2)).toBe(5 * 10 + 4 * 2)
     expect(spaceForCount(1, 10, 2)).toBe(10)
     expect(spaceForCount(0, 10, 2)).toBe(0)
+  })
+})
+
+describe('tightenRollLength', () => {
+  it('corta o comprimento sobrando quando o informado é maior que o necessário', () => {
+    // Bobina de 120cm largura x 50cm comprimento informado, adesivo 4x4cm, espaçamento 2mm, sem margem.
+    const result = computeRollPacking({
+      rollWidthMm: 1200, itemWidthMm: 40, itemHeightMm: 40,
+      margins: NO_MARGIN, spacing: { x: 2, y: 2 },
+      rollLengthMm: 500, desiredQty: null, rotate: false,
+    })
+    // 500mm de comprimento cabem floor((500+2)/42)=11 linhas (462mm usados), sobrando 38mm.
+    expect(result.rows).toBe(11)
+    expect(result.containerHeightMm).toBe(500)
+
+    const tightened = tightenRollLength(result, 0, 0, 2)
+    expect(tightened.containerHeightMm).toBeCloseTo(spaceForCount(11, 40, 2), 5)
+    expect(tightened.containerHeightMm).toBeLessThan(500)
+    // Não mexe na largura.
+    expect(tightened.containerWidthMm).toBe(1200)
+    // Área/aproveitamento recalculados para o novo tamanho (sem a sobra).
+    expect(tightened.utilizationPct).toBeGreaterThan(result.utilizationPct)
+  })
+
+  it('não altera quando o comprimento informado já é exatamente o necessário', () => {
+    // 7 linhas de 40mm com 6 espaços de 2mm = 292mm exatos, sem sobra.
+    const result = computeRollPacking({
+      rollWidthMm: 1200, itemWidthMm: 40, itemHeightMm: 40,
+      margins: NO_MARGIN, spacing: { x: 2, y: 2 },
+      rollLengthMm: 292, desiredQty: null, rotate: false,
+    })
+    expect(result.rows).toBe(7)
+    const tightened = tightenRollLength(result, 0, 0, 2)
+    expect(tightened.containerHeightMm).toBe(result.containerHeightMm)
+  })
+
+  it('não mexe num resultado que não encaixa', () => {
+    const result = computeRollPacking({
+      rollWidthMm: 10, itemWidthMm: 40, itemHeightMm: 40,
+      margins: NO_MARGIN, spacing: { x: 2, y: 2 },
+      rollLengthMm: 500, desiredQty: null, rotate: false,
+    })
+    expect(result.fits).toBe(false)
+    const tightened = tightenRollLength(result, 0, 0, 2)
+    expect(tightened).toEqual(result)
   })
 })

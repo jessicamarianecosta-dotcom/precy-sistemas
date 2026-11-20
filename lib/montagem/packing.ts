@@ -279,3 +279,31 @@ function applyManualOverride(
     fits: true, manual: true, reason: undefined,
   }
 }
+
+/**
+ * No modo "informar comprimento" da bobina, `containerHeightMm` é o valor
+ * que a pessoa digitou (quanto de bobina ela tem disponível) — mas as
+ * linhas calculadas quase nunca preenchem esse comprimento exatamente,
+ * sobrando um resto sem uso no fim. Isso é correto para o cálculo de
+ * aproveitamento (mostra o desperdício real do comprimento informado), mas
+ * ao EXPORTAR o arquivo não faz sentido incluir esse resto em branco —
+ * corta para o comprimento mínimo que de fato contém as linhas impressas.
+ * Não mexe na largura (é a largura física da bobina, não "elástica") nem é
+ * chamada para folha (tamanho de papel fixo) ou bobina por quantidade
+ * (que já calcula o comprimento exato, sem sobra).
+ */
+export function tightenRollLength(result: PackingResult, marginTopMm: number, marginBottomMm: number, spacingYMm: number): PackingResult {
+  if (!result.fits) return result
+  const gridHeight = spaceForCount(result.rows, result.itemHeightMm, spacingYMm)
+  const tightHeight = marginTopMm + marginBottomMm + gridHeight
+  if (tightHeight >= result.containerHeightMm - EPS) return result
+
+  const totalArea = result.containerWidthMm * tightHeight
+  return {
+    ...result,
+    containerHeightMm: tightHeight,
+    totalAreaMm2: totalArea,
+    wasteAreaMm2: totalArea - result.usedAreaMm2,
+    utilizationPct: totalArea > 0 ? (result.usedAreaMm2 / totalArea) * 100 : 0,
+  }
+}

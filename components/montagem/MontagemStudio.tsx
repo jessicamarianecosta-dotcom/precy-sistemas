@@ -56,8 +56,12 @@ export function MontagemStudio({ variant }: Props) {
         {/* Centro: visualização — sempre antes dos resultados/exportação no mobile
            (pra poder conferir antes de baixar) e "grudada" no topo da tela
            (sticky) enquanto se rola pelos ajustes de borda/faca/exportação
-           abaixo, pra nunca precisar subir a tela pra ver o resultado. */}
-        <div className="order-2 min-h-[420px] sticky top-2 z-10 max-h-[85vh] overflow-y-auto">
+           abaixo, pra nunca precisar subir a tela pra ver o resultado.
+           `self-start` é essencial: sem ele, um item de grid pode esticar
+           para a altura da coluna mais alta (import+config ou resultados),
+           e aí não sobra espaço pra "sticky" ter efeito — a altura máxima
+           fica definida dentro do próprio CanvasPreview (card), não aqui. */}
+        <div className="order-2 sticky top-2 self-start z-10">
           <CanvasPreview />
         </div>
 

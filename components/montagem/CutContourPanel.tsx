@@ -9,6 +9,7 @@ export function CutContourPanel() {
   const art = useMontagemStore((s) => s.art)
   const cutContour = useMontagemStore((s) => s.cutContour)
   const cutContourOffsetMm = useMontagemStore((s) => s.cutContourOffsetMm)
+  const border = useMontagemStore((s) => s.border)
   const generateCutContour = useMontagemStore((s) => s.generateCutContour)
   const clearCutContour = useMontagemStore((s) => s.clearCutContour)
   const setCutContourOffsetMm = useMontagemStore((s) => s.setCutContourOffsetMm)
@@ -59,6 +60,14 @@ export function CutContourPanel() {
           <p className="text-[11px] text-text-muted">
             Contorno vetorizado ao redor da arte (não a volta de cada letra), atualiza ao soltar. Pronto para abrir em CorelDRAW, FlexiSign ou SignCut.
           </p>
+          {border.enabled && (
+            <p className="text-[11px] text-primary bg-primary-50 dark:bg-primary/10 rounded-lg px-2.5 py-1.5">
+              A distância conta a partir da arte original, não da borda. Com a borda de {border.widthMm.toFixed(1)}mm ativa,
+              {cutContourOffsetMm <= border.widthMm
+                ? ' a faca fica exatamente na borda (sem folga extra além dela).'
+                : ` a faca fica ${(cutContourOffsetMm - border.widthMm).toFixed(1)}mm além da borda.`}
+            </p>
+          )}
         </>
       )}
 
