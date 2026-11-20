@@ -9,7 +9,7 @@
  */
 
 import { MontagemImportError } from './fileImport'
-import { traceMaskContours } from './contourTrace'
+import { traceMaskContours, erodeMaskByRadius } from './contourTrace'
 import type { CutContour, ImportedArt } from './types'
 
 /** Maior lado (em px) da imagem de trabalho usada para traçar o contorno — alto o bastante para preservar pontas finas (letras, raios), com custo controlado pela transformada de distância (não cresce com o deslocamento pedido). */
@@ -25,6 +25,14 @@ function loadImageElement(src: string): Promise<HTMLImageElement> {
   })
 }
 
+/**
+ * `offsetMm` é a distância final pretendida a partir da arte ORIGINAL (sem
+ * borda) — pode ser negativa em relação à borda já aplicada na arte (ex:
+ * borda de 2mm usada como sangria, com a faca a só 1mm da arte): nesse caso
+ * a imagem já vem com a borda desenhada, então em vez de dilatar, precisamos
+ * encolher (erodir) a máscara de volta pra que a faca fique a `offsetMm` da
+ * arte original, mesmo que isso a deixe dentro da área da borda.
+ */
 export async function generateCutContourForArt(art: ImportedArt, offsetMm: number): Promise<CutContour> {
   if (!art.hasAlpha) {
     throw new MontagemImportError('Esta arte não tem fundo transparente. Use "Remover fundo" antes de gerar a linha de corte.')
@@ -53,7 +61,11 @@ export async function generateCutContourForArt(art: ImportedArt, offsetMm: numbe
   const mmPerPx = art.widthMm / width
   const offsetPx = offsetMm / mmPerPx
 
-  const contoursPx = traceMaskContours(mask, width, height, {
+  // offsetMm negativo (faca mais perto da arte do que a borda já aplicada,
+  // ex: borda-sangria) — encolhe a máscara de volta em vez de crescer.
+  const workingMask = offsetPx < 0 ? erodeMaskByRadius(mask, width, height, -offsetPx) : mask
+
+  const contoursPx = traceMaskContours(workingMask, width, height, {
     // Raio euclidiano exato (não arredonda pra inteiro) — a transformada de
     // distância aceita qualquer valor sem custo extra.
     dilateIterations: Math.max(0, offsetPx),

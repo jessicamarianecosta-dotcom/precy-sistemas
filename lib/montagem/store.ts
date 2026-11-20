@@ -7,7 +7,7 @@ import { addBorderToArt } from './addBorder'
 import { generateCutContourForArt } from './cutContour'
 import type { AssemblyMode, BobinaConfig, CropMarksConfig, CutContour, FolhaConfig, ImportedArt, PackingComparison, Rotation } from './types'
 
-const DEFAULT_MARGINS = { top: 10, right: 10, bottom: 10, left: 10 }
+const DEFAULT_MARGINS = { top: 0, right: 0, bottom: 0, left: 0 }
 const DEFAULT_SPACING = { x: 2, y: 2 }
 
 function defaultBobina(): BobinaConfig {
@@ -307,13 +307,15 @@ export const useMontagemStore = create<MontagemState>((set, get) => ({
     set({ loading: true, error: null })
     try {
       // "Distância da arte" sempre conta a partir da arte ORIGINAL, não da
-      // borda já adicionada — a borda entra como parte da silhueta que a
-      // faca contorna, então só dilata além dela o que sobrar depois de
-      // descontar a espessura da borda (ex: borda 2mm + distância 2mm =
-      // faca exatamente na borda, 2mm da arte; não 4mm).
+      // borda já adicionada. Se for menor que a borda, a faca fica DENTRO
+      // dela de propósito — é o uso de borda como "sangria": a faca sempre
+      // corta dentro da área branca, mesmo com uma pequena variação na
+      // impressão (ex: borda 2mm + distância 1mm = faca 1mm da arte, 1mm
+      // para dentro da borda). Se for maior, fica além da borda. Só quando
+      // são iguais a faca cai exatamente na borda.
       const borderWidthMm = border.enabled ? border.widthMm : 0
-      const effectiveOffsetMm = Math.max(0, cutContourOffsetMm - borderWidthMm)
-      const contour = await generateCutContourForArt(art, effectiveOffsetMm)
+      const netOffsetMm = cutContourOffsetMm - borderWidthMm
+      const contour = await generateCutContourForArt(art, netOffsetMm)
       set({ cutContour: contour, loading: false })
     } catch (e) {
       set({ loading: false, error: e instanceof Error ? e.message : 'Falha ao gerar a linha de corte.' })
