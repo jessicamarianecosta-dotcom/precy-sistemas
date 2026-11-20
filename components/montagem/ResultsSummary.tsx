@@ -21,7 +21,12 @@ export function ResultsSummary() {
   }
 
   const { best, normal, rotated } = comparison
-  const hasAlternative = normal.total !== rotated.total && normal.fits && rotated.fits
+  const isBobinaQtyMode = mode === 'bobina' && bobina.desiredQty != null
+  // No modo "quantidade desejada" da bobina a escolha de orientação já é
+  // automática (a que precisa de menos linhas/comprimento) — mostrar os dois
+  // totais lado a lado só confunde, porque nenhum dos dois é "a quantidade
+  // pedida", e sim o total arredondado pra completar a última linha.
+  const hasAlternative = !isBobinaQtyMode && normal.total !== rotated.total && normal.fits && rotated.fits
 
   function setPreferRotated(value: boolean) {
     if (mode === 'folha') updateFolha({ preferRotated: value })
@@ -51,7 +56,7 @@ export function ResultsSummary() {
           <div className="grid grid-cols-2 gap-3 text-sm">
             <Metric label="Colunas" value={String(best.cols)} />
             <Metric label="Linhas" value={String(best.rows)} />
-            <Metric label="Total de peças" value={String(best.total)} big />
+            <Metric label={isBobinaQtyMode ? 'Total produzido (linha completa)' : 'Total de peças'} value={String(best.total)} big />
             <Metric label="Aproveitamento" value={formatPercent(best.utilizationPct)} big />
             <Metric label="Área usada" value={formatArea(best.usedAreaMm2)} />
             <Metric label="Área desperdiçada" value={formatArea(best.wasteAreaMm2)} />

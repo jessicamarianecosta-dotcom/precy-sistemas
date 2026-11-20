@@ -5,6 +5,13 @@ import { downloadBlob } from './exportPng'
 
 export interface PdfExportOptions {
   cropMarks: CropMarksConfig
+  /**
+   * 'white' desenha um retângulo branco atrás de cada peça antes da imagem
+   * (garante fundo sólido mesmo se a arte tiver pixels transparentes).
+   * 'transparent' não desenha nada atrás — onde a arte for transparente,
+   * aparece o papel (a página do PDF já é branca por padrão).
+   */
+  background: 'white' | 'transparent'
 }
 
 export function exportPdf(
@@ -27,6 +34,10 @@ export function exportPdf(
 
   const tiles = computeTilePositions(result, marginLeftMm, marginTopMm, spacingXMm, spacingYMm)
   for (const t of tiles) {
+    if (opts.background === 'white') {
+      doc.setFillColor(255, 255, 255)
+      doc.rect(t.xMm, t.yMm, t.widthMm, t.heightMm, 'F')
+    }
     doc.addImage(imageDataUrl, 'PNG', t.xMm, t.yMm, t.widthMm, t.heightMm, undefined, 'MEDIUM')
   }
 
