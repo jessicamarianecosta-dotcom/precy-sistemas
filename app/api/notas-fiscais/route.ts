@@ -16,7 +16,7 @@ export async function GET() {
   const { data, error } = await (supabaseAdmin.from('fiscal_invoices') as any)
     .select(`
       id, status, bling_status, bling_number, access_key, danfe_url, xml_url,
-      created_at, sent_at, error_message,
+      created_at, sent_at, error_message, origin, avulsa_numero, total,
       order:orders(id, order_number, total),
       customer:customers(id, name)
     `)

@@ -55,7 +55,7 @@ export interface MissingField {
  * descobre tentando criar a nota (o erro do Bling vem cru pra UI).
  */
 
-interface CustomerFiscalData {
+export interface CustomerFiscalData {
   id: string
   name: string
   cpf_cnpj: string | null
@@ -68,7 +68,7 @@ interface CustomerFiscalData {
   zip_code: string | null
 }
 
-interface OrderItemFiscalData {
+export interface OrderItemFiscalData {
   id: string
   name: string | null
   quantity: number
