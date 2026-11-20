@@ -1,11 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { Download, FileDown, Image as ImageIcon, Loader2 } from 'lucide-react'
+import { Download, FileDown, Image as ImageIcon, Loader2, Scissors } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useMontagemStore, useMontagemComparison } from '@/lib/montagem/store'
 import { exportPng, downloadBlob } from '@/lib/montagem/exportPng'
 import { exportPdf } from '@/lib/montagem/exportPdf'
+import { exportCutContourPdf, exportCutContourSvg } from '@/lib/montagem/exportCutContour'
 
 type Background = 'white' | 'transparent'
 
@@ -15,11 +16,13 @@ export function ExportPanel() {
   const bobina = useMontagemStore((s) => s.bobina)
   const folha = useMontagemStore((s) => s.folha)
   const cropMarks = useMontagemStore((s) => s.cropMarks)
+  const cutContour = useMontagemStore((s) => s.cutContour)
   const comparison = useMontagemComparison()
 
   const [dpi, setDpi] = useState(300)
   const [background, setBackground] = useState<Background>('white')
-  const [busy, setBusy] = useState<'pdf' | 'png' | null>(null)
+  const [includeCutContour, setIncludeCutContour] = useState(true)
+  const [busy, setBusy] = useState<'pdf' | 'png' | 'faca-pdf' | 'faca-svg' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const margins = mode === 'folha' ? folha.margins : bobina.margins
@@ -48,9 +51,36 @@ export function ExportPanel() {
     if (!art || !result) return
     setBusy('pdf'); setError(null)
     try {
-      exportPdf(result, margins.left, margins.top, spacing.x, spacing.y, art.dataUrl, { cropMarks, background: effectiveBackground }, `precy-montagem-${Date.now()}.pdf`)
+      exportPdf(result, margins.left, margins.top, spacing.x, spacing.y, art.dataUrl, {
+        cropMarks, background: effectiveBackground,
+        cutContour: includeCutContour ? cutContour : null,
+      }, `precy-montagem-${Date.now()}.pdf`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Falha ao exportar PDF.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  function handleExportFacaPdf() {
+    if (!result || !cutContour) return
+    setBusy('faca-pdf'); setError(null)
+    try {
+      exportCutContourPdf(result, margins.left, margins.top, spacing.x, spacing.y, cutContour, `precy-faca-${Date.now()}.pdf`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Falha ao exportar a faca.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  function handleExportFacaSvg() {
+    if (!result || !cutContour) return
+    setBusy('faca-svg'); setError(null)
+    try {
+      exportCutContourSvg(result, margins.left, margins.top, spacing.x, spacing.y, cutContour, `precy-faca-${Date.now()}.svg`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Falha ao exportar a faca.')
     } finally {
       setBusy(null)
     }
@@ -107,6 +137,13 @@ export function ExportPanel() {
         )}
       </div>
 
+      {cutContour && (
+        <label className="flex items-center gap-2 text-sm text-text-secondary dark:text-stone-400 cursor-pointer">
+          <input type="checkbox" checked={includeCutContour} onChange={(e) => setIncludeCutContour(e.target.checked)} />
+          Incluir linha de corte no PDF (junto com a arte)
+        </label>
+      )}
+
       <div className="grid grid-cols-2 gap-2">
         <button
           onClick={handleExportPdf}
@@ -125,6 +162,32 @@ export function ExportPanel() {
           PNG
         </button>
       </div>
+
+      {cutContour && (
+        <div className="border-t border-border dark:border-border-dark pt-3 space-y-2">
+          <p className="text-xs font-medium text-text-secondary dark:text-stone-400 flex items-center gap-1.5">
+            <Scissors size={12} className="text-primary" /> Faca separada (mesmas coordenadas da arte)
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={handleExportFacaPdf}
+              disabled={!canExport || busy !== null}
+              className="btn-secondary flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
+            >
+              {busy === 'faca-pdf' ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
+              PDF
+            </button>
+            <button
+              onClick={handleExportFacaSvg}
+              disabled={!canExport || busy !== null}
+              className="btn-secondary flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
+            >
+              {busy === 'faca-svg' ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
+              SVG
+            </button>
+          </div>
+        </div>
+      )}
 
       {!canExport && art && <p className="text-xs text-error">Corrija a montagem para exportar.</p>}
       {error && <p className="text-xs text-error">{error}</p>}

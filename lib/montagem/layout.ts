@@ -3,7 +3,7 @@
  * de um PackingResult, já centralizada dentro da área útil do container.
  */
 
-import type { PackingResult } from './types'
+import type { CutContour, PackingResult, Point } from './types'
 
 export interface TilePosition {
   xMm: number
@@ -64,4 +64,15 @@ export function computeCropMarks(tiles: TilePosition[], markLengthMm: number, of
     for (const [x1, y1, x2, y2] of corners) lines.push({ x1Mm: x1, y1Mm: y1, x2Mm: x2, y2Mm: y2 })
   }
   return lines
+}
+
+/** Translada o(s) polígono(s) de corte (locais à arte) para a posição absoluta de cada cópia da grade. */
+export function computeContourTilePaths(tiles: TilePosition[], contour: CutContour): Point[][] {
+  const out: Point[][] = []
+  for (const t of tiles) {
+    for (const poly of contour) {
+      out.push(poly.map((p) => ({ x: t.xMm + p.x, y: t.yMm + p.y })))
+    }
+  }
+  return out
 }

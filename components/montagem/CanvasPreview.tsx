@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 import { useMontagemStore, useMontagemComparison } from '@/lib/montagem/store'
-import { computeCropMarks, computeTilePositions } from '@/lib/montagem/layout'
+import { computeContourTilePaths, computeCropMarks, computeTilePositions } from '@/lib/montagem/layout'
 
 const RULER_SIZE = 20
 
@@ -15,6 +15,7 @@ export function CanvasPreview() {
   const bobina = useMontagemStore((s) => s.bobina)
   const folha = useMontagemStore((s) => s.folha)
   const cropMarks = useMontagemStore((s) => s.cropMarks)
+  const cutContour = useMontagemStore((s) => s.cutContour)
   const zoom = useMontagemStore((s) => s.zoom)
   const setZoom = useMontagemStore((s) => s.setZoom)
   const comparison = useMontagemComparison()
@@ -107,10 +108,24 @@ export function CanvasPreview() {
             ctx.stroke()
           }
         }
+
+        if (cutContour) {
+          const paths = computeContourTilePaths(tiles, cutContour)
+          ctx.strokeStyle = '#FF00FF'
+          ctx.lineWidth = 1
+          for (const path of paths) {
+            if (path.length < 2) continue
+            ctx.beginPath()
+            ctx.moveTo(path[0].x * pxPerMm, path[0].y * pxPerMm)
+            for (let i = 1; i < path.length; i++) ctx.lineTo(path[i].x * pxPerMm, path[i].y * pxPerMm)
+            ctx.closePath()
+            ctx.stroke()
+          }
+        }
       }
       img.src = art.dataUrl
     }
-  }, [art, mode, bobina, folha, cropMarks, zoom, comparison, margins, spacing])
+  }, [art, mode, bobina, folha, cropMarks, cutContour, zoom, comparison, margins, spacing])
 
   function fitToScreen() {
     const wrapper = wrapperRef.current

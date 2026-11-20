@@ -1,12 +1,14 @@
 'use client'
 
 import { useCallback, useRef, useState } from 'react'
-import { UploadCloud, FileImage, FileText, RotateCw, RefreshCw, Lock, Unlock, Crop, Sparkles, Loader2, Eraser } from 'lucide-react'
+import { UploadCloud, FileImage, FileText, RotateCw, RefreshCw, Lock, Unlock, Crop, Sparkles, Loader2, Eraser, Square, Circle } from 'lucide-react'
+import { Toggle } from '@/components/ui/Toggle'
 import { clsx } from 'clsx'
 import {
   importImageFile, openPdfFile, renderPdfPage, rotateArt,
   MontagemImportError, type PdfHandle,
 } from '@/lib/montagem/fileImport'
+import { createShapeArt, type SimpleShape } from '@/lib/montagem/shapeArt'
 import { useMontagemStore } from '@/lib/montagem/store'
 import { fromMm, toMm, type Unit } from '@/lib/montagem/units'
 import type { Rotation } from '@/lib/montagem/types'
@@ -21,6 +23,11 @@ export function FileImportPanel() {
   const [busy, setBusy] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
 
+  const [importTab, setImportTab] = useState<'file' | 'shape'>('file')
+  const [shapeType, setShapeType] = useState<SimpleShape>('rect')
+  const [shapeWidth, setShapeWidth] = useState(90)
+  const [shapeHeight, setShapeHeight] = useState(50)
+
   const art = useMontagemStore((s) => s.art)
   const originalArt = useMontagemStore((s) => s.originalArt)
   const rotation = useMontagemStore((s) => s.rotation)
@@ -28,7 +35,9 @@ export function FileImportPanel() {
   const clearArt = useMontagemStore((s) => s.clearArt)
   const setRotation = useMontagemStore((s) => s.setRotation)
   const trimArtBackground = useMontagemStore((s) => s.trimArtBackground)
-  const removeArtBackground = useMontagemStore((s) => s.removeArtBackground)
+  const backgroundRemoval = useMontagemStore((s) => s.backgroundRemoval)
+  const setBackgroundRemovalEnabled = useMontagemStore((s) => s.setBackgroundRemovalEnabled)
+  const setBackgroundRemovalRemoveHoles = useMontagemStore((s) => s.setBackgroundRemovalRemoveHoles)
   const upscaleArt = useMontagemStore((s) => s.upscaleArt)
   const processing = useMontagemStore((s) => s.loading)
   const processingError = useMontagemStore((s) => s.error)
@@ -56,6 +65,18 @@ export function FileImportPanel() {
       setBusy(false)
     }
   }, [setArt])
+
+  function handleUseShape() {
+    setLocalError(null)
+    try {
+      const widthMm = toMm(shapeWidth, unit)
+      const heightMm = shapeType === 'circle' ? widthMm : toMm(shapeHeight, unit)
+      const art = createShapeArt(shapeType, widthMm, heightMm)
+      setArt(art)
+    } catch (e) {
+      setLocalError(e instanceof MontagemImportError ? e.message : 'Não foi possível criar a forma.')
+    }
+  }
 
   async function handleSelectPage(pageIndex: number) {
     if (!pdfHandle) return
@@ -94,28 +115,97 @@ export function FileImportPanel() {
 
   if (!art) {
     return (
-      <div
-        className={clsx(
-          'card border-2 border-dashed rounded-2xl p-8 text-center transition-colors cursor-pointer',
-          dragOver ? 'border-primary bg-primary-50' : 'border-border dark:border-border-dark',
+      <div className="card rounded-2xl p-4 space-y-4">
+        <div className="flex gap-1.5 bg-stone-100 dark:bg-stone-900 rounded-xl p-1">
+          <button
+            onClick={() => setImportTab('file')}
+            className={clsx('flex-1 py-2 rounded-lg text-sm font-semibold transition-colors', importTab === 'file' ? 'bg-white dark:bg-surface-dark shadow-sm text-primary' : 'text-text-secondary dark:text-stone-400')}
+          >
+            Importar arquivo
+          </button>
+          <button
+            onClick={() => setImportTab('shape')}
+            className={clsx('flex-1 py-2 rounded-lg text-sm font-semibold transition-colors', importTab === 'shape' ? 'bg-white dark:bg-surface-dark shadow-sm text-primary' : 'text-text-secondary dark:text-stone-400')}
+          >
+            Forma simples
+          </button>
+        </div>
+
+        {importTab === 'file' ? (
+          <div
+            className={clsx(
+              'border-2 border-dashed rounded-2xl p-8 text-center transition-colors cursor-pointer',
+              dragOver ? 'border-primary bg-primary-50' : 'border-border dark:border-border-dark',
+            )}
+            onClick={() => inputRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files) }}
+          >
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,application/pdf"
+              className="hidden"
+              onChange={(e) => handleFiles(e.target.files)}
+            />
+            <UploadCloud className="mx-auto mb-3 text-primary" size={40} />
+            <p className="font-semibold text-text-primary dark:text-stone-100">Arraste seu arquivo aqui</p>
+            <p className="text-sm text-text-secondary dark:text-stone-400 mt-1">ou clique para selecionar — PNG, JPG ou PDF</p>
+            {busy && <p className="text-sm text-primary mt-3">Importando…</p>}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-text-muted">
+              Sem arquivo ainda? Use uma forma simples só para calcular quantas peças cabem — depois é só substituir pela arte final.
+            </p>
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => setShapeType('rect')}
+                className={clsx('flex-1 py-2 rounded-lg text-sm font-semibold border flex items-center justify-center gap-1.5', shapeType === 'rect' ? 'bg-primary text-white border-primary' : 'border-border dark:border-border-dark text-text-secondary dark:text-stone-400')}
+              >
+                <Square size={14} /> Quadrado/Retângulo
+              </button>
+              <button
+                onClick={() => setShapeType('circle')}
+                className={clsx('flex-1 py-2 rounded-lg text-sm font-semibold border flex items-center justify-center gap-1.5', shapeType === 'circle' ? 'bg-primary text-white border-primary' : 'border-border dark:border-border-dark text-text-secondary dark:text-stone-400')}
+              >
+                <Circle size={14} /> Redondo
+              </button>
+            </div>
+
+            <div className={clsx('grid gap-3', shapeType === 'circle' ? 'grid-cols-1' : 'grid-cols-2')}>
+              <div>
+                <label className="text-xs font-medium text-text-secondary dark:text-stone-400">{shapeType === 'circle' ? 'Diâmetro' : 'Largura'}</label>
+                <NumberInput className="input mt-1 w-full" value={shapeWidth} onChange={setShapeWidth} />
+              </div>
+              {shapeType === 'rect' && (
+                <div>
+                  <label className="text-xs font-medium text-text-secondary dark:text-stone-400">Altura</label>
+                  <NumberInput className="input mt-1 w-full" value={shapeHeight} onChange={setShapeHeight} />
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-1.5">
+              {(['mm', 'cm', 'm'] as Unit[]).map((u) => (
+                <button
+                  key={u}
+                  onClick={() => setUnit(u)}
+                  className={clsx(
+                    'px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors',
+                    unit === u ? 'bg-primary text-white border-primary' : 'border-border dark:border-border-dark text-text-secondary dark:text-stone-400',
+                  )}
+                >
+                  {u}
+                </button>
+              ))}
+            </div>
+
+            <button onClick={handleUseShape} className="btn-primary w-full">Usar esta forma</button>
+          </div>
         )}
-        onClick={() => inputRef.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files) }}
-      >
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/png,image/jpeg,image/webp,application/pdf"
-          className="hidden"
-          onChange={(e) => handleFiles(e.target.files)}
-        />
-        <UploadCloud className="mx-auto mb-3 text-primary" size={40} />
-        <p className="font-semibold text-text-primary dark:text-stone-100">Arraste seu arquivo aqui</p>
-        <p className="text-sm text-text-secondary dark:text-stone-400 mt-1">ou clique para selecionar — PNG, JPG ou PDF</p>
-        {busy && <p className="text-sm text-primary mt-3">Importando…</p>}
-        {localError && <p className="text-sm text-error mt-3">{localError}</p>}
+        {localError && <p className="text-sm text-error">{localError}</p>}
       </div>
     )
   }
@@ -124,7 +214,9 @@ export function FileImportPanel() {
     <div className="card rounded-2xl p-4 space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
-          {art.kind === 'pdf' ? <FileText size={18} className="text-primary flex-shrink-0" /> : <FileImage size={18} className="text-primary flex-shrink-0" />}
+          {art.kind === 'pdf' && <FileText size={18} className="text-primary flex-shrink-0" />}
+          {art.kind === 'image' && <FileImage size={18} className="text-primary flex-shrink-0" />}
+          {art.kind === 'shape' && <Square size={18} className="text-primary flex-shrink-0" />}
           <span className="text-sm font-medium truncate text-text-primary dark:text-stone-100">{art.name}</span>
         </div>
         <button
@@ -205,6 +297,7 @@ export function FileImportPanel() {
         </button>
       </div>
 
+      {art.kind !== 'shape' && (
       <div className="border-t border-border dark:border-border-dark pt-4 space-y-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Ajustes da arte</p>
 
@@ -220,17 +313,34 @@ export function FileImportPanel() {
           Rastreia a arte e corta a margem de fundo (branco ou transparente), ajustando a medida para o tamanho real.
         </p>
 
-        <button
-          onClick={() => removeArtBackground()}
-          disabled={processing}
-          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold border border-border dark:border-border-dark text-text-primary dark:text-stone-100 hover:border-primary disabled:opacity-50"
-        >
-          {processing ? <Loader2 size={14} className="animate-spin" /> : <Eraser size={14} className="text-primary" />}
-          Remover fundo (deixar transparente)
-        </button>
-        <p className="text-[11px] text-text-muted -mt-2">
-          Torna transparente o fundo sólido ao redor da arte, sem alterar cores. Necessário antes de exportar com fundo transparente, se o arquivo original não tiver transparência (ex: JPG).
-        </p>
+        <div className="rounded-lg border border-border dark:border-border-dark p-3 space-y-2.5">
+          <label className="flex items-center justify-between gap-3 cursor-pointer">
+            <span className="flex items-center gap-2 text-sm font-semibold text-text-primary dark:text-stone-100">
+              {processing ? <Loader2 size={14} className="animate-spin flex-shrink-0" /> : <Eraser size={14} className="text-primary flex-shrink-0" />}
+              Remover fundo (deixar transparente)
+            </span>
+            <Toggle
+              checked={backgroundRemoval.enabled}
+              onChange={(v) => setBackgroundRemovalEnabled(v)}
+              disabled={processing}
+              label="Remover fundo"
+            />
+          </label>
+          <p className="text-[11px] text-text-muted">
+            Torna transparente só o fundo ao redor da arte, sem alterar cores. Reversível — pode ligar e desligar quando quiser.
+          </p>
+          {backgroundRemoval.enabled && (
+            <label className="flex items-center gap-2 text-xs text-text-secondary dark:text-stone-400 pt-1 border-t border-border dark:border-border-dark cursor-pointer">
+              <input
+                type="checkbox"
+                checked={backgroundRemoval.removeHoles}
+                onChange={(e) => setBackgroundRemovalRemoveHoles(e.target.checked)}
+                disabled={processing}
+              />
+              Remover também buracos internos (ex: miolo de letras fechadas)
+            </label>
+          )}
+        </div>
 
         <div>
           <label className="text-xs font-medium text-text-secondary dark:text-stone-400">Melhorar definição (upscale)</label>
@@ -252,6 +362,13 @@ export function FileImportPanel() {
           </p>
         </div>
       </div>
+      )}
+
+      {art.kind === 'shape' && (
+        <p className="text-xs text-primary bg-primary-50 dark:bg-primary/10 rounded-lg px-2.5 py-1.5">
+          Forma simples, só para calcular o aproveitamento — substitua pela arte final em &ldquo;Substituir&rdquo; antes de exportar pra impressão de verdade.
+        </p>
+      )}
 
       {processingError && <p className="text-sm text-error">{processingError}</p>}
 

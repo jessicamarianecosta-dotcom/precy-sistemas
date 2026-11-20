@@ -63,7 +63,7 @@ describe('Teste 1 — Bobina de adesivo (120 × 30 cm, adesivo 4 × 4 cm, espaç
     const config: BobinaConfig = {
       rollWidthMm: 1200, rollLengthMm: 300, desiredQty: null,
       margins: NO_MARGIN, spacing: { x: 2, y: 2 },
-      manualCols: 20, manualRows: 5, preferRotated: false,
+      manualCols: 20, manualRows: 5,
     }
     const comparison = packBobina(config, 40, 40)
     expect(comparison.best.fits).toBe(true)
@@ -75,7 +75,7 @@ describe('Teste 1 — Bobina de adesivo (120 × 30 cm, adesivo 4 × 4 cm, espaç
     const config: BobinaConfig = {
       rollWidthMm: 1200, rollLengthMm: 300, desiredQty: null,
       margins: NO_MARGIN, spacing: { x: 2, y: 2 },
-      manualCols: 40, manualRows: 5, preferRotated: false,
+      manualCols: 40, manualRows: 5,
     }
     const comparison = packBobina(config, 40, 40)
     expect(comparison.best.fits).toBe(false)
@@ -129,9 +129,10 @@ describe('Teste 2 — Folha A4 (cartão 9 × 5 cm, margens 2 cm, espaçamento 1 
     const config: FolhaConfig = {
       preset: 'A4', sheetWidthMm: 210, sheetHeightMm: 297,
       margins, spacing, desiredQty: null,
-      manualCols: 10, manualRows: 10, preferRotated: true,
+      manualCols: 10, manualRows: 10,
     }
-    const comparison = packFolha(config, 90, 50)
+    // dimensões já na orientação vertical (50x90) — equivalente a ter girado a arte de verdade
+    const comparison = packFolha(config, 50, 90)
     expect(comparison.best.fits).toBe(false)
   })
 })

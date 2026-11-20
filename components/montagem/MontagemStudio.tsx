@@ -8,6 +8,7 @@ import { FolhaForm } from './FolhaForm'
 import { ResultsSummary } from './ResultsSummary'
 import { CanvasPreview } from './CanvasPreview'
 import { ExportPanel } from './ExportPanel'
+import { CutContourPanel } from './CutContourPanel'
 import { useMontagemStore } from '@/lib/montagem/store'
 
 interface Props {
@@ -60,6 +61,7 @@ export function MontagemStudio({ variant }: Props) {
         <div className="space-y-4 order-2 lg:order-3">
           <ResultsSummary />
           {art && <CropMarksPanel />}
+          {art && art.kind !== 'shape' && <CutContourPanel />}
           {art && <ExportPanel />}
         </div>
       </div>

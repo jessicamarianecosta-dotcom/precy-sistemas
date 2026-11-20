@@ -1,16 +1,18 @@
 'use client'
 
-import { AlertTriangle, CheckCircle2, RotateCcw } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, RotateCw } from 'lucide-react'
 import { useMontagemStore, useMontagemComparison } from '@/lib/montagem/store'
 import { formatArea, formatMm, formatPercent } from '@/lib/montagem/units'
+import type { Rotation } from '@/lib/montagem/types'
 
 export function ResultsSummary() {
   const comparison = useMontagemComparison()
   const mode = useMontagemStore((s) => s.mode)
   const folha = useMontagemStore((s) => s.folha)
   const bobina = useMontagemStore((s) => s.bobina)
-  const updateFolha = useMontagemStore((s) => s.updateFolha)
-  const updateBobina = useMontagemStore((s) => s.updateBobina)
+  const rotation = useMontagemStore((s) => s.rotation)
+  const setRotation = useMontagemStore((s) => s.setRotation)
+  const loading = useMontagemStore((s) => s.loading)
 
   if (!comparison) {
     return (
@@ -26,11 +28,11 @@ export function ResultsSummary() {
   // automática (a que precisa de menos linhas/comprimento) — mostrar os dois
   // totais lado a lado só confunde, porque nenhum dos dois é "a quantidade
   // pedida", e sim o total arredondado pra completar a última linha.
-  const hasAlternative = !isBobinaQtyMode && normal.total !== rotated.total && normal.fits && rotated.fits
+  const showRotateSuggestion = !isBobinaQtyMode && rotated.total > normal.total && rotated.fits
 
-  function setPreferRotated(value: boolean) {
-    if (mode === 'folha') updateFolha({ preferRotated: value })
-    else updateBobina({ preferRotated: value })
+  function rotateAndRecalculate() {
+    const next = ((rotation + 90) % 360) as Rotation
+    setRotation(next)
   }
 
   const desiredQty = mode === 'folha' ? folha.desiredQty : null
@@ -69,27 +71,20 @@ export function ResultsSummary() {
             <Metric label={`Folhas necessárias para ${desiredQty} unidades`} value={String(sheetsNeeded)} />
           )}
 
-          {hasAlternative && (
+          {showRotateSuggestion && (
             <div className="border-t border-border dark:border-border-dark pt-3">
-              <p className="text-xs font-medium text-text-secondary dark:text-stone-400 mb-2 flex items-center gap-1">
-                <RotateCcw size={12} /> Comparar orientações
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setPreferRotated(false)}
-                  className={`text-left rounded-lg border px-3 py-2 text-xs transition-colors ${!best.rotated ? 'border-primary bg-primary-50' : 'border-border dark:border-border-dark'}`}
-                >
-                  <div className="font-semibold text-text-primary dark:text-stone-100">Normal</div>
-                  <div className="text-text-secondary dark:text-stone-400">{normal.total} peças</div>
-                </button>
-                <button
-                  onClick={() => setPreferRotated(true)}
-                  className={`text-left rounded-lg border px-3 py-2 text-xs transition-colors ${best.rotated ? 'border-primary bg-primary-50' : 'border-border dark:border-border-dark'}`}
-                >
-                  <div className="font-semibold text-text-primary dark:text-stone-100">Girada 90°</div>
-                  <div className="text-text-secondary dark:text-stone-400">{rotated.total} peças</div>
-                </button>
-              </div>
+              <button
+                onClick={rotateAndRecalculate}
+                disabled={loading}
+                className="w-full flex items-center justify-between gap-3 rounded-lg border border-primary/40 bg-primary-50 dark:bg-primary/10 px-3 py-2.5 text-left hover:border-primary transition-colors disabled:opacity-50"
+              >
+                <span className="text-xs text-text-primary dark:text-stone-100">
+                  Girando a arte 90°, você aproveitaria <strong>{rotated.total}</strong> peças em vez de {normal.total}.
+                </span>
+                <span className="flex items-center gap-1 text-xs font-semibold text-primary flex-shrink-0">
+                  <RotateCw size={14} /> Girar
+                </span>
+              </button>
             </div>
           )}
         </>
