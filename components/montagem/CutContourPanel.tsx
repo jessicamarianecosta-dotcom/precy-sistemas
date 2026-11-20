@@ -63,9 +63,11 @@ export function CutContourPanel() {
           {border.enabled && (
             <p className="text-[11px] text-primary bg-primary-50 dark:bg-primary/10 rounded-lg px-2.5 py-1.5">
               A distância conta a partir da arte original, não da borda. Com a borda de {border.widthMm.toFixed(1)}mm ativa,
-              {cutContourOffsetMm <= border.widthMm
+              {cutContourOffsetMm === border.widthMm
                 ? ' a faca fica exatamente na borda (sem folga extra além dela).'
-                : ` a faca fica ${(cutContourOffsetMm - border.widthMm).toFixed(1)}mm além da borda.`}
+                : cutContourOffsetMm > border.widthMm
+                ? ` a faca fica ${(cutContourOffsetMm - border.widthMm).toFixed(1)}mm além da borda.`
+                : ` a faca fica ${(border.widthMm - cutContourOffsetMm).toFixed(1)}mm para dentro da borda — útil como sangria: o corte sempre cai na área branca, mesmo com uma pequena variação na impressão.`}
             </p>
           )}
         </>

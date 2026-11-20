@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bestRollPacking, bestSheetPacking, computeRollPacking, computeSheetPacking, fitCount, packBobina, packFolha, spaceForCount, tightenRollLength, tightenRollWidth } from './packing'
+import { bestRollPacking, bestSheetPacking, computeRollPacking, computeSheetPacking, fitCount, packBobina, packFolha, singleItemResult, spaceForCount, tightenRollLength, tightenRollWidth } from './packing'
 import type { BobinaConfig, FolhaConfig } from './types'
 
 const NO_MARGIN = { top: 0, right: 0, bottom: 0, left: 0 }
@@ -231,5 +231,20 @@ describe('tightenRollWidth', () => {
     expect(result.fits).toBe(false)
     const tightened = tightenRollWidth(result, 0, 0, 2)
     expect(tightened).toEqual(result)
+  })
+})
+
+describe('singleItemResult', () => {
+  it('monta um resultado de 1×1 do tamanho exato da arte, sem sobra', () => {
+    const result = singleItemResult(90, 50)
+    expect(result.cols).toBe(1)
+    expect(result.rows).toBe(1)
+    expect(result.total).toBe(1)
+    expect(result.containerWidthMm).toBe(90)
+    expect(result.containerHeightMm).toBe(50)
+    expect(result.usedAreaMm2).toBe(90 * 50)
+    expect(result.wasteAreaMm2).toBe(0)
+    expect(result.utilizationPct).toBe(100)
+    expect(result.fits).toBe(true)
   })
 })

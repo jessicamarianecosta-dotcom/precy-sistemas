@@ -7,7 +7,7 @@ import { useMontagemStore, useMontagemComparison } from '@/lib/montagem/store'
 import { exportPng, downloadBlob } from '@/lib/montagem/exportPng'
 import { exportPdf } from '@/lib/montagem/exportPdf'
 import { exportCutContourPdf, exportCutContourSvg } from '@/lib/montagem/exportCutContour'
-import { tightenRollLength, tightenRollWidth } from '@/lib/montagem/packing'
+import { singleItemResult, tightenRollLength, tightenRollWidth } from '@/lib/montagem/packing'
 
 type Background = 'white' | 'transparent'
 
@@ -25,11 +25,11 @@ export function ExportPanel() {
   const [includeCutContour, setIncludeCutContour] = useState(true)
   const [busy, setBusy] = useState<'pdf' | 'png' | 'faca-pdf' | 'faca-svg' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [scope, setScope] = useState<'grid' | 'single'>('grid')
 
   const margins = mode === 'folha' ? folha.margins : bobina.margins
   const spacing = mode === 'folha' ? folha.spacing : bobina.spacing
   const result = comparison?.best
-  const canExport = !!art && !!result?.fits
   const canUseTransparent = !!art?.hasAlpha
   const effectiveBackground: Background = canUseTransparent ? background : 'white'
 
@@ -38,18 +38,29 @@ export function ExportPanel() {
   // exportado deve ter só o tamanho de fato usado pelas colunas/linhas, não o
   // valor digitado (que é só um limite físico de referência).
   const isBobinaLengthMode = mode === 'bobina' && bobina.desiredQty == null
-  const exportResult = result && mode === 'bobina'
+  const gridResult = result && mode === 'bobina'
     ? tightenRollWidth(
         isBobinaLengthMode ? tightenRollLength(result, margins.top, margins.bottom, spacing.y) : result,
         margins.left, margins.right, spacing.x,
       )
     : result
 
+  // "Peça única": baixa só a arte final (já com borda/faca, se ativas) no
+  // tamanho dela mesma, sem multiplicar em folha ou bobina — reaproveita as
+  // mesmas funções de exportação com um resultado sintético de 1×1, sem
+  // margem nem espaçamento.
+  const exportResult = scope === 'single' && art ? singleItemResult(art.widthMm, art.heightMm) : gridResult
+  const exportMarginLeft = scope === 'single' ? 0 : margins.left
+  const exportMarginTop = scope === 'single' ? 0 : margins.top
+  const exportSpacingX = scope === 'single' ? 0 : spacing.x
+  const exportSpacingY = scope === 'single' ? 0 : spacing.y
+  const canExport = scope === 'single' ? !!art : !!art && !!result?.fits
+
   async function handleExportPng() {
     if (!art || !exportResult) return
     setBusy('png'); setError(null)
     try {
-      const blob = await exportPng(exportResult, margins.left, margins.top, spacing.x, spacing.y, art.dataUrl, {
+      const blob = await exportPng(exportResult, exportMarginLeft, exportMarginTop, exportSpacingX, exportSpacingY, art.dataUrl, {
         dpi, transparentBg: effectiveBackground === 'transparent', cropMarks,
       })
       downloadBlob(blob, `precy-montagem-${Date.now()}.png`)
@@ -64,7 +75,7 @@ export function ExportPanel() {
     if (!art || !exportResult) return
     setBusy('pdf'); setError(null)
     try {
-      exportPdf(exportResult, margins.left, margins.top, spacing.x, spacing.y, art.dataUrl, {
+      exportPdf(exportResult, exportMarginLeft, exportMarginTop, exportSpacingX, exportSpacingY, art.dataUrl, {
         cropMarks, background: effectiveBackground,
         cutContour: includeCutContour ? cutContour : null,
       }, `precy-montagem-${Date.now()}.pdf`)
@@ -79,7 +90,7 @@ export function ExportPanel() {
     if (!exportResult || !cutContour) return
     setBusy('faca-pdf'); setError(null)
     try {
-      exportCutContourPdf(exportResult, margins.left, margins.top, spacing.x, spacing.y, cutContour, `precy-faca-${Date.now()}.pdf`)
+      exportCutContourPdf(exportResult, exportMarginLeft, exportMarginTop, exportSpacingX, exportSpacingY, cutContour, `precy-faca-${Date.now()}.pdf`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Falha ao exportar a faca.')
     } finally {
@@ -91,7 +102,7 @@ export function ExportPanel() {
     if (!exportResult || !cutContour) return
     setBusy('faca-svg'); setError(null)
     try {
-      exportCutContourSvg(exportResult, margins.left, margins.top, spacing.x, spacing.y, cutContour, `precy-faca-${Date.now()}.svg`)
+      exportCutContourSvg(exportResult, exportMarginLeft, exportMarginTop, exportSpacingX, exportSpacingY, cutContour, `precy-faca-${Date.now()}.svg`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Falha ao exportar a faca.')
     } finally {
@@ -104,6 +115,36 @@ export function ExportPanel() {
       <h3 className="font-semibold text-text-primary dark:text-stone-100 flex items-center gap-2">
         <Download size={16} className="text-primary" /> Exportar
       </h3>
+
+      <div>
+        <label className="text-xs font-medium text-text-secondary dark:text-stone-400">O que exportar</label>
+        <div className="flex gap-1.5 mt-1.5">
+          <button
+            onClick={() => setScope('grid')}
+            className={clsx(
+              'flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors',
+              scope === 'grid' ? 'bg-primary text-white border-primary' : 'border-border dark:border-border-dark text-text-secondary',
+            )}
+          >
+            Grade completa
+          </button>
+          <button
+            onClick={() => setScope('single')}
+            disabled={!art}
+            className={clsx(
+              'flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+              scope === 'single' ? 'bg-primary text-white border-primary' : 'border-border dark:border-border-dark text-text-secondary',
+            )}
+          >
+            Peça única
+          </button>
+        </div>
+        {scope === 'single' && (
+          <p className="text-[11px] text-text-muted mt-1.5">
+            Baixa só esta arte (com borda/faca, se ativas), no tamanho dela mesma — sem multiplicar em folha ou bobina.
+          </p>
+        )}
+      </div>
 
       <div>
         <label className="text-xs font-medium text-text-secondary dark:text-stone-400">Resolução PNG (DPI)</label>

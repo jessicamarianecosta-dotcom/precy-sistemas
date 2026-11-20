@@ -198,6 +198,26 @@ export function computeRollPacking(input: RollPackingInput): PackingResult {
   }
 }
 
+/**
+ * "Montagem" de uma única peça (sem grade, sem folha/bobina) — pra quem quer
+ * baixar só a arte final (com borda/faca, se ativas) no tamanho dela mesma,
+ * sem multiplicar em folha ou bobina. Reaproveita as mesmas funções de
+ * exportação (que recebem um `PackingResult` genérico) com um resultado
+ * sintético de 1 coluna × 1 linha, do tamanho exato da arte, sem margem.
+ */
+export function singleItemResult(widthMm: number, heightMm: number): PackingResult {
+  const area = widthMm * heightMm
+  return {
+    cols: 1, rows: 1, total: 1, rotated: false,
+    itemWidthMm: widthMm, itemHeightMm: heightMm,
+    usableWidthMm: widthMm, usableHeightMm: heightMm,
+    containerWidthMm: widthMm, containerHeightMm: heightMm,
+    usedAreaMm2: area, totalAreaMm2: area,
+    wasteAreaMm2: 0, utilizationPct: area > 0 ? 100 : 0,
+    fits: true, manual: false,
+  }
+}
+
 export function bestRollPacking(input: Omit<RollPackingInput, 'rotate'>): PackingComparison {
   const normal = computeRollPacking({ ...input, rotate: false })
   const rotated = computeRollPacking({ ...input, rotate: true })
