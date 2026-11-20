@@ -38,7 +38,8 @@ export function FileImportPanel() {
   const backgroundRemoval = useMontagemStore((s) => s.backgroundRemoval)
   const setBackgroundRemovalEnabled = useMontagemStore((s) => s.setBackgroundRemovalEnabled)
   const setBackgroundRemovalRemoveHoles = useMontagemStore((s) => s.setBackgroundRemovalRemoveHoles)
-  const upscaleArt = useMontagemStore((s) => s.upscaleArt)
+  const upscale = useMontagemStore((s) => s.upscale)
+  const setUpscaleFactor = useMontagemStore((s) => s.setUpscaleFactor)
   const processing = useMontagemStore((s) => s.loading)
   const processingError = useMontagemStore((s) => s.error)
 
@@ -345,20 +346,26 @@ export function FileImportPanel() {
         <div>
           <label className="text-xs font-medium text-text-secondary dark:text-stone-400">Melhorar definição (upscale)</label>
           <div className="flex gap-1.5 mt-1.5">
-            {([2, 3, 4] as const).map((f) => (
-              <button
-                key={f}
-                onClick={() => upscaleArt(f)}
-                disabled={processing}
-                className="flex-1 py-1.5 rounded-lg text-xs font-semibold border border-border dark:border-border-dark text-text-secondary dark:text-stone-400 hover:border-primary disabled:opacity-50 flex items-center justify-center gap-1"
-              >
-                {processing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} className="text-primary" />}
-                {f}×
-              </button>
-            ))}
+            {([2, 3, 4] as const).map((f) => {
+              const active = upscale.enabled && upscale.factor === f
+              return (
+                <button
+                  key={f}
+                  onClick={() => setUpscaleFactor(f)}
+                  disabled={processing}
+                  className={clsx(
+                    'flex-1 py-1.5 rounded-lg text-xs font-semibold border disabled:opacity-50 flex items-center justify-center gap-1 transition-colors',
+                    active ? 'bg-primary text-white border-primary' : 'border-border dark:border-border-dark text-text-secondary dark:text-stone-400 hover:border-primary',
+                  )}
+                >
+                  {processing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} className={active ? '' : 'text-primary'} />}
+                  {f}×
+                </button>
+              )
+            })}
           </div>
           <p className="text-[11px] text-text-muted mt-1.5">
-            Aumenta a resolução e a nitidez sem mudar cor, conteúdo ou o tamanho físico de impressão.
+            Aumenta a resolução e a nitidez sem mudar cor, conteúdo ou o tamanho físico de impressão. Clique de novo pra desmarcar.
           </p>
         </div>
       </div>

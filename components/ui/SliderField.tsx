@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NumberInput } from './NumberInput'
 
 interface SliderFieldProps {
@@ -8,7 +8,12 @@ interface SliderFieldProps {
   value: number
   /** Chamado a cada movimento — barato, só atualiza o número exibido. */
   onChange: (value: number) => void
-  /** Chamado quando o usuário solta o controle (ou edita o número direto) — use para disparar processamento pesado. */
+  /**
+   * Chamado para aplicar o valor de verdade (reprocessa a arte). Disparado
+   * com um debounce curto enquanto arrasta (sensação de tempo real, sem
+   * reprocessar a cada pixel) e também imediatamente ao soltar/editar o
+   * número, garantindo que o valor final seja sempre aplicado.
+   */
   onCommit?: (value: number) => void
   min?: number
   max?: number
@@ -17,13 +22,27 @@ interface SliderFieldProps {
   disabled?: boolean
 }
 
-/** Campo com controle deslizante + número, sincronizados — arrastar dá feedback liso; o processamento pesado só roda ao soltar. */
+const DEBOUNCE_MS = 120
+
+/** Campo com controle deslizante + número, sincronizados — arrastar atualiza o número na hora e aplica o processamento pesado pouco depois (debounce), sem travar a cada pixel movido. */
 export function SliderField({ label, value, onChange, onCommit, min = 0, max = 10, step = 0.1, suffix = 'mm', disabled }: SliderFieldProps) {
   const [draft, setDraft] = useState(value)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => setDraft(value), [value])
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
 
   const commit = onCommit ?? onChange
+
+  function scheduleCommit(v: number) {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => commit(v), DEBOUNCE_MS)
+  }
+
+  function flushCommit(v: number) {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+    commit(v)
+  }
 
   return (
     <div>
@@ -33,7 +52,7 @@ export function SliderField({ label, value, onChange, onCommit, min = 0, max = 1
           <NumberInput
             className="input w-16 text-center py-1 text-xs"
             value={draft}
-            onChange={(v) => { setDraft(v); commit(v) }}
+            onChange={(v) => { setDraft(v); flushCommit(v) }}
           />
           {suffix && <span className="text-xs text-text-muted">{suffix}</span>}
         </div>
@@ -45,11 +64,15 @@ export function SliderField({ label, value, onChange, onCommit, min = 0, max = 1
         step={step}
         value={Math.min(max, Math.max(min, draft))}
         disabled={disabled}
-        onInput={(e) => { onChange(parseFloat((e.target as HTMLInputElement).value)) }}
+        onInput={(e) => {
+          const v = parseFloat((e.target as HTMLInputElement).value)
+          onChange(v)
+          scheduleCommit(v)
+        }}
         onChange={(e) => setDraft(parseFloat(e.target.value))}
-        onMouseUp={(e) => commit(parseFloat((e.target as HTMLInputElement).value))}
-        onTouchEnd={(e) => commit(parseFloat((e.target as HTMLInputElement).value))}
-        onKeyUp={(e) => commit(parseFloat((e.target as HTMLInputElement).value))}
+        onMouseUp={(e) => flushCommit(parseFloat((e.target as HTMLInputElement).value))}
+        onTouchEnd={(e) => flushCommit(parseFloat((e.target as HTMLInputElement).value))}
+        onKeyUp={(e) => flushCommit(parseFloat((e.target as HTMLInputElement).value))}
         className="w-full accent-primary disabled:opacity-50"
       />
     </div>

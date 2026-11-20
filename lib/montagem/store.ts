@@ -58,6 +58,15 @@ function defaultBorder(): BorderConfig {
   return { enabled: false, widthMm: 2, color: '#ffffff' }
 }
 
+interface UpscaleConfig {
+  enabled: boolean
+  factor: 2 | 3 | 4
+}
+
+function defaultUpscale(): UpscaleConfig {
+  return { enabled: false, factor: 2 }
+}
+
 interface Snapshot {
   mode: AssemblyMode
   bobina: BobinaConfig
@@ -66,6 +75,7 @@ interface Snapshot {
   rotation: Rotation
   backgroundRemoval: BackgroundRemovalConfig
   border: BorderConfig
+  upscale: UpscaleConfig
 }
 
 interface MontagemState {
@@ -80,6 +90,7 @@ interface MontagemState {
   rotation: Rotation
   backgroundRemoval: BackgroundRemovalConfig
   border: BorderConfig
+  upscale: UpscaleConfig
   cutContour: CutContour | null
   cutContourOffsetMm: number
   zoom: number
@@ -103,7 +114,7 @@ interface MontagemState {
   setBorderEnabled: (enabled: boolean) => Promise<void>
   setBorderWidthMm: (widthMm: number) => Promise<void>
   setBorderColor: (color: string) => Promise<void>
-  upscaleArt: (factor: 2 | 3 | 4) => Promise<void>
+  setUpscaleFactor: (factor: 2 | 3 | 4) => Promise<void>
   generateCutContour: () => Promise<void>
   clearCutContour: () => void
   setCutContourOffsetMm: (offsetMm: number) => void
@@ -124,6 +135,7 @@ function snapshotOf(s: MontagemState): Snapshot {
     rotation: s.rotation,
     backgroundRemoval: { ...s.backgroundRemoval },
     border: { ...s.border },
+    upscale: { ...s.upscale },
   }
 }
 
@@ -131,15 +143,16 @@ type Get = () => MontagemState
 type Set = (partial: Partial<MontagemState> | ((s: MontagemState) => Partial<MontagemState>)) => void
 
 /**
- * Recalcula `art` a partir de `originalArt` + remoção de fundo (se ligada) +
- * borda (se ligada) + rotação — ponto único por onde toda mudança que afeta
- * a imagem final passa. Reversível: desligar a remoção de fundo ou a borda
- * volta exatamente ao estado anterior, sem precisar reimportar o arquivo.
- * Qualquer recálculo invalida a linha de corte gerada (ela precisa ser
- * gerada de novo sobre a imagem atualizada).
+ * Recalcula `art` a partir de `originalArt` + melhoria de definição (se
+ * ligada) + remoção de fundo (se ligada) + borda (se ligada) + rotação —
+ * ponto único por onde toda mudança que afeta a imagem final passa.
+ * Reversível: desligar qualquer um desses passos volta exatamente ao estado
+ * anterior, sem precisar reimportar o arquivo. Qualquer recálculo invalida
+ * a linha de corte gerada (ela precisa ser gerada de novo sobre a imagem
+ * atualizada).
  */
 async function recomputeArt(get: Get, set: Set) {
-  const { originalArt, rotation, backgroundRemoval, border } = get()
+  const { originalArt, rotation, backgroundRemoval, border, upscale } = get()
   if (!originalArt) {
     set({ art: null, cutContour: null })
     return
@@ -147,8 +160,11 @@ async function recomputeArt(get: Get, set: Set) {
   set({ loading: true, error: null })
   try {
     let base = originalArt
+    if (upscale.enabled) {
+      base = await upscaleImage(base, upscale.factor)
+    }
     if (backgroundRemoval.enabled) {
-      base = await removeBackgroundColor(originalArt, { removeHoles: backgroundRemoval.removeHoles })
+      base = await removeBackgroundColor(base, { removeHoles: backgroundRemoval.removeHoles })
     }
     if (border.enabled) {
       base = await addBorderToArt(base, { widthMm: border.widthMm, color: border.color })
@@ -170,6 +186,7 @@ export const useMontagemStore = create<MontagemState>((set, get) => ({
   rotation: 0,
   backgroundRemoval: defaultBackgroundRemoval(),
   border: defaultBorder(),
+  upscale: defaultUpscale(),
   cutContour: null,
   cutContourOffsetMm: 2,
   zoom: 1,
@@ -182,6 +199,7 @@ export const useMontagemStore = create<MontagemState>((set, get) => ({
     originalArt: art, art, rotation: 0,
     backgroundRemoval: defaultBackgroundRemoval(),
     border: defaultBorder(),
+    upscale: defaultUpscale(),
     cutContour: null, error: null,
   }),
 
@@ -189,6 +207,7 @@ export const useMontagemStore = create<MontagemState>((set, get) => ({
     originalArt: null, art: null, rotation: 0,
     backgroundRemoval: defaultBackgroundRemoval(),
     border: defaultBorder(),
+    upscale: defaultUpscale(),
     cutContour: null,
   }),
 
@@ -273,17 +292,13 @@ export const useMontagemStore = create<MontagemState>((set, get) => ({
     if (get().border.enabled) await recomputeArt(get, set)
   },
 
-  upscaleArt: async (factor) => {
-    const { originalArt } = get()
-    if (!originalArt) return
-    set({ loading: true, error: null })
-    try {
-      const upscaled = await upscaleImage(originalArt, factor)
-      set({ originalArt: upscaled, loading: false })
-      await recomputeArt(get, set)
-    } catch (e) {
-      set({ loading: false, error: e instanceof Error ? e.message : 'Falha ao melhorar a definição da arte.' })
-    }
+  setUpscaleFactor: async (factor) => {
+    const snap = snapshotOf(get())
+    const current = get().upscale
+    // Clicar no fator já ativo desmarca; clicar em outro fator ativa com esse fator.
+    const enabled = !(current.enabled && current.factor === factor)
+    set({ upscale: { enabled, factor }, past: [...get().past, snap], future: [] })
+    await recomputeArt(get, set)
   },
 
   generateCutContour: async () => {

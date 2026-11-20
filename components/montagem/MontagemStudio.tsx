@@ -53,8 +53,11 @@ export function MontagemStudio({ variant }: Props) {
           )}
         </div>
 
-        {/* Centro: visualização — sempre antes dos resultados/exportação no mobile, pra poder conferir antes de baixar */}
-        <div className="order-2 min-h-[420px]">
+        {/* Centro: visualização — sempre antes dos resultados/exportação no mobile
+           (pra poder conferir antes de baixar) e "grudada" no topo da tela
+           (sticky) enquanto se rola pelos ajustes de borda/faca/exportação
+           abaixo, pra nunca precisar subir a tela pra ver o resultado. */}
+        <div className="order-2 min-h-[420px] sticky top-2 z-10 max-h-[85vh] overflow-y-auto">
           <CanvasPreview />
         </div>
 
