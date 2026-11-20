@@ -12,8 +12,8 @@ import { MontagemImportError } from './fileImport'
 import { traceMaskContours } from './contourTrace'
 import type { CutContour, ImportedArt } from './types'
 
-/** Maior lado (em px) da imagem de trabalho usada para traçar o contorno — suficiente para um traço suave, rápido o bastante para rodar a cada geração. */
-const WORKING_LONG_EDGE = 700
+/** Maior lado (em px) da imagem de trabalho usada para traçar o contorno — alto o bastante para preservar pontas finas (letras, raios), com custo controlado pela transformada de distância (não cresce com o deslocamento pedido). */
+const WORKING_LONG_EDGE = 1400
 const ALPHA_THRESHOLD = 32
 
 function loadImageElement(src: string): Promise<HTMLImageElement> {
@@ -54,8 +54,12 @@ export async function generateCutContourForArt(art: ImportedArt, offsetMm: numbe
   const offsetPx = offsetMm / mmPerPx
 
   const contoursPx = traceMaskContours(mask, width, height, {
-    dilateIterations: Math.max(0, Math.round(offsetPx)),
-    simplifyEpsilon: Math.max(0.5, width / 400),
+    // Raio euclidiano exato (não arredonda pra inteiro) — a transformada de
+    // distância aceita qualquer valor sem custo extra.
+    dilateIterations: Math.max(0, offsetPx),
+    // Epsilon pequeno o bastante pra manter pontas finas (ex: raios, pontas
+    // de letras) em vez de arredondá-las na simplificação.
+    simplifyEpsilon: Math.max(0.35, width / 1000),
     minAreaPx: 6,
   })
 

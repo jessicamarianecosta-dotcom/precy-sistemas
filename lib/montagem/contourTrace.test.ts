@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dilateMask, findConnectedComponents, polygonArea, simplifyPolygon, traceBoundary, traceMaskContours } from './contourTrace'
+import { dilateMask, dilateMaskByRadius, erodeMaskByRadius, findConnectedComponents, polygonArea, simplifyPolygon, traceBoundary, traceMaskContours } from './contourTrace'
 
 function makeMask(width: number, height: number, fill: (x: number, y: number) => boolean): Uint8Array {
   const mask = new Uint8Array(width * height)
@@ -18,6 +18,51 @@ describe('dilateMask', () => {
     let count = 0
     for (let y = 4; y <= 6; y++) for (let x = 4; x <= 6; x++) if (dilated[y * 10 + x]) count++
     expect(count).toBe(9)
+  })
+})
+
+describe('dilateMaskByRadius', () => {
+  it('raio 0 não altera a máscara', () => {
+    const mask = makeMask(10, 10, (x, y) => x === 5 && y === 5)
+    const dilated = dilateMaskByRadius(mask, 10, 10, 0)
+    expect(Array.from(dilated)).toEqual(Array.from(mask))
+  })
+
+  it('cresce um pixel isolado num círculo aproximado, maior que o raio 1 em xadrez', () => {
+    const mask = makeMask(21, 21, (x, y) => x === 10 && y === 10)
+    const dilated = dilateMaskByRadius(mask, 21, 21, 3)
+    // Ortogonal a 3px deve estar dentro do raio.
+    expect(dilated[10 * 21 + 13]).toBe(1)
+    expect(dilated[10 * 21 + 7]).toBe(1)
+    // Diagonal bem mais longe que o raio (ex: 3,3 ~ 4.24) deve ficar de fora.
+    expect(dilated[(10 + 3) * 21 + (10 + 3)]).toBe(0)
+  })
+
+  it('une dois quadrados próximos a partir de um certo raio', () => {
+    const mask = makeMask(30, 30, (x, y) =>
+      (x >= 5 && x <= 9 && y >= 5 && y <= 9) ||
+      (x >= 13 && x <= 17 && y >= 5 && y <= 9),
+    )
+    const smallRadius = dilateMaskByRadius(mask, 30, 30, 1)
+    expect(findConnectedComponents(smallRadius, 30, 30)).toHaveLength(2)
+
+    const bigRadius = dilateMaskByRadius(mask, 30, 30, 3)
+    expect(findConnectedComponents(bigRadius, 30, 30)).toHaveLength(1)
+  })
+})
+
+describe('erodeMaskByRadius', () => {
+  it('raio 0 não altera a máscara', () => {
+    const mask = makeMask(20, 20, (x, y) => x >= 5 && x <= 14 && y >= 5 && y <= 14)
+    const eroded = erodeMaskByRadius(mask, 20, 20, 0)
+    expect(Array.from(eroded)).toEqual(Array.from(mask))
+  })
+
+  it('encolhe um retângulo, mantendo o centro e removendo a borda', () => {
+    const mask = makeMask(20, 20, (x, y) => x >= 5 && x <= 14 && y >= 5 && y <= 14)
+    const eroded = erodeMaskByRadius(mask, 20, 20, 2)
+    expect(eroded[9 * 20 + 9]).toBe(1) // centro continua de frente
+    expect(eroded[5 * 20 + 5]).toBe(0) // canto da borda original é removido
   })
 })
 

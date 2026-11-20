@@ -9,6 +9,7 @@
  */
 
 import { MontagemImportError } from './fileImport'
+import { erodeMaskByRadius } from './contourTrace'
 import type { ImportedArt } from './types'
 
 function loadImageElement(src: string): Promise<HTMLImageElement> {
@@ -119,6 +120,8 @@ export interface RemoveBackgroundOptions {
    * fechadas ("buracos").
    */
   removeHoles?: boolean
+  /** Quanto encolher a silhueta (em mm) pra matar uma franja escura residual da arte original. 0 desativa. */
+  edgeCleanupMm?: number
 }
 
 /**
@@ -129,6 +132,12 @@ export interface RemoveBackgroundOptions {
  * área de cor parecida cercada pela própria arte (um "buraco", ex: o miolo
  * de uma letra "O") só entra se `removeHoles` for true.
  *
+ * `edgeCleanupPx` (opcional): depois do flood fill, encolhe o que sobrou da
+ * arte por essa quantidade de pixels — mata uma franja fina de anti-
+ * aliasing/contorno escuro residual que o arquivo original já trazia (muito
+ * comum em artes exportadas com uma leve sombra/contorno), sem o qual ela
+ * ficaria presa como se fosse parte da arte.
+ *
  * Retorna uma máscara (1 = tornar transparente) do mesmo tamanho width*height.
  */
 export function computeBackgroundRemovalMask(
@@ -137,6 +146,7 @@ export function computeBackgroundRemovalMask(
   height: number,
   tolerance: number,
   removeHoles: boolean,
+  edgeCleanupPx = 0,
 ): Uint8Array {
   const { r: bgR, g: bgG, b: bgB } = detectBackgroundColor(data, width, height)
 
@@ -175,6 +185,14 @@ export function computeBackgroundRemovalMask(
     const isHole = isBgColor[p] === 1 && exterior[p] === 0
     result[p] = exterior[p] === 1 || (removeHoles && isHole) ? 1 : 0
   }
+
+  if (edgeCleanupPx > 0) {
+    const keep = new Uint8Array(total)
+    for (let p = 0; p < total; p++) keep[p] = result[p] ? 0 : 1
+    const erodedKeep = erodeMaskByRadius(keep, width, height, edgeCleanupPx)
+    for (let p = 0; p < total; p++) if (!erodedKeep[p]) result[p] = 1
+  }
+
   return result
 }
 
@@ -187,6 +205,7 @@ export function computeBackgroundRemovalMask(
 export async function removeBackgroundColor(art: ImportedArt, opts: RemoveBackgroundOptions = {}): Promise<ImportedArt> {
   const tolerance = opts.tolerance ?? 30
   const removeHoles = opts.removeHoles ?? false
+  const edgeCleanupMm = opts.edgeCleanupMm ?? 0.2
 
   const img = await loadImageElement(art.dataUrl)
   const canvas = document.createElement('canvas')
@@ -198,7 +217,9 @@ export async function removeBackgroundColor(art: ImportedArt, opts: RemoveBackgr
   const { width, height } = canvas
   const imageData = ctx.getImageData(0, 0, width, height)
   const data = imageData.data
-  const mask = computeBackgroundRemovalMask(data, width, height, tolerance, removeHoles)
+  const mmPerPx = art.widthMm / width
+  const edgeCleanupPx = mmPerPx > 0 ? edgeCleanupMm / mmPerPx : 0
+  const mask = computeBackgroundRemovalMask(data, width, height, tolerance, removeHoles, edgeCleanupPx)
 
   for (let p = 0; p < mask.length; p++) {
     if (mask[p]) data[p * 4 + 3] = 0
