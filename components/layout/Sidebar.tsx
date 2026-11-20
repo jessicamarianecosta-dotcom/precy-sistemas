@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Package, Boxes, ShoppingCart,
   Users, FileText, DollarSign, Settings, Calculator,
   ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays, BarChart2, Crown, TrendingUp, Truck, Store,
-  MessageSquare, FileStack, Layers, ListChecks,
+  MessageSquare, FileStack, Layers, ListChecks, Ruler,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { createClient } from '@/lib/supabase/client'
@@ -185,6 +185,11 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
               {group.title === 'Negócio' && hasCatalogAccess && (
                 <li>
                   <NavLink href="/catalogo" icon={Store} label="Catálogo Online" />
+                </li>
+              )}
+              {group.title === 'Negócio' && isAdmin && (
+                <li>
+                  <NavLink href="/montagem-studio" icon={Ruler} label="Montagem" />
                 </li>
               )}
               {group.title === 'Sistema' && isAdmin && (
