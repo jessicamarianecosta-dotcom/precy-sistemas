@@ -464,7 +464,10 @@ export function EssencialPricingCalculator() {
             )}
           </div>
         </div>
+      </div>
 
+      {/* ── Coluna fixa: lucro/preço e resultado sempre visíveis enquanto preenche o formulário ── */}
+      <div className="lg:col-span-2 space-y-5 lg:sticky lg:top-4">
         {/* ── 4. Lucro e preço de venda ── */}
         <div className="card space-y-3">
           <div className="flex items-center gap-2">
@@ -473,7 +476,7 @@ export function EssencialPricingCalculator() {
             </div>
             <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">Lucro e preço de venda</h2>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 gap-2">
             {[
               { value: 'percent' as PricingMode,       label: 'Lucro por %' },
               { value: 'manual_profit' as PricingMode, label: 'Lucro manual (R$)' },
@@ -481,7 +484,7 @@ export function EssencialPricingCalculator() {
             ].map(opt => (
               <button
                 key={opt.value} type="button" onClick={() => setPricingMode(opt.value)}
-                className={clsx('p-2.5 rounded-xl border-2 text-xs font-medium transition-all',
+                className={clsx('p-2.5 rounded-xl border-2 text-xs font-medium transition-all text-left',
                   pricingMode === opt.value ? 'border-primary bg-primary-50 dark:bg-primary/10 text-primary' : 'border-border dark:border-border-dark')}
               >
                 {opt.label}
@@ -508,10 +511,7 @@ export function EssencialPricingCalculator() {
             </div>
           )}
         </div>
-      </div>
 
-      {/* ── Coluna fixa: resultado sempre visível enquanto preenche o formulário ── */}
-      <div className="lg:col-span-2 space-y-5 lg:sticky lg:top-4">
         {/* ── 5. Resultado ── */}
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="card bg-primary-50/60 dark:bg-primary/5 border-primary/20 space-y-2">
           <div className="flex items-center gap-2 mb-1">
