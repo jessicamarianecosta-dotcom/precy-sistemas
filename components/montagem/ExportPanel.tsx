@@ -7,7 +7,7 @@ import { useMontagemStore, useMontagemComparison } from '@/lib/montagem/store'
 import { exportPng, downloadBlob } from '@/lib/montagem/exportPng'
 import { exportPdf } from '@/lib/montagem/exportPdf'
 import { exportCutContourPdf, exportCutContourSvg } from '@/lib/montagem/exportCutContour'
-import { singleItemResult, tightenRollLength, tightenRollWidth } from '@/lib/montagem/packing'
+import { tightenRollLength, tightenRollWidth } from '@/lib/montagem/packing'
 
 type Background = 'white' | 'transparent'
 
@@ -25,10 +25,10 @@ export function ExportPanel() {
   const [includeCutContour, setIncludeCutContour] = useState(true)
   const [busy, setBusy] = useState<'pdf' | 'png' | 'faca-pdf' | 'faca-svg' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [scope, setScope] = useState<'grid' | 'single'>('grid')
 
-  const margins = mode === 'folha' ? folha.margins : bobina.margins
-  const spacing = mode === 'folha' ? folha.spacing : bobina.spacing
+  const isUnidade = mode === 'unidade'
+  const margins = mode === 'folha' ? folha.margins : mode === 'bobina' ? bobina.margins : { top: 0, right: 0, bottom: 0, left: 0 }
+  const spacing = mode === 'folha' ? folha.spacing : mode === 'bobina' ? bobina.spacing : { x: 0, y: 0 }
   const result = comparison?.best
   const canUseTransparent = !!art?.hasAlpha
   const effectiveBackground: Background = canUseTransparent ? background : 'white'
@@ -36,25 +36,20 @@ export function ExportPanel() {
   // A largura/comprimento de bobina informados servem só pra calcular quantos
   // adesivos cabem — a impressão real roda noutro programa, então o arquivo
   // exportado deve ter só o tamanho de fato usado pelas colunas/linhas, não o
-  // valor digitado (que é só um limite físico de referência).
+  // valor digitado (que é só um limite físico de referência). No modo "peça
+  // única" o resultado já vem pronto (1×1, sem margem) direto da store.
   const isBobinaLengthMode = mode === 'bobina' && bobina.desiredQty == null
-  const gridResult = result && mode === 'bobina'
+  const exportResult = result && mode === 'bobina'
     ? tightenRollWidth(
         isBobinaLengthMode ? tightenRollLength(result, margins.top, margins.bottom, spacing.y) : result,
         margins.left, margins.right, spacing.x,
       )
     : result
-
-  // "Peça única": baixa só a arte final (já com borda/faca, se ativas) no
-  // tamanho dela mesma, sem multiplicar em folha ou bobina — reaproveita as
-  // mesmas funções de exportação com um resultado sintético de 1×1, sem
-  // margem nem espaçamento.
-  const exportResult = scope === 'single' && art ? singleItemResult(art.widthMm, art.heightMm) : gridResult
-  const exportMarginLeft = scope === 'single' ? 0 : margins.left
-  const exportMarginTop = scope === 'single' ? 0 : margins.top
-  const exportSpacingX = scope === 'single' ? 0 : spacing.x
-  const exportSpacingY = scope === 'single' ? 0 : spacing.y
-  const canExport = scope === 'single' ? !!art : !!art && !!result?.fits
+  const exportMarginLeft = margins.left
+  const exportMarginTop = margins.top
+  const exportSpacingX = spacing.x
+  const exportSpacingY = spacing.y
+  const canExport = isUnidade ? !!art : !!art && !!result?.fits
 
   async function handleExportPng() {
     if (!art || !exportResult) return
@@ -116,35 +111,11 @@ export function ExportPanel() {
         <Download size={16} className="text-primary" /> Exportar
       </h3>
 
-      <div>
-        <label className="text-xs font-medium text-text-secondary dark:text-stone-400">O que exportar</label>
-        <div className="flex gap-1.5 mt-1.5">
-          <button
-            onClick={() => setScope('grid')}
-            className={clsx(
-              'flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors',
-              scope === 'grid' ? 'bg-primary text-white border-primary' : 'border-border dark:border-border-dark text-text-secondary',
-            )}
-          >
-            Grade completa
-          </button>
-          <button
-            onClick={() => setScope('single')}
-            disabled={!art}
-            className={clsx(
-              'flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
-              scope === 'single' ? 'bg-primary text-white border-primary' : 'border-border dark:border-border-dark text-text-secondary',
-            )}
-          >
-            Peça única
-          </button>
-        </div>
-        {scope === 'single' && (
-          <p className="text-[11px] text-text-muted mt-1.5">
-            Baixa só esta arte (com borda/faca, se ativas), no tamanho dela mesma — sem multiplicar em folha ou bobina.
-          </p>
-        )}
-      </div>
+      {isUnidade && (
+        <p className="text-[11px] text-primary bg-primary-50 dark:bg-primary/10 rounded-lg px-2.5 py-1.5">
+          Modo &ldquo;Peça única&rdquo;: baixa só esta arte (com borda/faca, se ativas), no tamanho dela mesma — sem montar em folha ou bobina.
+        </p>
+      )}
 
       <div>
         <label className="text-xs font-medium text-text-secondary dark:text-stone-400">Resolução PNG (DPI)</label>

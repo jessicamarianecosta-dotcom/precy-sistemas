@@ -32,8 +32,10 @@ export function CanvasPreview() {
   const setZoom = useMontagemStore((s) => s.setZoom)
   const comparison = useMontagemComparison()
 
-  const margins = mode === 'folha' ? folha.margins : bobina.margins
-  const spacing = mode === 'folha' ? folha.spacing : bobina.spacing
+  const ZERO_MARGINS = { top: 0, right: 0, bottom: 0, left: 0 }
+  const ZERO_SPACING = { x: 0, y: 0 }
+  const margins = mode === 'folha' ? folha.margins : mode === 'bobina' ? bobina.margins : ZERO_MARGINS
+  const spacing = mode === 'folha' ? folha.spacing : mode === 'bobina' ? bobina.spacing : ZERO_SPACING
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -42,8 +44,10 @@ export function CanvasPreview() {
     if (!ctx) return
 
     const result = comparison?.best
-    const containerW = result?.containerWidthMm ?? (mode === 'folha' ? folha.sheetWidthMm : bobina.rollWidthMm)
-    const containerH = result?.containerHeightMm ?? (mode === 'folha' ? folha.sheetHeightMm : (bobina.rollLengthMm ?? 300))
+    const fallbackW = mode === 'folha' ? folha.sheetWidthMm : mode === 'bobina' ? bobina.rollWidthMm : (art?.widthMm ?? 100)
+    const fallbackH = mode === 'folha' ? folha.sheetHeightMm : mode === 'bobina' ? (bobina.rollLengthMm ?? 300) : (art?.heightMm ?? 100)
+    const containerW = result?.containerWidthMm ?? fallbackW
+    const containerH = result?.containerHeightMm ?? fallbackH
 
     // px por mm na tela: zoom é um fator relativo a "1mm = 2px" (base legível).
     const basePxPerMm = 2
