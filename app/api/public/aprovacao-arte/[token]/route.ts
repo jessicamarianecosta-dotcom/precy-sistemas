@@ -15,6 +15,7 @@ export async function GET(_req:Request,context:{params:Promise<{token:string}>})
   const {token}=await context.params
   const db=supabaseAdmin as any; const link=await getLink(token)
   if(!link) return NextResponse.json({error:'Link indisponível.'},{status:404})
+  if(link.deadline&&new Date(link.deadline).getTime()<Date.now()&&link.status==='aguardando_aprovacao') return NextResponse.json({error:'O prazo deste link expirou.'},{status:410})
   const {data:version}=await db.from('order_art_approval_versions').select('*').eq('link_id',link.id).eq('version_number',link.current_version).maybeSingle()
   if(!version) return NextResponse.json({error:'Versão não encontrada.'},{status:404})
   const [{data:order},{data:item},{data:company},{data:response}]=await Promise.all([
