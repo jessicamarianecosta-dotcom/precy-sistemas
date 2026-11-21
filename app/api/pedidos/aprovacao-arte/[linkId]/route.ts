@@ -4,12 +4,12 @@ import { cookies } from 'next/headers'
 import { randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { resolveCompanyIdForUser } from '@/lib/supabase/pgHelpers'
-import { ART_FINISHING_INSTRUCTIONS, ART_FINISHING_INSTRUCTIONS_VERSION } from '@/lib/orders/digitalArtApproval'
+import { ART_FINISHING_INSTRUCTIONS, ART_FINISHING_INSTRUCTIONS_VERSION, hasDigitalArtApprovalBeta } from '@/lib/orders/digitalArtApproval'
 
 async function owner() {
  const auth=createServerComponentClient({cookies})
  const {data:{user}}=await auth.auth.getUser()
- if(!user) return {user:null,companyId:null}
+ if(!user||!hasDigitalArtApprovalBeta(user.email)) return {user:null,companyId:null}
  return {user,companyId:await resolveCompanyIdForUser(user.id)}
 }
 export async function GET(_req:Request,ctx:{params:Promise<{linkId:string}>}) {
@@ -25,7 +25,9 @@ export async function GET(_req:Request,ctx:{params:Promise<{linkId:string}>}) {
   const ids=(versions??[]).map((v:any)=>v.id)
   const {data:responses,error:re}=ids.length?await db.from('order_art_approval_responses').select('id,version_id,response,customer_name,customer_note,consented_at,created_at,attachment_paths').in('version_id',ids):{data:[],error:null}
   if(re) throw re
-  return NextResponse.json({link,history:(versions??[]).map((v:any)=>({...v,response:(responses??[]).find((r:any)=>r.version_id===v.id)??null}))})
+  const {data:notifications,error:ne}=await db.from('order_art_approval_notifications').select('id,title,message,notification_type,read_at,created_at').eq('link_id',linkId).order('created_at',{ascending:false})
+  if(ne) throw ne
+  return NextResponse.json({link,notifications:notifications??[],history:(versions??[]).map((v:any)=>({...v,response:(responses??[]).find((r:any)=>r.version_id===v.id)??null}))})
  } catch(e) { console.error('[art approval history]',e); return NextResponse.json({error:'Não foi possível carregar o histórico.'},{status:500}) }
 }
 export async function POST(req:Request,ctx:{params:Promise<{linkId:string}>}) {
