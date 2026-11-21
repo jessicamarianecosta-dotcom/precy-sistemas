@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPaymentAdapter, getPaymentAdapterForCompany } from '@/lib/catalog/payments'
 import { applyCatalogPaymentConfirmed } from '@/lib/orders/catalogPaymentCascade'
+import { applyMontagemPaymentConfirmed, MONTAGEM_REF_PREFIX } from '@/lib/montagem/licenseCascade'
 
 export const runtime = 'nodejs'
 
@@ -63,6 +64,22 @@ export async function POST(req: NextRequest) {
   // merchant_order) ou com status ainda não pago não disparam a cascata.
   if (!event.ref || event.status !== 'paid') {
     return NextResponse.json({ received: true, status: event.status })
+  }
+
+  // Compra avulsa do Precy Montagem (produto da própria Precy+, não um
+  // pedido de loja de empresa cliente) — cascata separada, sem passar pelo
+  // fluxo de pedidos do Catálogo Online.
+  if (event.ref.startsWith(MONTAGEM_REF_PREFIX)) {
+    const montagemResult = await applyMontagemPaymentConfirmed(event)
+    if (!montagemResult.ok) {
+      if (montagemResult.status === 'not_found') {
+        console.warn('[webhook/mercadopago] licença não encontrada para ref', event.ref)
+        return NextResponse.json({ received: true, warning: montagemResult.warning })
+      }
+      console.error('[webhook/mercadopago] falha ao confirmar licença do Montagem:', montagemResult.error)
+      return NextResponse.json({ error: montagemResult.error }, { status: 500 })
+    }
+    return NextResponse.json({ received: true, licenseId: montagemResult.licenseId, alreadyProcessed: montagemResult.alreadyProcessed })
   }
 
   const result = await applyCatalogPaymentConfirmed(event, 'mercadopago')
