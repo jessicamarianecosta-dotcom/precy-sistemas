@@ -20,8 +20,10 @@ export async function POST(request: Request) {
   if(oe) throw oe; if(!order) return NextResponse.json({error:'Pedido não encontrado.'},{status:404})
   const {data:item,error:ie}=await db.from('order_items').select('id,name,art_origin').eq('id',itemId).eq('order_id',orderId).maybeSingle()
   if(ie) throw ie; if(!item||!item.art_origin) return NextResponse.json({error:'Item sem arte vinculada.'},{status:400})
-  const {data:files,error:fe}=await db.from('order_files').select('id,file_name,file_path,mime_type,file_size').in('id',fileIds).eq('order_id',orderId).eq('order_item_id',itemId)
+  const {data:files,error:fe}=await db.from('order_files').select('id,file_name,file_path,mime_type,file_size,file_role').in('id',fileIds).eq('order_id',orderId).eq('order_item_id',itemId)
   if(fe) throw fe; if(!files||files.length!==fileIds.length) return NextResponse.json({error:'Arquivo inválido para este item.'},{status:400})
+  const allowedRoles=['cliente_arte','referencia','proposta','versao_final']; const allowedTypes=['image/png','image/jpeg','image/webp','application/pdf']
+  if(files.some((f:any)=>!allowedRoles.includes(f.file_role)||!allowedTypes.includes(f.mime_type)||Number(f.file_size)>10*1024*1024)) return NextResponse.json({error:'Use arquivos PDF, PNG, JPG ou WEBP de até 10 MB.'},{status:400})
   const privatePaths:string[]=[]
   for(const f of files){
    const {data:blob,error:de}=await supabaseAdmin.storage.from('order-files').download(f.file_path)
