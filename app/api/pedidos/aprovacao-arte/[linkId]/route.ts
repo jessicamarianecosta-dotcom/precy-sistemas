@@ -27,7 +27,9 @@ export async function GET(_req:Request,ctx:{params:Promise<{linkId:string}>}) {
   if(re) throw re
   const {data:notifications,error:ne}=await db.from('order_art_approval_notifications').select('id,title,message,notification_type,read_at,created_at').eq('link_id',linkId).order('created_at',{ascending:false})
   if(ne) throw ne
-  return NextResponse.json({link:{...link,publicUrl:link.token_ciphertext?new URL(`/aprovar-arte/${decryptApprovalToken(link.token_ciphertext)}`,_req.url).toString():null},notifications:notifications??[],history:(versions??[]).map((v:any)=>({...v,response:(responses??[]).find((r:any)=>r.version_id===v.id)??null}))})
+  const history=[]
+  for(const v of versions??[]){const response=(responses??[]).find((r:any)=>r.version_id===v.id)??null;const attachments=[] as any[];for(const path of response?.attachment_paths??[]){const {data:signed}=await supabaseAdmin.storage.from('art-approvals').createSignedUrl(path,3600);if(signed?.signedUrl)attachments.push({url:signed.signedUrl,name:path.split('/').pop()})}history.push({...v,response:response?{...response,attachments}:null})}
+  return NextResponse.json({link:{...link,publicUrl:link.token_ciphertext?new URL(`/aprovar-arte/${decryptApprovalToken(link.token_ciphertext)}`,_req.url).toString():null},notifications:notifications??[],history})
  } catch(e) { console.error('[art approval history]',e); return NextResponse.json({error:'Não foi possível carregar o histórico.'},{status:500}) }
 }
 export async function POST(req:Request,ctx:{params:Promise<{linkId:string}>}) {
