@@ -17,7 +17,7 @@ const PUBLIC = ['/', '/login', '/cadastro', '/recuperar-senha', '/nova-senha',
                 // '/montagem' apenas: NÃO usar prefixo que bata em '/montagem-studio'
                 // (painel interno, autenticado e restrito por e-mail em
                 // app/(dashboard)/montagem-studio/layout.tsx).
-                '/montagem']
+                '/montagem', '/aprovar-arte', '/api/public/aprovacao-arte']
 
 /* ── Gate de re-aceite de Termos/Privacidade: liberado mesmo sem aceite
    atual, para não gerar loop de redirecionamento ── */
