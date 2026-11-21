@@ -187,7 +187,7 @@ export default function NovaNotaAvulsaPage() {
   const canSubmit = !!customerId && items.length > 0 && items.every(i => i.name.trim() && i.quantity > 0 && i.unitPrice >= 0)
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 max-w-4xl">
+    <div className="p-4 sm:p-6 space-y-5 max-w-6xl">
       <div>
         <button onClick={() => router.push('/notas-fiscais')} className="text-xs text-text-muted flex items-center gap-1 mb-2">
           <ArrowLeft size={13} /> Voltar
@@ -216,6 +216,7 @@ export default function NovaNotaAvulsaPage() {
         </div>
       )}
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
       {/* ── Operação ── */}
       <div className="card p-5 space-y-2">
         <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Operação</h3>
@@ -376,9 +377,11 @@ export default function NovaNotaAvulsaPage() {
           </div>
         )}
       </div>
+      </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
       {/* ── Produtos/Serviços ── */}
-      <div className="card p-5 space-y-3">
+      <div className="card p-5 space-y-3 lg:col-span-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Produtos/serviços</h3>
           <div className="flex gap-2">
@@ -455,7 +458,7 @@ export default function NovaNotaAvulsaPage() {
       </div>
 
       {/* ── Resumo/Revisão ── */}
-      <div className="card p-5 space-y-3">
+      <div className="card p-5 space-y-3 lg:col-span-1 lg:sticky lg:top-20">
         <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Resumo</h3>
         <div className="text-sm text-text-secondary dark:text-stone-300 space-y-1">
           <p>Destinatário: <span className="font-medium">{selectedCustomer?.name ?? '—'}</span></p>
@@ -469,11 +472,12 @@ export default function NovaNotaAvulsaPage() {
           type="button"
           onClick={() => criarMutation.mutate()}
           disabled={!canSubmit || criarMutation.isPending}
-          className="btn-primary flex items-center gap-2 disabled:opacity-50"
+          className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
         >
           {criarMutation.isPending ? <Loader2 size={15} className="animate-spin" /> : <FileText size={15} />}
           Criar rascunho da nota no Bling
         </button>
+      </div>
       </div>
     </div>
   )
