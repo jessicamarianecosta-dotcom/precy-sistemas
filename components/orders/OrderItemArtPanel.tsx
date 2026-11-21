@@ -128,6 +128,26 @@ export function OrderItemArtPanel({
     }
   }
 
+  const [uploadingClientFile, setUploadingClientFile] = useState(false)
+  async function uploadClientFile(file: File) {
+    setUploadingClientFile(true)
+    try {
+      const body = new FormData()
+      body.append('file', file)
+      body.append('orderId', orderId)
+      body.append('orderItemId', itemId)
+      body.append('fileRole', 'cliente_arte')
+      const res = await fetch('/api/pedidos/upload-arquivo', { method: 'POST', body })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Erro ao enviar arquivo')
+      invalidate()
+    } catch (err: any) {
+      toast('error', err.message)
+    } finally {
+      setUploadingClientFile(false)
+    }
+  }
+
   const sendProposalsMutation = useMutation({
     mutationFn: () => updateApproval('proposals_sent', {}, `Propostas de arte enviadas ao cliente para "${itemName}" (${proposalFiles.length} de 3).`),
     onSuccess: () => {
@@ -208,6 +228,18 @@ export function OrderItemArtPanel({
 
       {clientFiles.length > 0 && (
         <FileList label="Arquivos do cliente" files={clientFiles} />
+      )}
+      {artOrigin === 'own' && (
+        <label className="flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg border border-dashed border-border dark:border-border-dark cursor-pointer w-fit hover:bg-surface dark:hover:bg-white/5">
+          {uploadingClientFile ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+          {clientFiles.length > 0 ? 'Anexar outro arquivo do cliente' : 'Anexar arquivo do cliente'}
+          <input
+            type="file"
+            className="hidden"
+            disabled={uploadingClientFile}
+            onChange={e => { const f = e.target.files?.[0]; if (f) uploadClientFile(f); e.target.value = '' }}
+          />
+        </label>
       )}
       {referenceFiles.length > 0 && (
         <FileList label="Referências enviadas" files={referenceFiles} />
