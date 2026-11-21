@@ -19,10 +19,10 @@ const POSITION_OPTIONS: { value: BannerImagePosition; label: string; icon: typeo
 ]
 
 /**
- * Banner principal (hero) da vitrine pública — Seção 2 do redesign. Tudo o
- * que o lojista pode ajustar: imagem, altura, posicionamento, cantos
- * arredondados x largura total, exibir ou não texto sobre a imagem, e um
- * botão de destaque opcional (texto + link).
+ * Banner principal (hero) da vitrine pública — Seção 2 do redesign. O banner
+ * é sempre só a imagem enviada pelo lojista, sem nenhum painel de informações
+ * sobreposto. O único ajustável por cima da imagem é um botão de destaque
+ * opcional (texto + link).
  */
 export function BannerCard({ value, onChange }: SettingsCardProps) {
   return (
@@ -32,7 +32,7 @@ export function BannerCard({ value, onChange }: SettingsCardProps) {
           <ImageIcon size={17} className="text-primary" /> Banner Principal
         </h3>
         <p className="text-sm text-text-secondary dark:text-stone-400 mt-1">
-          A primeira coisa que o cliente vê ao abrir sua loja. Você pode usar só a imagem, sem nenhum texto por cima, se preferir.
+          A primeira coisa que o cliente vê ao abrir sua loja — sempre exibida limpa, sem textos ou painéis por cima.
         </p>
       </div>
 
@@ -47,10 +47,7 @@ export function BannerCard({ value, onChange }: SettingsCardProps) {
             recommendedFormat="PNG ou JPG"
             maxSizeMb={5}
             previewAspect="aspect-[3.84/1]"
-            showSafeArea={value.banner_show_text}
-            helpText={value.banner_show_text
-              ? 'As informações da loja aparecem nesta região. Um overlay escuro é aplicado automaticamente para manter o texto legível.'
-              : 'Exibição "só imagem" ativada — o banner aparece limpo, sem textos sobrepostos.'}
+            helpText="O banner aparece limpo, sem textos sobrepostos — só a imagem enviada."
           />
         </div>
         {value.banner_url && (
@@ -120,54 +117,37 @@ export function BannerCard({ value, onChange }: SettingsCardProps) {
           </button>
         </div>
 
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-text-primary dark:text-stone-100">Exibir título e subtítulo</p>
-            <p className="text-xs text-text-muted dark:text-stone-500">Desative para mostrar só a imagem do banner, sem nome, descrição ou botões por cima.</p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={value.banner_show_text}
-            onClick={() => onChange({ banner_show_text: !value.banner_show_text })}
-            className={clsx('relative w-11 h-6 rounded-full transition-colors flex-shrink-0', value.banner_show_text ? 'bg-primary' : 'bg-border dark:bg-border-dark')}
-          >
-            <span className={clsx('absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform', value.banner_show_text && 'translate-x-5')} />
-          </button>
-        </div>
       </div>
 
-      {value.banner_show_text && (
-        <div className="border-t border-border dark:border-border-dark pt-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <Link2 size={14} className="text-primary" />
-            <p className="text-sm font-semibold text-text-primary dark:text-stone-100">Botão de destaque (opcional)</p>
-          </div>
-          <div className="grid sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-text-muted mb-1 block">Texto do botão</label>
-              <input
-                className="input"
-                placeholder="Ex: Ver promoções"
-                value={value.banner_button_text ?? ''}
-                onChange={e => onChange({ banner_button_text: e.target.value || null })}
-              />
-            </div>
-            <div>
-              <label className="text-xs text-text-muted mb-1 block">Link do botão</label>
-              <input
-                className="input"
-                placeholder="Ex: #produtos ou https://..."
-                value={value.banner_button_link ?? ''}
-                onChange={e => onChange({ banner_button_link: e.target.value || null })}
-              />
-            </div>
-          </div>
-          <p className="text-[11px] text-text-muted dark:text-stone-500">
-            Deixe os dois campos em branco para não exibir nenhum botão sobre o banner.
-          </p>
+      <div className="border-t border-border dark:border-border-dark pt-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Link2 size={14} className="text-primary" />
+          <p className="text-sm font-semibold text-text-primary dark:text-stone-100">Botão de destaque (opcional)</p>
         </div>
-      )}
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">Texto do botão</label>
+            <input
+              className="input"
+              placeholder="Ex: Ver promoções"
+              value={value.banner_button_text ?? ''}
+              onChange={e => onChange({ banner_button_text: e.target.value || null })}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">Link do botão</label>
+            <input
+              className="input"
+              placeholder="Ex: #produtos ou https://..."
+              value={value.banner_button_link ?? ''}
+              onChange={e => onChange({ banner_button_link: e.target.value || null })}
+            />
+          </div>
+        </div>
+        <p className="text-[11px] text-text-muted dark:text-stone-500">
+          Deixe os dois campos em branco para não exibir nenhum botão sobre o banner.
+        </p>
+      </div>
     </div>
   )
 }

@@ -5,18 +5,17 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
-import { Search, Package, Flame, Sparkles } from 'lucide-react'
+import { Search, Flame, Sparkles } from 'lucide-react'
 import { useCart } from '@/lib/catalog/useCart'
 import { useProductFavorites } from '@/lib/catalog/useProductFavorites'
 import { isNewProduct } from '@/lib/catalog/productFlags'
 import { StoreHero } from '@/components/catalog/storefront/StoreHero'
 import { StoreHeader } from '@/components/catalog/storefront/StoreHeader'
-import { StoreInfoBar } from '@/components/catalog/storefront/StoreInfoBar'
 import { ProductCard } from '@/components/catalog/storefront/ProductCard'
 import { StoreEmptyState } from '@/components/catalog/storefront/StoreEmptyState'
 import { StoreFooter } from '@/components/catalog/storefront/StoreFooter'
 import { StoreBackground } from '@/components/catalog/storefront/StoreBackground'
-import { StoreThemeRoot, StoreThemeToggle } from '@/components/catalog/storefront/StoreThemeRoot'
+import { StoreThemeRoot } from '@/components/catalog/storefront/StoreThemeRoot'
 import { resolvePalettes } from '@/lib/catalog/theme/palette'
 import type { StorefrontSettings, StorefrontProduct } from '@/components/catalog/storefront/types'
 
@@ -156,35 +155,42 @@ export default function LojaPage() {
     <StoreBackground settings={settings} />
     <div className="min-h-screen text-[var(--store-text)] flex flex-col">
       <StoreHeader slug={slug} storeName={storeName} logoUrl={settings.logo_url} cartCount={cartCount} favoriteCount={favoriteProducts.length} />
-      <StoreHero settings={settings} storeName={storeName} categories={categories} themeToggle={<StoreThemeToggle />} />
+      <StoreHero settings={settings} storeName={storeName} />
 
-      <div className="max-w-6xl mx-auto px-4 -mt-5 relative z-10 w-full flex-1">
-        <StoreInfoBar productCount={allProducts.length} categoryCount={(categories ?? []).length} />
+      {/* Barra de filtros por categoria — Seção 4 do redesign */}
+      {(categories ?? []).length > 0 && (
+        <div id="categorias" className="sticky top-14 z-20 scroll-mt-20 border-b backdrop-blur-xl" style={{ backgroundColor: 'var(--store-surface)', borderColor: 'var(--store-border)' }}>
+          <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center gap-2 overflow-x-auto no-scrollbar">
+            <button
+              onClick={() => setCategoryId('')}
+              className="px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border"
+              style={{
+                backgroundColor: categoryId === '' ? 'var(--store-primary)' : 'transparent',
+                borderColor: categoryId === '' ? 'var(--store-primary)' : 'var(--store-border)',
+                color: categoryId === '' ? 'var(--store-button-text)' : 'var(--store-text-secondary)',
+              }}
+            >
+              Todas
+            </button>
+            {(categories ?? []).map(c => (
+              <button
+                key={c.id}
+                onClick={() => { setCategoryId(c.id); document.getElementById('produtos')?.scrollIntoView({ behavior: 'smooth' }) }}
+                className="px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors border"
+                style={{
+                  backgroundColor: categoryId === c.id ? 'var(--store-primary)' : 'transparent',
+                  borderColor: categoryId === c.id ? 'var(--store-primary)' : 'var(--store-border)',
+                  color: categoryId === c.id ? 'var(--store-button-text)' : 'var(--store-text-secondary)',
+                }}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
-        {/* Categorias — Seção 3.2 */}
-        {(categories ?? []).length > 0 && (
-          <section id="categorias" className="mt-6 scroll-mt-20">
-            <h2 className="text-base font-bold mb-3" style={{ color: 'var(--store-text)' }}>Categorias</h2>
-            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2.5">
-              {(categories ?? []).map(c => (
-                <button
-                  key={c.id}
-                  onClick={() => { setCategoryId(c.id); document.getElementById('produtos')?.scrollIntoView({ behavior: 'smooth' }) }}
-                  className="flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-colors hover:opacity-80"
-                  style={{
-                    backgroundColor: categoryId === c.id ? 'var(--store-primary)' : 'var(--store-surface)',
-                    borderColor: 'var(--store-border)',
-                    color: categoryId === c.id ? 'var(--store-button-text)' : 'var(--store-text-secondary)',
-                  }}
-                >
-                  <Package size={20} />
-                  <span className="text-[11px] font-medium text-center line-clamp-2">{c.name}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
-
+      <div className="max-w-6xl mx-auto px-4 relative z-10 w-full flex-1">
         {/* Mais vendidos — Seção 3.4 (dados reais de vendas) */}
         {!viewFilter && bestsellerProducts.length > 0 && (
           <section className="mt-8">
@@ -258,18 +264,6 @@ export default function LojaPage() {
               >
                 {viewFilter === 'novidades' ? 'Novidades' : 'Mais vendidos'} ✕
               </button>
-            )}
-            {(categories ?? []).length > 0 && (
-              <select
-                value={categoryId}
-                onChange={e => setCategoryId(e.target.value)}
-                className="input h-9 w-auto text-xs"
-              >
-                <option value="">Todas as categorias</option>
-                {(categories ?? []).map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
             )}
             <select value={sort} onChange={e => setSort(e.target.value as SortOption)} className="input h-9 w-auto text-xs">
               <option value="relevancia">Relevância</option>

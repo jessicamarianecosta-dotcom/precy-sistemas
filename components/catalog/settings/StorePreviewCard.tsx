@@ -9,7 +9,7 @@ const OBJECT_POSITION: Record<string, string> = { left: 'left center', center: '
 
 /** Recorte compacto do hero + fundo reais da loja, recalculado a cada mudança do form (sem precisar salvar). */
 export function StorePreviewCard({ value }: SettingsCardProps) {
-  const showText = value.banner_show_text ?? true
+  const hasButton = !!value.banner_button_text && !!value.banner_button_link
   const rounded = value.banner_rounded ?? true
   const palettes = resolvePalettes(value)
 
@@ -55,28 +55,22 @@ export function StorePreviewCard({ value }: SettingsCardProps) {
             <div className="w-full h-full" style={{ background: `linear-gradient(135deg, ${value.theme_color}, ${value.theme_color}99)` }} />
           )}
 
-          {showText && (
-            <>
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
-              <div className="absolute bottom-3 left-3 right-3 flex items-end gap-3">
-                <div className="w-12 h-12 rounded-xl bg-white shadow-sm overflow-hidden flex items-center justify-center flex-shrink-0 border-2 border-white">
-                  {value.logo_url ? <img src={value.logo_url} alt="" className="w-full h-full object-cover" /> : <Store size={18} className="text-text-muted" />}
-                </div>
-                <div className="min-w-0 pb-0.5">
-                  <p className="text-white font-bold text-sm truncate drop-shadow">Sua Loja</p>
-                  {value.city && <p className="text-white/80 text-[10px] truncate">{value.city}{value.state ? ` · ${value.state}` : ''}</p>}
-                </div>
-              </div>
-            </>
+          {hasButton && (
+            <div className="absolute inset-x-0 bottom-2.5 flex justify-center">
+              <span className="inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold shadow" style={{ backgroundColor: palettes.light.primary, color: palettes.light.buttonText }}>
+                {value.banner_button_text}
+              </span>
+            </div>
           )}
         </div>
 
         <div className="p-3 space-y-2">
-          {showText && value.banner_button_text && (
-            <span className="inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold" style={{ backgroundColor: palettes.light.primary, color: palettes.light.buttonText }}>
-              {value.banner_button_text}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-md bg-white shadow-sm overflow-hidden flex items-center justify-center flex-shrink-0 border border-border dark:border-border-dark">
+              {value.logo_url ? <img src={value.logo_url} alt="" className="w-full h-full object-cover" /> : <Store size={12} className="text-text-muted" />}
+            </div>
+            <p className="text-xs font-bold text-text-primary dark:text-stone-100 truncate">Sua Loja</p>
+          </div>
           {value.description && (
             <p className="text-xs text-text-secondary dark:text-stone-400 line-clamp-2">{value.description}</p>
           )}
