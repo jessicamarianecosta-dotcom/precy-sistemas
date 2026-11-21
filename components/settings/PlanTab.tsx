@@ -62,7 +62,7 @@ export function PlanTab() {
           <div>
             <p className="text-xs text-text-muted dark:text-stone-500 uppercase tracking-wider mb-1">Plano atual</p>
             <div className="flex items-center gap-2">
-              {plan === 'pro' && <Crown size={16} style={{ color: '#C4A47B' }} />}
+              {plan === 'pro' && <Crown size={16} style={{ color: 'rgb(var(--color-primary-300))' }} />}
               <span className="text-xl font-bold text-text-primary dark:text-stone-100">
                 {plan === 'essencial' ? getProductDisplayName(plan) : `Precy+ ${plan === 'pro' ? 'Pro' : 'Basic'}`}
               </span>
@@ -155,7 +155,7 @@ export function PlanTab() {
           <div className="flex items-center justify-between mb-3">
             <div>
               <p className="text-sm font-bold text-text-primary dark:text-stone-100 flex items-center gap-1.5">
-                <Crown size={13} style={{ color: '#C4A47B' }} />Pro
+                <Crown size={13} style={{ color: 'rgb(var(--color-primary-300))' }} />Pro
               </p>
               <p className="text-xl font-bold text-primary mt-0.5">R$47<span className="text-xs font-normal text-text-muted">/mês</span></p>
             </div>
@@ -171,7 +171,7 @@ export function PlanTab() {
           {plan !== 'pro' ? (
             <button onClick={() => handleUpgrade('pro')} disabled={loadingCheckout}
               className="w-full py-2.5 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 disabled:opacity-50 hover:opacity-90 transition-opacity"
-              style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}>
+              style={{ background: 'linear-gradient(135deg, rgb(var(--color-primary)), rgb(var(--color-secondary)))' }}>
               {loadingCheckout ? <Loader2 size={12} className="animate-spin" /> : <Crown size={12} />}
               Assinar Pro
             </button>

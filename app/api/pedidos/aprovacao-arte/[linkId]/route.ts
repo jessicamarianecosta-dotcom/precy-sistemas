@@ -51,9 +51,9 @@ export async function POST(req:Request,ctx:{params:Promise<{linkId:string}>}) {
    if(link.status==='aprovada'||link.status==='cancelada') return NextResponse.json({error:'Não é possível criar versão para este link encerrado.'},{status:409})
    const fileIds=Array.isArray(body.fileIds)?body.fileIds.filter((x:unknown)=>typeof x==='string'):[]
    if(!fileIds.length||fileIds.length>20) return NextResponse.json({error:'Selecione de 1 a 20 arquivos.'},{status:400})
-   const {data:files,error:fe}=await db.from('order_files').select('id,file_name,file_path,mime_type,file_size,file_role').in('id',fileIds).eq('order_id',link.order_id).eq('order_item_id',link.order_item_id)
+   const {data:files,error:fe}=await db.from('order_files').select('id,file_name,file_path,mime_type,file_size,file_role').in('id',fileIds).eq('order_id',link.order_id)
    if(fe) throw fe
-   if(!files||files.length!==fileIds.length) return NextResponse.json({error:'Há arquivo que não pertence a este item.'},{status:400})
+   if(!files||files.length!==fileIds.length) return NextResponse.json({error:'Há arquivo que não pertence a este pedido.'},{status:400})
    const allowedRoles=['cliente_arte','referencia','proposta','versao_final']; const allowedTypes=['image/png','image/jpeg','image/webp','application/pdf']
    if(files.some((f:any)=>!allowedRoles.includes(f.file_role)||!allowedTypes.includes(f.mime_type)||Number(f.file_size)>10*1024*1024)) return NextResponse.json({error:'Use arquivos PDF, PNG, JPG ou WEBP de até 10 MB.'},{status:400})
    const paths:string[]=[]

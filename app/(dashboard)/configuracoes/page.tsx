@@ -20,12 +20,13 @@ import { useToast } from '@/components/ui/Toaster'
 import { useRouter } from 'next/navigation'
 import { useSubscription } from '@/hooks/useSubscription'
 import { getProductDisplayName } from '@/lib/branding/productName'
+import { AppearanceSettingsCard } from '@/components/settings/AppearanceSettingsCard'
 import { formatCep, formatCpfCnpj, onlyDigits } from '@/lib/utils/mask'
 import { useCepLookup } from '@/hooks/useCepLookup'
 import { PIX_TYPE_OPTIONS, type PixType } from '@/lib/company/pix'
 
 /* ─────────────────────────── Types & Schemas ─── */
-type Tab = 'empresa' | 'financeiro' | 'acabamentos' | 'conta'
+type Tab = 'empresa' | 'financeiro' | 'acabamentos' | 'aparencia' | 'conta'
 type FinishingCalcType = 'fixed' | 'percent' | 'per_m2' | 'per_unit' | 'per_meter'
 const CALC_TYPES_CFG: { value: FinishingCalcType; label: string; hint: string }[] = [
   { value: 'fixed',     label: 'Valor fixo',      hint: 'R$ único' },
@@ -651,6 +652,7 @@ export default function ConfiguracoesPage() {
     { id: 'empresa'     as Tab, label: 'Empresa',      icon: Building2  },
     { id: 'financeiro'  as Tab, label: 'Custos Fixos', icon: DollarSign },
     { id: 'acabamentos' as Tab, label: 'Acabamentos',  icon: Scissors   },
+    { id: 'aparencia'   as Tab, label: 'Aparência',    icon: Star       },
     { id: 'conta'       as Tab, label: 'Conta & Plano',icon: CreditCard },
   ]
 
@@ -963,8 +965,8 @@ export default function ConfiguracoesPage() {
 
             {/* Hero */}
             <div className="rounded-2xl p-5 border border-primary/20 relative overflow-hidden"
-              style={{ background: 'linear-gradient(135deg, rgba(139,108,79,0.07), rgba(184,149,106,0.05))' }}>
-              <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full opacity-[0.06] pointer-events-none" style={{ background: '#8B6C4F' }} />
+              style={{ background: 'linear-gradient(135deg, rgba(var(--color-primary) / 0.07), rgba(var(--color-secondary) / 0.05))' }}>
+              <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full opacity-[0.06] pointer-events-none" style={{ background: 'rgb(var(--color-primary))' }} />
               <div className="flex items-start gap-3">
                 <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 text-xl">💡</div>
                 <div>
@@ -1051,7 +1053,7 @@ export default function ConfiguracoesPage() {
 
               {/* Resultado automático */}
               <div className="mt-4 p-4 rounded-xl border border-primary/20"
-                style={{ background: 'linear-gradient(135deg, rgba(139,108,79,0.06), rgba(184,149,106,0.04))' }}>
+                style={{ background: 'linear-gradient(135deg, rgba(var(--color-primary) / 0.06), rgba(var(--color-secondary) / 0.04))' }}>
                 <p className="text-xs font-semibold text-primary mb-3 flex items-center gap-1.5">
                   <TrendingUp size={13} /> Resultado automático
                 </p>
@@ -1088,7 +1090,7 @@ export default function ConfiguracoesPage() {
             {/* Explicação */}
             <div className="card border-primary/20 relative overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-0.5"
-                style={{ background: 'linear-gradient(90deg, #8B6C4F, #B8956A, #C4A47B)' }} />
+                style={{ background: 'linear-gradient(90deg, rgb(var(--color-primary)), rgb(var(--color-secondary)), rgb(var(--color-primary-300)))' }} />
               <div className="flex items-start gap-3 mb-4">
                 <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 text-xl">🧮</div>
                 <div>
@@ -1222,7 +1224,7 @@ export default function ConfiguracoesPage() {
                   ))}
                   <div className="mt-3 rounded-xl overflow-hidden">
                     <div className="flex items-center justify-between p-4"
-                      style={{ background: 'linear-gradient(135deg, rgba(139,108,79,0.08), rgba(184,149,106,0.08))' }}>
+                      style={{ background: 'linear-gradient(135deg, rgba(var(--color-primary) / 0.08), rgba(var(--color-secondary) / 0.08))' }}>
                       <div className="flex items-center gap-2">
                         <Hash size={14} className="text-primary" />
                         <div>
@@ -1373,13 +1375,18 @@ export default function ConfiguracoesPage() {
           </div>
         )}
 
+        {/* ══ TAB: APARÊNCIA ═════════════════════════════════════ */}
+        {tab === 'aparencia' && (
+          <AppearanceSettingsCard />
+        )}
+
         {/* ══ TAB: CONTA & PLANO ════════════════════════════════ */}
         {tab === 'conta' && (
           <div className="space-y-4">
             <div className={clsx('card relative overflow-hidden', planName === 'pro' ? 'border-2 border-primary' : '')}>
               {planName === 'pro' && (
                 <div className="absolute top-0 left-0 right-0 h-1"
-                  style={{ background: 'linear-gradient(90deg, #8B6C4F, #B8956A, #C4A47B)' }} />
+                  style={{ background: 'linear-gradient(90deg, rgb(var(--color-primary)), rgb(var(--color-secondary)), rgb(var(--color-primary-300)))' }} />
               )}
               <SectionTitle icon={CreditCard} title="Meu Plano" subtitle="Status da sua assinatura" />
               <div className="flex items-start justify-between mb-5">
@@ -1417,7 +1424,7 @@ export default function ConfiguracoesPage() {
               </div>
               {planName !== 'pro' && (
                 <div className="rounded-xl p-4 border border-primary/20"
-                  style={{ background: 'linear-gradient(135deg, rgba(139,108,79,0.05), rgba(184,149,106,0.05))' }}>
+                  style={{ background: 'linear-gradient(135deg, rgba(var(--color-primary) / 0.05), rgba(var(--color-secondary) / 0.05))' }}>
                   <p className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-3">🚀 Desbloqueie o Plano Pro</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
                     {['Pedidos ilimitados','Relatórios avançados','Sem marca d\'água no PDF','Suporte prioritário','IA de precificação','WhatsApp integrado'].map(f => (

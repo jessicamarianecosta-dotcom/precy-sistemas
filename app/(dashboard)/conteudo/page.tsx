@@ -186,14 +186,14 @@ export default function ConteudoPage() {
             className="rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
             style={{
               background: 'linear-gradient(135deg, #2C2018 0%, #3A2D22 100%)',
-              border: '1px solid rgba(139,108,79,0.4)',
-              boxShadow: '0 0 40px rgba(139,108,79,0.1)',
+              border: '1px solid rgba(var(--color-primary) / 0.4)',
+              boxShadow: '0 0 40px rgba(var(--color-primary) / 0.1)',
             }}
           >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ background: 'rgba(139,108,79,0.2)' }}>
-                <Crown size={18} style={{ color: '#C4A47B' }} />
+                style={{ background: 'rgba(var(--color-primary) / 0.2)' }}>
+                <Crown size={18} style={{ color: 'rgb(var(--color-primary-300))' }} />
               </div>
               <div>
                 <p className="text-sm font-bold text-stone-100">
@@ -208,7 +208,7 @@ export default function ConteudoPage() {
               onClick={handleUpgradeClick}
               disabled={checkoutLoading}
               className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 disabled:opacity-60"
-              style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}
+              style={{ background: 'linear-gradient(135deg, rgb(var(--color-primary)), rgb(var(--color-secondary)))' }}
             >
               {checkoutLoading ? <Loader2 size={14} className="animate-spin" /> : null}              Assinar PRO <ChevronRight size={14} />
             </button>
@@ -345,8 +345,8 @@ export default function ConteudoPage() {
                           {item.category}
                         </p>
                         <div className="flex items-center gap-1 justify-end">
-                          <BookOpen size={10} style={{ color: '#8B6C4F' }} />
-                          <span className="text-[10px] font-semibold" style={{ color: '#8B6C4F' }}>
+                          <BookOpen size={10} style={{ color: 'rgb(var(--color-primary))' }} />
+                          <span className="text-[10px] font-semibold" style={{ color: 'rgb(var(--color-primary))' }}>
                             Ebook
                           </span>
                         </div>
@@ -354,7 +354,7 @@ export default function ConteudoPage() {
                       {/* PRO badge */}
                       <div
                         className="absolute top-2 right-2 text-[9px] font-bold px-2 py-0.5 rounded-full"
-                        style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)', color: '#fff' }}
+                        style={{ background: 'linear-gradient(135deg, rgb(var(--color-primary)), rgb(var(--color-secondary)))', color: '#fff' }}
                       >
                         PRO
                       </div>
@@ -395,9 +395,9 @@ export default function ConteudoPage() {
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setProModal(false)} />
           <div
             className="relative w-full max-w-sm rounded-2xl overflow-hidden animate-scaleIn shadow-[0_32px_64px_rgba(0,0,0,0.5)]"
-            style={{ background: 'linear-gradient(145deg, #2C2018, #1C1714)', border: '1px solid rgba(139,108,79,0.4)' }}
+            style={{ background: 'linear-gradient(145deg, #2C2018, #1C1714)', border: '1px solid rgba(var(--color-primary) / 0.4)' }}
           >
-            <div className="h-1 w-full" style={{ background: 'linear-gradient(90deg, #8B6C4F, #C4A47B, #8B6C4F40)' }} />
+            <div className="h-1 w-full" style={{ background: 'linear-gradient(90deg, rgb(var(--color-primary)), rgb(var(--color-primary-300)), rgba(var(--color-primary) / 0.25))' }} />
 
             <div className="p-6 text-center">
               <button onClick={() => setProModal(false)}
@@ -406,8 +406,8 @@ export default function ConteudoPage() {
               </button>
 
               <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
-                style={{ background: 'rgba(139,108,79,0.2)' }}>
-                <Crown size={24} style={{ color: '#C4A47B' }} />
+                style={{ background: 'rgba(var(--color-primary) / 0.2)' }}>
+                <Crown size={24} style={{ color: 'rgb(var(--color-primary-300))' }} />
               </div>
 
               <p className="text-[11px] font-bold uppercase tracking-widest text-stone-500 mb-2">
@@ -428,7 +428,7 @@ export default function ConteudoPage() {
                   onClick={handleUpgradeClick}
                   disabled={checkoutLoading}
                   className="w-full py-3 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 transition-all hover:opacity-90 disabled:opacity-60"
-                  style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)', boxShadow: '0 4px 20px rgba(139,108,79,0.4)' }}
+                  style={{ background: 'linear-gradient(135deg, rgb(var(--color-primary)), rgb(var(--color-secondary)))', boxShadow: '0 4px 20px rgba(var(--color-primary) / 0.4)' }}
                 >
                   {checkoutLoading ? <Loader2 size={15} className="animate-spin" /> : <Crown size={15} />}
                   {checkoutLoading ? 'Redirecionando...' : 'Desbloquear PRO — R$47/mês'}

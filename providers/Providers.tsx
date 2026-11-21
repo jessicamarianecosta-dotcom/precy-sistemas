@@ -5,6 +5,7 @@ import { ThemeProvider } from 'next-themes'
 import { useState } from 'react'
 import { Toaster } from '@/components/ui/Toaster'
 import { SidebarProvider } from '@/providers/SidebarProvider'
+import { AppThemeProvider } from '@/providers/AppThemeProvider'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -23,9 +24,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange={false}>
-        <SidebarProvider>
-          <Toaster>{children}</Toaster>
-        </SidebarProvider>
+        <AppThemeProvider>
+          <SidebarProvider>
+            <Toaster>{children}</Toaster>
+          </SidebarProvider>
+        </AppThemeProvider>
       </ThemeProvider>
     </QueryClientProvider>
   )

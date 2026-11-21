@@ -49,10 +49,10 @@ export function UpgradeModal({ open, onClose, reason }: Props) {
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         className="relative w-full max-w-md rounded-2xl overflow-hidden shadow-[0_32px_64px_rgba(0,0,0,0.5)] animate-scaleIn"
-        style={{ background: 'linear-gradient(145deg, #2C2018, #1C1714)', border: '1px solid rgba(139,108,79,0.4)' }}
+        style={{ background: 'linear-gradient(145deg, #2C2018, #1C1714)', border: '1px solid rgba(var(--color-primary) / 0.4)' }}
       >
         {/* Accent bar */}
-        <div className="h-1 w-full" style={{ background: 'linear-gradient(90deg, #8B6C4F, #C4A47B, #8B6C4F40)' }} />
+        <div className="h-1 w-full" style={{ background: 'linear-gradient(90deg, rgb(var(--color-primary)), rgb(var(--color-primary-300)), rgba(var(--color-primary) / 0.25))' }} />
 
         <div className="p-6">
           <button onClick={onClose}
@@ -63,8 +63,8 @@ export function UpgradeModal({ open, onClose, reason }: Props) {
           {/* Header */}
           <div className="text-center mb-5">
             <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3"
-              style={{ background: 'rgba(139,108,79,0.2)' }}>
-              <Crown size={24} style={{ color: '#C4A47B' }} />
+              style={{ background: 'rgba(var(--color-primary) / 0.2)' }}>
+              <Crown size={24} style={{ color: 'rgb(var(--color-primary-300))' }} />
             </div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-stone-500 mb-1">
               Recurso Exclusivo
@@ -97,7 +97,7 @@ export function UpgradeModal({ open, onClose, reason }: Props) {
             onClick={handleUpgrade}
             disabled={loading}
             className="w-full py-3.5 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 transition-all hover:opacity-90 disabled:opacity-50"
-            style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)', boxShadow: '0 4px 20px rgba(139,108,79,0.4)' }}
+            style={{ background: 'linear-gradient(135deg, rgb(var(--color-primary)), rgb(var(--color-secondary)))', boxShadow: '0 4px 20px rgba(var(--color-primary) / 0.4)' }}
           >
             {loading
               ? <><Loader2 size={15} className="animate-spin" /> Redirecionando...</>
