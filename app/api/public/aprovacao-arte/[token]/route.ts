@@ -57,16 +57,21 @@ export async function POST(req:Request,context:{params:Promise<{token:string}>})
   if(action==='request_changes'&&attachments.length!==(body.attachmentPaths??[]).length) return NextResponse.json({error:'Anexo inválido.'},{status:400})
   const forwarded=req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()??''
   const ipAddress=isIP(forwarded)?forwarded:null
-  const {error}=await db.from('order_art_approval_responses').insert({version_id:version.id,attachment_paths:attachments,response,customer_name:String(body.customerName??'').trim().slice(0,160)||null,customer_note:note||null,consent_text:ART_APPROVAL_CONSENT_TEXT,consented_at:new Date().toISOString(),ip_address:ipAddress,user_agent:req.headers.get('user-agent')})
-  if(error){if(error.code==='23505') return NextResponse.json({error:'Esta versão já recebeu uma resposta.'},{status:409});throw error}
-  const status=action==='approve'?'aprovada':'alteracao_solicitada'
-  await db.from('order_art_approval_versions').update({status}).eq('id',version.id).eq('status','aguardando_aprovacao')
-  await db.from('order_art_approval_links').update({status,updated_at:new Date().toISOString()}).eq('id',link.id).eq('status','aguardando_aprovacao')
-  const {error:eventError}=await db.from('order_art_events').insert({order_id:link.order_id,company_id:link.company_id,event_type:action==='approve'?'aprovacao_digital_aprovada':'aprovacao_digital_alteracao_solicitada',description:action==='approve'?'Cliente aprovou a arte pelo link público.':`Cliente solicitou alteração: ${note}`})
-  if(eventError) console.error('[public art approval:event]',eventError)
-  const {data:responseRow}=await db.from('order_art_approval_responses').select('id').eq('version_id',version.id).maybeSingle()
-  const {error:notificationError}=await db.from('order_art_approval_notifications').insert({company_id:link.company_id,link_id:link.id,version_id:version.id,response_id:responseRow?.id??null,notification_type:status,title:action==='approve'?'Arte aprovada pelo cliente':'Alteração solicitada pelo cliente',message:action==='approve'?'O cliente aprovou a versão enviada.':`O cliente solicitou alteração: ${note}`})
-  if(notificationError) console.error('[public art approval:notification]',notificationError)
-  return NextResponse.json({ok:true,status})
+  // Resposta + atualização de status (versão/link) + evento + notificação
+  // precisam valer juntos: tudo roda numa única função RPC transacional
+  // (register_art_approval_response), não como chamadas independentes.
+  const {data:rpcRows,error}=await db.rpc('register_art_approval_response',{
+   p_link_id:link.id,p_version_id:version.id,p_response:response,
+   p_customer_name:String(body.customerName??'').trim().slice(0,160)||null,
+   p_customer_note:note||null,p_consent_text:ART_APPROVAL_CONSENT_TEXT,
+   p_ip_address:ipAddress,p_user_agent:req.headers.get('user-agent'),p_attachment_paths:attachments,
+  })
+  if(error){
+   if(error.message?.includes('already_responded')) return NextResponse.json({error:'Esta versão já recebeu uma resposta.'},{status:409})
+   if(error.message?.includes('not_found')) return NextResponse.json({error:'Link indisponível.'},{status:404})
+   throw error
+  }
+  const status=Array.isArray(rpcRows)?rpcRows[0]?.final_status:rpcRows?.final_status
+  return NextResponse.json({ok:true,status:status??response})
  }catch(e){console.error('[public art approval:post]',e);return NextResponse.json({error:'Não foi possível registrar sua resposta.'},{status:500})}
 }
