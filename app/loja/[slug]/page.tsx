@@ -311,7 +311,7 @@ export default function LojaPage() {
         </section>
       </div>
 
-      <StoreFooter settings={settings} storeName={storeName} />
+      <StoreFooter settings={settings} storeName={storeName} productCount={allProducts.length} categoryCount={(categories ?? []).length} />
     </div>
     </StoreThemeRoot>
   )
