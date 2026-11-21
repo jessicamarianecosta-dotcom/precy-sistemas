@@ -181,7 +181,7 @@ const MARGIN_MAX = 500
 
 function MarginSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   const pct = Math.min(100, Math.max(0, ((value - MARGIN_MIN) / (MARGIN_MAX - MARGIN_MIN)) * 100))
-  const color = value < 50 ? '#C4503A' : value < 100 ? '#C4893A' : value < 200 ? '#5C8B4F' : '#8B6C4F'
+  const color = value < 50 ? '#C4503A' : value < 100 ? '#C4893A' : value < 200 ? '#5C8B4F' : 'rgb(var(--color-primary))'
 
   // Campo numérico editável: mantém texto livre enquanto o usuário digita
   // (sem clamping a cada tecla) e só normaliza/limita ao min-max no blur/Enter,
@@ -239,7 +239,7 @@ function MarginSlider({ value, onChange }: { value: number; onChange: (v: number
         <div className="absolute w-full h-2 rounded-full bg-border dark:bg-border-dark overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-150"
-            style={{ width: `${pct}%`, background: `linear-gradient(90deg, #C4503A, #C4893A 25%, #5C8B4F 55%, #8B6C4F)` }}
+            style={{ width: `${pct}%`, background: `linear-gradient(90deg, #C4503A, #C4893A 25%, #5C8B4F 55%, rgb(var(--color-primary)))` }}
           />
         </div>
         <input
@@ -1850,7 +1850,7 @@ function PrecificacaoPage() {
             {idealPrice > 0 && (
               <div
                 className="lg:hidden rounded-2xl p-4 text-center cursor-pointer active:scale-[0.98] transition-transform"
-                style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}
+                style={{ background: 'linear-gradient(135deg, rgb(var(--color-primary)), rgb(var(--color-secondary)))' }}
                 onClick={() => {
                   // Scroll suave para o resultado
                   document.getElementById('resultado-precificacao')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -1875,7 +1875,7 @@ function PrecificacaoPage() {
 
             {/* Preço ideal */}
             <div className="card relative overflow-hidden" style={{
-              background: 'linear-gradient(135deg, #8B6C4F 0%, #B8956A 50%, #C4A47B 100%)'
+              background: 'linear-gradient(135deg, rgb(var(--color-primary)) 0%, rgb(var(--color-secondary)) 50%, rgb(var(--color-primary-300)) 100%)'
             }}>
               <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full opacity-10 pointer-events-none"
                 style={{ background: 'rgba(255,255,255,0.5)' }} />

@@ -24,7 +24,7 @@ const FEEDBACK_TYPES = [
   { value: 'bug',                 label: 'Bug',                 icon: Bug,           emoji: '🐞', color: '#EF4444' },
   { value: 'reclamacao',          label: 'Reclamação',          icon: AlertTriangle, emoji: '⚠️', color: '#F59E0B' },
   { value: 'elogio',              label: 'Elogio',               icon: Heart,         emoji: '❤️', color: '#EC4899' },
-  { value: 'nova_funcionalidade', label: 'Nova funcionalidade', icon: Rocket,        emoji: '🚀', color: '#8B6C4F' },
+  { value: 'nova_funcionalidade', label: 'Nova funcionalidade', icon: Rocket,        emoji: '🚀', color: 'rgb(var(--color-primary))' },
 ] as const
 
 type FeedbackType = typeof FEEDBACK_TYPES[number]['value']
