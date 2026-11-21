@@ -58,7 +58,7 @@ export function OrderItemArtPanel({
   const [approvalStatusDigital, setApprovalStatusDigital] = useState('')
   const [betaAllowed, setBetaAllowed] = useState(false)
   const [creatingApprovalLink, setCreatingApprovalLink] = useState(false)
-  useEffect(() => { supabase.auth.getUser().then(({data}) => setBetaAllowed((data.user?.email ?? '').trim().toLowerCase() === 'jessicamarianecosta@gmail.com')) }, [supabase])
+  useEffect(() => { let active=true; supabase.auth.getUser().then(({data}) => { if(active) setBetaAllowed((data.user?.email ?? '').trim().toLowerCase() === 'jessicamarianecosta@gmail.com') }); return () => { active=false } }, [])
 
   const { data: files } = useQuery<OrderFile[]>({
     queryKey: ['order-item-files', itemId],
