@@ -49,6 +49,8 @@ export function OrderItemArtPanel({
   const proposalInputRef = useRef<HTMLInputElement>(null)
   const [uploadingProposal, setUploadingProposal] = useState<number | null>(null)
   const [extraPrice, setExtraPrice] = useState('')
+  const [approvalLink, setApprovalLink] = useState('')
+  const [creatingApprovalLink, setCreatingApprovalLink] = useState(false)
 
   const { data: files } = useQuery<OrderFile[]>({
     queryKey: ['order-item-files', itemId],
@@ -208,6 +210,32 @@ export function OrderItemArtPanel({
         <FileList label="Versão final" files={finalFiles} />
       )}
 
+      <div className="rounded-lg border border-violet-200 dark:border-violet-900/50 bg-violet-50/60 dark:bg-violet-950/20 p-3 space-y-2 mb-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div><p className="text-xs font-semibold text-violet-800 dark:text-violet-300">Aprovação digital do cliente</p><p className="text-[10px] text-text-muted">Link público para conferir e responder sem login.</p></div>
+          <button type="button" disabled={creatingApprovalLink || (proposalFiles.length === 0 && finalFiles.length === 0 && clientFiles.length === 0)}
+            onClick={async () => {
+              setCreatingApprovalLink(true)
+              try {
+                const selectedFiles = finalFiles.length ? finalFiles : proposalFiles.length ? proposalFiles : clientFiles
+                const response = await fetch('/api/pedidos/aprovacao-arte', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId, itemId, fileIds: selectedFiles.map(f => f.id) }) })
+                const result = await response.json()
+                if (!response.ok) throw new Error(result.error || 'Não foi possível gerar o link')
+                setApprovalLink(result.url)
+                await navigator.clipboard.writeText(result.url)
+                toast('success', 'Link de aprovação criado e copiado')
+                invalidate()
+              } catch (e: any) { toast('error', e.message || 'Erro ao gerar link') }
+              finally { setCreatingApprovalLink(false) }
+            }}
+            className="text-[11px] font-semibold rounded-lg bg-violet-700 text-white px-3 py-2 disabled:opacity-50">{creatingApprovalLink ? 'Gerando...' : 'Gerar link de aprovação'}</button>
+        </div>
+        {approvalLink && <div className="flex items-center gap-2 flex-wrap"><a href={approvalLink} target="_blank" rel="noreferrer" className="text-[11px] text-violet-700 underline break-all">{approvalLink}</a>
+          <button type="button" onClick={() => navigator.clipboard.writeText(approvalLink).then(() => toast('success','Link copiado'))} className="text-[11px] font-medium text-violet-700">Copiar</button>
+          {customerPhone && <button type="button" onClick={() => { const phone = normalizePhoneToWhatsapp(customerPhone); if (phone) openWhatsappConversation(phone, `Olá, ${customerName || 'tudo bem'}! Sua arte está disponível para conferência e aprovação: ${approvalLink}`) }} className="text-[11px] font-medium text-violet-700">Enviar pelo WhatsApp</button>}
+        </div>}
+        {!proposalFiles.length && !finalFiles.length && !clientFiles.length && <p className="text-[10px] text-amber-700">Envie primeiro um arquivo de arte para habilitar o link.</p>}
+      </div>
       <div className="flex flex-wrap gap-1.5">
         {approvalStatus === 'pending' && (
           <ActionButton icon={PlayCircle} label="Iniciar análise" onClick={() => startReviewMutation.mutate()} loading={startReviewMutation.isPending} />
