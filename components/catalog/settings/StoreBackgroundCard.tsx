@@ -6,7 +6,6 @@ import { ImageUploadField } from '@/components/catalog/ImageUploadField'
 import { BACKGROUND_THEMES } from '@/lib/catalog/theme/backgroundThemes'
 import type { SettingsCardProps } from '@/app/(dashboard)/catalogo/catalogSettingsTypes'
 import type { BackgroundType, BackgroundImageSize, BannerImagePosition } from '@/components/catalog/storefront/types'
-import { resolvePalettes } from '@/lib/catalog/theme/palette'
 
 const SOURCE_OPTIONS: { value: BackgroundType; label: string; icon: typeof Sparkles }[] = [
   { value: 'theme', label: 'Temas prontos', icon: Sparkles },
@@ -32,9 +31,6 @@ const POSITION_OPTIONS: { value: BannerImagePosition; label: string }[] = [
  * banner: imagem própria, um dos 8 temas prontos, ou uma cor sólida.
  */
 export function StoreBackgroundCard({ value, onChange }: SettingsCardProps) {
-  const palettes = resolvePalettes(value)
-  const primary = palettes.light.primary
-
   return (
     <div className="card p-5 space-y-5">
       <div>
@@ -77,10 +73,8 @@ export function StoreBackgroundCard({ value, onChange }: SettingsCardProps) {
                   active ? 'border-primary' : 'border-border dark:border-border-dark hover:border-primary/50'
                 )}
               >
-                <div
-                  className="h-14 w-full"
-                  style={{ background: theme.css('light').replaceAll('var(--store-primary)', primary).replaceAll('var(--store-secondary)', palettes.light.secondary).replaceAll('var(--store-accent)', palettes.light.accent).replaceAll('var(--store-bg)', palettes.light.background).replaceAll('var(--store-surface)', palettes.light.surface) }}
-                />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={theme.image} alt="" className="h-14 w-full object-cover" />
                 <p className={clsx('px-2 py-1.5 text-xs font-semibold', active && 'text-primary')}>{theme.label}</p>
               </button>
             )

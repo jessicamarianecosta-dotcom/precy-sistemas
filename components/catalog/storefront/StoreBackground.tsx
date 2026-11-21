@@ -2,7 +2,6 @@
 
 import Image from 'next/image'
 import { getBackgroundTheme } from '@/lib/catalog/theme/backgroundThemes'
-import { useStoreThemeMode } from './StoreThemeRoot'
 import type { StorefrontSettings } from './types'
 
 interface Props {
@@ -16,18 +15,15 @@ interface Props {
 /**
  * Camada de fundo de toda a vitrine pública (Seção 3 do redesign) — fica fixa
  * por trás de cabeçalho, banner, categorias, produtos e rodapé. Os cards
- * (ProductCard, StoreInfoBar, StoreHeader, StoreFooter) continuam usando
- * `var(--store-surface)` opaco, então contraste e legibilidade não dependem
- * deste componente.
+ * (ProductCard, StoreHeader, StoreFooter) continuam usando `var(--store-surface)`
+ * opaco, então contraste e legibilidade não dependem deste componente.
  *
  * Três fontes possíveis (mutuamente exclusivas, Seção 3 do pedido):
  *  - 'color': cor sólida escolhida pela lojista
  *  - 'image': imagem própria, com tamanho/posição configuráveis + overlay
- *  - 'theme': um dos 8 temas prontos (gerados em CSS puro, sem assets)
+ *  - 'theme': um dos 8 temas prontos (ilustrações fixas + overlay de contraste)
  */
 export function StoreBackground({ settings }: Props) {
-  const { mode } = useStoreThemeMode()
-
   if (settings.background_type === 'image' && settings.background_image_url) {
     const size = settings.background_image_size ?? 'cover'
     const position = settings.background_image_position ?? 'center'
@@ -60,5 +56,11 @@ export function StoreBackground({ settings }: Props) {
   }
 
   const theme = getBackgroundTheme(settings.background_theme)
-  return <div className="fixed inset-0 -z-10" style={{ background: theme.css(mode) }} />
+  return (
+    <div className="fixed inset-0 -z-10 overflow-hidden" style={{ backgroundColor: 'var(--store-bg)' }}>
+      <Image src={theme.image} alt="" fill sizes="100vw" style={{ objectFit: 'cover', objectPosition: 'center' }} />
+      {/* Camada de contraste — garante que cards e textos continuem legíveis sobre a imagem do tema */}
+      <div className="absolute inset-0" style={{ backgroundColor: 'var(--store-bg)', opacity: 0.22 }} />
+    </div>
+  )
 }

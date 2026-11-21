@@ -14,16 +14,11 @@ export function StorePreviewCard({ value }: SettingsCardProps) {
   const palettes = resolvePalettes(value)
 
   let bodyBackground = palettes.light.background
+  let themeImage: string | null = null
   if (value.background_type === 'color' && value.background_color) {
     bodyBackground = value.background_color
   } else if (value.background_type === 'theme') {
-    const theme = getBackgroundTheme(value.background_theme)
-    bodyBackground = theme.css('light')
-      .replaceAll('var(--store-primary)', palettes.light.primary)
-      .replaceAll('var(--store-secondary)', palettes.light.secondary)
-      .replaceAll('var(--store-accent)', palettes.light.accent)
-      .replaceAll('var(--store-bg)', palettes.light.background)
-      .replaceAll('var(--store-surface)', palettes.light.surface)
+    themeImage = getBackgroundTheme(value.background_theme).image
   }
 
   return (
@@ -41,6 +36,8 @@ export function StorePreviewCard({ value }: SettingsCardProps) {
         className="relative rounded-2xl overflow-hidden border border-border dark:border-border-dark"
         style={value.background_type === 'image' && value.background_image_url
           ? { backgroundImage: `url(${value.background_image_url})`, backgroundSize: value.background_image_size === 'repeat' ? 'auto' : value.background_image_size, backgroundRepeat: value.background_image_size === 'repeat' ? 'repeat' : 'no-repeat', backgroundPosition: value.background_image_position }
+          : themeImage
+          ? { backgroundImage: `url(${themeImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }
           : { background: bodyBackground }}
       >
         <div className={`relative h-28 sm:h-36 bg-surface dark:bg-white/5 ${rounded ? 'mx-2 mt-2 rounded-xl overflow-hidden' : ''}`}>
