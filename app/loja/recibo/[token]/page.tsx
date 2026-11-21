@@ -6,12 +6,20 @@ import { Download, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils/format'
 import { generatePublicReceiptPDF } from '@/lib/pdf/generatePublicReceiptPDF'
 
+interface ReceiptItem {
+  name: string
+  description: string
+  quantity: number
+  unit_price: number
+  subtotal: number
+}
+
 interface ApiResponse {
   receipt: {
     amount: number; payment_date: string; payment_method: string | null
     payment_method_label: string; observation: string | null; issued_at: string
   }
-  order: { order_number: string; service_name: string | null; total: number; balance_after: number }
+  order: { order_number: string; service_name: string | null; total: number; balance_after: number; items: ReceiptItem[] }
   customer: { name: string | null; cpf_cnpj: string | null }
   company: {
     name: string; email: string | null; phone: string | null; cnpj: string | null
@@ -110,6 +118,31 @@ export default function ReciboPublicoPage() {
             <p className="text-[11px] text-stone-500 dark:text-stone-400 text-left whitespace-pre-wrap">{receipt.observation}</p>
           )}
         </div>
+
+        {order.items.length > 0 && (
+          <div className="bg-white dark:bg-stone-900 rounded-2xl p-5 shadow-sm space-y-3">
+            <p className="text-[10px] uppercase tracking-widest text-stone-400 font-semibold text-left">Itens pagos</p>
+            <ul className="space-y-3">
+              {order.items.map((item, idx) => (
+                <li key={idx} className="text-left border-b border-stone-100 dark:border-stone-800 last:border-0 pb-3 last:pb-0">
+                  <p className="text-sm font-semibold text-stone-800 dark:text-stone-100 break-words">{item.name}</p>
+                  {item.description && (
+                    <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5 break-words whitespace-pre-wrap">{item.description}</p>
+                  )}
+                  <div className="flex items-center justify-between gap-2 mt-1.5 text-xs text-stone-500 dark:text-stone-400">
+                    <span>{item.quantity} × {formatCurrency(item.unit_price)}</span>
+                    <span className="font-semibold text-stone-700 dark:text-stone-200">{formatCurrency(item.subtotal)}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {order.balance_after > 0 && (
+              <p className="text-[11px] text-amber-700 dark:text-amber-400 text-left">
+                Pagamento parcial — o valor recebido neste recibo está destacado acima; os itens listados correspondem ao pedido completo.
+              </p>
+            )}
+          </div>
+        )}
 
         <button
           type="button"
