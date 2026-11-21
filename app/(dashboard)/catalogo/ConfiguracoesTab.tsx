@@ -9,7 +9,9 @@ import { Loader2, Store } from 'lucide-react'
 import { toSlug } from '@/lib/utils/slug'
 import { StoreAddressCard } from '@/components/catalog/settings/StoreAddressCard'
 import { BrandIdentityCard } from '@/components/catalog/settings/BrandIdentityCard'
+import { BannerCard } from '@/components/catalog/settings/BannerCard'
 import { StoreColorsCard } from '@/components/catalog/settings/StoreColorsCard'
+import { StoreBackgroundCard } from '@/components/catalog/settings/StoreBackgroundCard'
 import { StoreDescriptionCard } from '@/components/catalog/settings/StoreDescriptionCard'
 import { SocialLinksCard } from '@/components/catalog/settings/SocialLinksCard'
 import { ContactInfoCard } from '@/components/catalog/settings/ContactInfoCard'
@@ -22,7 +24,11 @@ const SETTINGS_COLUMNS = `
   slug, logo_url, banner_url, description, whatsapp, instagram, facebook,
   tiktok, youtube, pinterest, website, address, phone, email, city, state,
   zip_code, business_hours, theme_color, theme_palette, checkout_mode, policies_text,
-  seo_title, seo_description, seo_keywords, seo_image_url
+  seo_title, seo_description, seo_keywords, seo_image_url,
+  banner_height, banner_image_position, banner_rounded, banner_show_text,
+  banner_button_text, banner_button_link,
+  background_type, background_theme, background_color, background_image_url,
+  background_image_size, background_image_position, background_overlay_opacity
 `
 
 export function ConfiguracoesTab() {
@@ -70,7 +76,9 @@ export function ConfiguracoesTab() {
     <form onSubmit={e => { e.preventDefault(); saveMutation.mutate(current) }} className="space-y-5 max-w-4xl">
       <StoreAddressCard value={current} onChange={setForm} companyId={companyId} />
       <BrandIdentityCard value={current} onChange={setForm} />
+      <BannerCard value={current} onChange={setForm} />
       <StoreColorsCard value={current} onChange={setForm} />
+      <StoreBackgroundCard value={current} onChange={setForm} />
       <StoreDescriptionCard value={current} onChange={setForm} />
       <SocialLinksCard value={current} onChange={setForm} />
       <ContactInfoCard value={current} onChange={setForm} />
