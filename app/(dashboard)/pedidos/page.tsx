@@ -2234,6 +2234,7 @@ function PedidosPage() {
                           key={order.id}
                           draggable
                           onDragStart={() => setDragging(order.id)}
+                          onClick={() => openOrder(order)}
                           className={clsx(
                             'group bg-white dark:bg-surface-dark rounded-2xl p-3.5 shadow-card border transition-all cursor-grab active:cursor-grabbing',
                             dragging === order.id
