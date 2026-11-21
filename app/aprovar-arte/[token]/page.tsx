@@ -1,8 +1,10 @@
 'use client'
 import {useEffect,useState} from 'react'
+import {useParams} from 'next/navigation'
 import {CheckCircle2,AlertCircle,Loader2,FileText} from 'lucide-react'
 type Data={company:{name?:string;logoUrl?:string|null};order:{number?:string;deadline?:string|null};customer:{name?:string};item:{name?:string;description?:string;quantity?:number;width?:number;height?:number;measurement_unit?:string;technical_notes?:string};files:{id:string;file_name:string;mime_type?:string|null;url:string}[];notes?:string|null;instructions:string;instructionsVersion:string;version:number;status:string;consentText:string}
-export default function AprovarArtePage({params}:{params:{token:string}}){
+export default function AprovarArtePage(){
+ const params=useParams<{token:string}>()
  const [data,setData]=useState<Data|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true),[consent,setConsent]=useState(false),[note,setNote]=useState(''),[name,setName]=useState(''),[sending,setSending]=useState(false),[done,setDone]=useState(false),[showInstructions,setShowInstructions]=useState(false)
  useEffect(()=>{fetch('/api/public/aprovacao-arte/'+encodeURIComponent(params.token)).then(async r=>{const d=await r.json();if(!r.ok)throw Error(d.error);setData(d);setName(d.customer?.name??'')}).catch(e=>setError(e.message||'Link indisponível')).finally(()=>setLoading(false))},[params.token])
  async function respond(action:'approve'|'request_changes'){if(!consent||sending)return;if(action==='request_changes'&&!note.trim())return;setSending(true);setError('');try{const r=await fetch('/api/public/aprovacao-arte/'+encodeURIComponent(params.token),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,consent,note,customerName:name})});const d=await r.json();if(!r.ok)throw Error(d.error);setDone(true);setData(v=>v?{...v,status:d.status}:v)}catch(e){setError(e instanceof Error?e.message:'Falha ao registrar resposta')}finally{setSending(false)}}
