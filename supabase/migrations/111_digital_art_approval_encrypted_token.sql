@@ -1,0 +1,1 @@
+alter table public.order_art_approval_links add column if not exists token_ciphertext text;
