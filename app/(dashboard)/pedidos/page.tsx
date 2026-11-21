@@ -883,32 +883,6 @@ function PedidosPage() {
     })
   }
 
-  const [settingArtOriginId, setSettingArtOriginId] = useState<string | null>(null)
-
-  /**
-   * Habilita o fluxo de aprovação de arte num item de pedido criado
-   * manualmente (fora do Catálogo Online, que já grava art_origin no
-   * checkout). Só atua em itens já persistidos (id é UUID real), senão a
-   * UPDATE não encontraria a linha — item recém-adicionado e ainda não
-   * salvo precisa ser salvo primeiro.
-   */
-  async function setItemArtOrigin(item: OrderItem, origin: 'own' | 'lumilife') {
-    if (!UUID_RE.test(item.id)) { toast('error', 'Salve o pedido antes de habilitar a aprovação de arte neste item'); return }
-    setSettingArtOriginId(item.id)
-    try {
-      const { error } = await (supabase.from('order_items') as any)
-        .update({ art_origin: origin, art_approval_status: 'pending', updated_at: new Date().toISOString() })
-        .eq('id', item.id)
-      if (error) throw error
-      setItems(prev => prev.map(i => i.id === item.id ? { ...i, art_origin: origin, art_approval_status: i.art_approval_status ?? 'pending' } : i))
-      toast('success', 'Aprovação de arte habilitada para este item')
-    } catch (e: any) {
-      toast('error', e.message ?? 'Não foi possível habilitar a aprovação de arte')
-    } finally {
-      setSettingArtOriginId(null)
-    }
-  }
-
   function applyVariantToItem(item: OrderItem, sel: VariantSelection) {
     const rest = (item.description || '').split('\n').filter(l => !l.startsWith('Variação:')).join('\n')
     const next: OrderItem = {
@@ -3023,27 +2997,6 @@ function PedidosPage() {
                               </button>
                             </div>
                           </div>
-                          {editingId && companyId && !item.art_origin && UUID_RE.test(item.id) && (
-                            <div className="mt-2 pt-2 border-t border-dashed border-border dark:border-border-dark flex items-center gap-2 flex-wrap">
-                              <span className="text-[10px] text-text-muted">Habilitar aprovação de arte neste item:</span>
-                              <button
-                                type="button"
-                                disabled={settingArtOriginId === item.id}
-                                onClick={() => setItemArtOrigin(item, 'own')}
-                                className="text-[11px] font-medium px-2 py-1 rounded-lg border border-border dark:border-border-dark hover:bg-surface dark:hover:bg-white/5 disabled:opacity-50"
-                              >
-                                Cliente enviou arte própria
-                              </button>
-                              <button
-                                type="button"
-                                disabled={settingArtOriginId === item.id}
-                                onClick={() => setItemArtOrigin(item, 'lumilife')}
-                                className="text-[11px] font-medium px-2 py-1 rounded-lg border border-border dark:border-border-dark hover:bg-surface dark:hover:bg-white/5 disabled:opacity-50"
-                              >
-                                Arte feita pela equipe
-                              </button>
-                            </div>
-                          )}
                           {editingId && companyId && item.art_origin && (
                             <OrderItemArtPanel
                               orderId={editingId}

@@ -7,14 +7,29 @@ import { resolveCompanyIdForUser } from '@/lib/supabase/pgHelpers'
 import { createApprovalToken, encryptApprovalToken, decryptApprovalToken, ART_FINISHING_INSTRUCTIONS, ART_FINISHING_INSTRUCTIONS_VERSION, hasDigitalArtApprovalBeta } from '@/lib/orders/digitalArtApproval'
 
 
+/**
+ * itemId é opcional: quando o chamador (painel de arte por item, do
+ * Catálogo Online) não informa, o link é tratado por PEDIDO — resolve-se
+ * o item-âncora (o primeiro item do pedido) automaticamente, só para
+ * satisfazer a FK obrigatória de order_art_approval_links.order_item_id;
+ * nenhuma tela mostra esse item ao usuário nesse modo.
+ */
+async function resolveAnchorItemId(db:any,orderId:string) {
+ const {data,error}=await db.from('order_items').select('id').eq('order_id',orderId).order('created_at',{ascending:true}).limit(1).maybeSingle()
+ if(error) throw error
+ return data?.id as string|undefined
+}
+
 export async function GET(request:Request) {
  try {
   const auth=createServerComponentClient({cookies}); const {data:{user}}=await auth.auth.getUser()
   if(!user||!hasDigitalArtApprovalBeta(user.email)) return NextResponse.json({error:'Recurso indisponível.'},{status:404})
   const companyId=await resolveCompanyIdForUser(user.id); if(!companyId) return NextResponse.json({error:'Empresa não encontrada.'},{status:404})
-  const url=new URL(request.url); const orderId=url.searchParams.get('orderId'); const itemId=url.searchParams.get('itemId')
-  if(!orderId||!itemId) return NextResponse.json({error:'Pedido e item são obrigatórios.'},{status:400})
+  const url=new URL(request.url); const orderId=url.searchParams.get('orderId'); let itemId=url.searchParams.get('itemId')
+  if(!orderId) return NextResponse.json({error:'Pedido é obrigatório.'},{status:400})
   const db=supabaseAdmin as any
+  if(!itemId) itemId=(await resolveAnchorItemId(db,orderId))??null
+  if(!itemId) return NextResponse.json({link:null})
   const {data:link,error}=await db.from('order_art_approval_links').select('id,status,token_ciphertext,current_version').eq('company_id',companyId).eq('order_id',orderId).eq('order_item_id',itemId).is('revoked_at',null).neq('status','cancelada').order('created_at',{ascending:false}).limit(1).maybeSingle()
   if(error) throw error
   if(!link||!link.token_ciphertext) return NextResponse.json({link:null})
@@ -28,19 +43,23 @@ export async function POST(request: Request) {
   if(!user) return NextResponse.json({error:'Não autenticado'},{status:401})
   if(!hasDigitalArtApprovalBeta(user.email)) return NextResponse.json({error:'Recurso indisponível.'},{status:404})
   const companyId=await resolveCompanyIdForUser(user.id); if(!companyId) return NextResponse.json({error:'Empresa não encontrada.'},{status:404})
-  const body=await request.json(); const orderId=String(body.orderId??''); const itemId=String(body.itemId??'')
+  const body=await request.json(); const orderId=String(body.orderId??''); let itemId=String(body.itemId??'')
   const fileIds=Array.isArray(body.fileIds)?body.fileIds.filter((x:unknown)=>typeof x==='string'):[]
-  if(!orderId||!itemId||!fileIds.length) return NextResponse.json({error:'Selecione arquivos para aprovação.'},{status:400})
+  if(!orderId||!fileIds.length) return NextResponse.json({error:'Selecione arquivos para aprovação.'},{status:400})
   const db=supabaseAdmin as any
   const {data:order,error:oe}=await db.from('orders').select('id,order_number,customer_id,due_date').eq('id',orderId).eq('company_id',companyId).maybeSingle()
   if(oe) throw oe; if(!order) return NextResponse.json({error:'Pedido não encontrado.'},{status:404})
-  const {data:item,error:ie}=await db.from('order_items').select('id,name,art_origin').eq('id',itemId).eq('order_id',orderId).maybeSingle()
-  if(ie) throw ie; if(!item||!item.art_origin) return NextResponse.json({error:'Item sem arte vinculada.'},{status:400})
+  if(!itemId) itemId=(await resolveAnchorItemId(db,orderId))??''
+  const {data:item,error:ie}=await db.from('order_items').select('id,name').eq('id',itemId).eq('order_id',orderId).maybeSingle()
+  if(ie) throw ie; if(!item) return NextResponse.json({error:'Pedido sem itens.'},{status:400})
   const {data:existing,error:ee}=await db.from('order_art_approval_links').select('id,token_ciphertext').eq('company_id',companyId).eq('order_id',orderId).eq('order_item_id',itemId).is('revoked_at',null).neq('status','cancelada').order('created_at',{ascending:false}).limit(1).maybeSingle()
   if(ee) throw ee
   if(existing&&existing.token_ciphertext) return NextResponse.json({ok:true,linkId:existing.id,url:new URL('/aprovar-arte/'+decryptApprovalToken(existing.token_ciphertext),request.url).toString(),orderNumber:order.order_number,itemName:item.name,reused:true})
-  const {data:files,error:fe}=await db.from('order_files').select('id,file_name,file_path,mime_type,file_size,file_role').in('id',fileIds).eq('order_id',orderId).eq('order_item_id',itemId)
-  if(fe) throw fe; if(!files||files.length!==fileIds.length) return NextResponse.json({error:'Arquivo inválido para este item.'},{status:400})
+  // Arquivos validados pelo pedido (não pelo item): o fluxo "Arquivos do
+  // Cliente" já existente faz upload sem order_item_id, e o item acima é
+  // só a âncora técnica exigida pela FK, não uma seleção do usuário.
+  const {data:files,error:fe}=await db.from('order_files').select('id,file_name,file_path,mime_type,file_size,file_role').in('id',fileIds).eq('order_id',orderId)
+  if(fe) throw fe; if(!files||files.length!==fileIds.length) return NextResponse.json({error:'Arquivo inválido para este pedido.'},{status:400})
   const allowedRoles=['cliente_arte','referencia','proposta','versao_final']; const allowedTypes=['image/png','image/jpeg','image/webp','application/pdf']
   if(files.some((f:any)=>!allowedRoles.includes(f.file_role)||!allowedTypes.includes(f.mime_type)||Number(f.file_size)>10*1024*1024)) return NextResponse.json({error:'Use arquivos PDF, PNG, JPG ou WEBP de até 10 MB.'},{status:400})
   const privatePaths:string[]=[]
