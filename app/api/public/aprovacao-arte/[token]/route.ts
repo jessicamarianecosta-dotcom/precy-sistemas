@@ -55,8 +55,8 @@ export async function POST(req:Request,context:{params:Promise<{token:string}>})
   const status=action==='approve'?'aprovada':'alteracao_solicitada'
   await db.from('order_art_approval_versions').update({status}).eq('id',version.id).eq('status','aguardando_aprovacao')
   await db.from('order_art_approval_links').update({status,updated_at:new Date().toISOString()}).eq('id',link.id).eq('status','aguardando_aprovacao')
-  await db.from('order_items').update({art_approval_status:action==='approve'?'approved':'revision_requested',updated_at:new Date().toISOString()}).eq('id',link.order_item_id)
-  await db.from('order_art_events').insert({order_id:link.order_id,company_id:link.company_id,event_type:action==='approve'?'arte_aprovada_cliente':'arte_alteracao_solicitada_cliente',description:action==='approve'?'Cliente aprovou a arte pelo link público.':`Cliente solicitou alteração: ${note}`})
+  const {error:eventError}=await db.from('order_art_events').insert({order_id:link.order_id,company_id:link.company_id,event_type:action==='approve'?'aprovacao_digital_aprovada':'aprovacao_digital_alteracao_solicitada',description:action==='approve'?'Cliente aprovou a arte pelo link público.':`Cliente solicitou alteração: ${note}`})
+  if(eventError) console.error('[public art approval:event]',eventError)
   return NextResponse.json({ok:true,status})
  }catch(e){console.error('[public art approval:post]',e);return NextResponse.json({error:'Não foi possível registrar sua resposta.'},{status:500})}
 }
