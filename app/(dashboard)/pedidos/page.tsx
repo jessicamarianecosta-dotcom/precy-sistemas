@@ -2877,6 +2877,8 @@ function PedidosPage() {
                       customerName={selectedCustomer?.name}
                       customerPhone={selectedCustomer?.phone}
                       customerEmail={selectedCustomer?.email}
+                      orderNumber={(orders ?? []).find((o: any) => o.id === editingId)?.order_number ?? null}
+                      items={items.filter(i => UUID_RE.test(i.id)).map(i => ({ id: i.id, name: i.name }))}
                     />
                     <div className="h-px bg-border dark:bg-border-dark" />
                   </>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -10,7 +10,6 @@ import {
 import { useToast } from '@/components/ui/Toaster'
 import { syncOrderArtStatusFromItems } from '@/lib/orders/artApproval'
 import { buildArtProposalsSentMessage, buildArtApprovedMessage, normalizePhoneToWhatsapp, openWhatsappConversation } from '@/lib/orders/whatsapp'
-import { hasDigitalArtApprovalBeta } from '@/lib/orders/digitalArtApproval'
 import {
   ART_APPROVAL_STATUS_LABELS, ART_APPROVAL_STATUS_COLORS,
   type OrderFile, type ArtApprovalStatus,
@@ -50,16 +49,6 @@ export function OrderItemArtPanel({
   const proposalInputRef = useRef<HTMLInputElement>(null)
   const [uploadingProposal, setUploadingProposal] = useState<number | null>(null)
   const [extraPrice, setExtraPrice] = useState('')
-  const [approvalLink, setApprovalLink] = useState('')
-  const [approvalLinkId, setApprovalLinkId] = useState('')
-  const [approvalNotes, setApprovalNotes] = useState('')
-  const [approvalDeadline, setApprovalDeadline] = useState('')
-  const [approvalHistory, setApprovalHistory] = useState<any[]>([])
-  const [approvalNotifications, setApprovalNotifications] = useState<any[]>([])
-  const [approvalStatusDigital, setApprovalStatusDigital] = useState('')
-  const [betaAllowed, setBetaAllowed] = useState(false)
-  const [creatingApprovalLink, setCreatingApprovalLink] = useState(false)
-  useEffect(() => { let active=true; supabase.auth.getUser().then(async ({data}) => { const allowed=hasDigitalArtApprovalBeta(data.user?.email); if(!active)return; setBetaAllowed(allowed); if(allowed){const r=await fetch(`/api/pedidos/aprovacao-arte?orderId=${encodeURIComponent(orderId)}&itemId=${encodeURIComponent(itemId)}`);const d=await r.json();if(active&&r.ok&&d.link){setApprovalLink(d.link.url);setApprovalLinkId(d.link.id);setApprovalStatusDigital(d.link.status)}} }); return () => { active=false } }, [])
 
   const { data: files } = useQuery<OrderFile[]>({
     queryKey: ['order-item-files', itemId],
@@ -219,39 +208,6 @@ export function OrderItemArtPanel({
         <FileList label="Versão final" files={finalFiles} />
       )}
 
-      {betaAllowed && <div className="rounded-lg border border-violet-200 dark:border-violet-900/50 bg-violet-50/60 dark:bg-violet-950/20 p-3 space-y-2 mb-2">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div><p className="text-xs font-semibold text-violet-800 dark:text-violet-300">Aprovação digital do cliente</p><p className="text-[10px] text-text-muted">Link público para conferir e responder sem login.</p></div>
-          <button type="button" disabled={creatingApprovalLink || (proposalFiles.length === 0 && finalFiles.length === 0 && clientFiles.length === 0)}
-            onClick={async () => {
-              setCreatingApprovalLink(true)
-              try {
-                const selectedFiles = finalFiles.length ? finalFiles : proposalFiles.length ? proposalFiles : clientFiles
-                const response = await fetch('/api/pedidos/aprovacao-arte', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId, itemId, fileIds: selectedFiles.map(f => f.id), publicNotes: approvalNotes, deadline: approvalDeadline || undefined }) })
-                const result = await response.json()
-                if (!response.ok) throw new Error(result.error || 'Não foi possível gerar o link')
-                setApprovalLink(result.url)
-                setApprovalLinkId(result.linkId)
-                setApprovalStatusDigital('aguardando_aprovacao')
-                await navigator.clipboard.writeText(result.url)
-                toast('success', 'Link de aprovação criado e copiado')
-                invalidate()
-              } catch (e: any) { toast('error', e.message || 'Erro ao gerar link') }
-              finally { setCreatingApprovalLink(false) }
-            }}
-            className="text-[11px] font-semibold rounded-lg bg-violet-700 text-white px-3 py-2 disabled:opacity-50">{creatingApprovalLink ? 'Gerando...' : 'Gerar link de aprovação'}</button>
-        </div>
-        <div className="grid gap-2 sm:grid-cols-2"><label className="text-[10px] text-text-muted">Observação visível ao cliente<textarea value={approvalNotes} onChange={e=>setApprovalNotes(e.target.value)} rows={2} maxLength={2000} className="mt-1 w-full rounded-md border border-violet-200 bg-white p-2 text-xs" placeholder="Informações para a conferência..."/></label><label className="text-[10px] text-text-muted">Prazo de resposta<input type="date" value={approvalDeadline} onChange={e=>setApprovalDeadline(e.target.value)} className="mt-1 w-full rounded-md border border-violet-200 bg-white p-2 text-xs"/></label></div>
-        {approvalLink && <div className="flex items-center gap-2 flex-wrap"><a href={approvalLink} target="_blank" rel="noreferrer" className="text-[11px] text-violet-700 underline break-all">{approvalLink}</a>
-          <button type="button" onClick={() => navigator.clipboard.writeText(approvalLink).then(() => toast('success','Link copiado'))} className="text-[11px] font-medium text-violet-700">Copiar</button>
-          {customerPhone && <button type="button" onClick={() => { const phone = normalizePhoneToWhatsapp(customerPhone); if (phone) openWhatsappConversation(phone, `Olá, ${customerName || 'tudo bem'}! Sua arte está disponível para conferência e aprovação: ${approvalLink}`) }} className="text-[11px] font-medium text-violet-700">Enviar pelo WhatsApp</button>}
-        </div>}
-        {approvalLinkId && <div className="flex flex-wrap gap-2 border-t border-violet-200 pt-2"><button type="button" onClick={async()=>{const r=await fetch('/api/pedidos/aprovacao-arte/'+approvalLinkId);const d=await r.json();if(r.ok){setApprovalHistory(d.history??[]);setApprovalNotifications(d.notifications??[]);setApprovalStatusDigital(d.link.status);if(d.link.publicUrl)setApprovalLink(d.link.publicUrl)}}} className="text-[11px] font-medium text-violet-700">Ver histórico de versões e respostas</button><button type="button" onClick={async()=>{if(!window.confirm('Cancelar este link? O cliente não poderá mais responder.'))return;const r=await fetch('/api/pedidos/aprovacao-arte/'+approvalLinkId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'cancel'})});const d=await r.json();if(!r.ok){toast('error',d.error);return}setApprovalStatusDigital('cancelada');toast('success','Link cancelado')}} disabled={approvalStatusDigital==='aprovada'||approvalStatusDigital==='cancelada'} className="text-[11px] font-medium text-red-600 disabled:opacity-40">Cancelar link</button></div>}
-        {approvalNotifications.length>0&&<div className="space-y-1 border-t border-violet-200 pt-2">{approvalNotifications.map((n:any)=><div key={n.id} className="rounded-md bg-amber-50 p-2 text-[10px]"><b>{n.title}</b><p>{n.message}</p><span className="text-stone-500">{new Date(n.created_at).toLocaleString('pt-BR')}</span></div>)}</div>}
-        {approvalLinkId&&approvalStatusDigital!=='aprovada'&&approvalStatusDigital!=='cancelada'&&<button type="button" onClick={async()=>{const selectedFiles=finalFiles.length?finalFiles:proposalFiles.length?proposalFiles:clientFiles;if(!selectedFiles.length){toast('error','Envie os arquivos da nova versão primeiro');return}if(!window.confirm('Enviar os arquivos atuais como uma nova versão para aprovação?'))return;const r=await fetch('/api/pedidos/aprovacao-arte/'+approvalLinkId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'new_version',fileIds:selectedFiles.map(f=>f.id),publicNotes:approvalNotes,deadline:approvalDeadline||undefined})});const d=await r.json();if(!r.ok){toast('error',d.error);return}setApprovalStatusDigital('aguardando_aprovacao');setApprovalHistory([]);toast('success','Nova versão enviada para aprovação')}} className="text-[11px] font-semibold text-violet-700">Enviar nova versão</button>}
-        {approvalHistory.length>0&&<div className="space-y-2 border-t border-violet-200 pt-2">{approvalHistory.map((v:any)=><div key={v.id} className="rounded-md bg-white p-2 text-[10px]"><b>Versão {v.version_number}</b> · {v.status} · {new Date(v.created_at).toLocaleString('pt-BR')}{v.response&&<p className="mt-1">{v.response.customer_name||'Cliente'}: {v.response.response==='aprovada'?'Aprovou':'Solicitou alteração'}{v.response.customer_note?` — ${v.response.customer_note}`:''}</p>}{v.response?.attachments?.length>0&&<p className="mt-1">Anexos: {v.response.attachments.map((a:any)=><a key={a.url} href={a.url} target="_blank" rel="noreferrer" className="mr-2 text-violet-700 underline">{a.name}</a>)}</p>}</div>)}</div>}
-        {!proposalFiles.length && !finalFiles.length && !clientFiles.length && <p className="text-[10px] text-amber-700">Envie primeiro um arquivo de arte para habilitar o link.</p>}
-      </div>}
       <div className="flex flex-wrap gap-1.5">
         {approvalStatus === 'pending' && (
           <ActionButton icon={PlayCircle} label="Iniciar análise" onClick={() => startReviewMutation.mutate()} loading={startReviewMutation.isPending} />
