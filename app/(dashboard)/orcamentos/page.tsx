@@ -1166,9 +1166,23 @@ export default function OrcamentosPage() {
                               </div>
                             </div>
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 sm:opacity-100 transition-opacity flex-shrink-0">
-                              {item.product_id&&productsWithVariants.has(item.product_id)&&(
-                                <button type="button" onClick={()=>setChangeVariantItem(item)} className="px-2 py-1.5 rounded-lg text-[11px] font-medium text-primary hover:bg-primary-50 transition-colors">Trocar variação</button>
-                              )}
+                              {(()=>{
+                                // Item já vinculado a um produto com variações → troca direta.
+                                // Item sem vínculo (ex.: adicionado manualmente) mas cujo nome
+                                // bate com um produto do catálogo que tem variações → oferece
+                                // vincular e escolher a variação agora.
+                                const linked=item.product_id&&productsWithVariants.has(item.product_id)
+                                  ?(products??[]).find((x:any)=>x.id===item.product_id):null
+                                const candidate=linked??(!item.product_id?(products??[]).find((x:any)=>
+                                  productsWithVariants.has(x.id)&&x.name.trim().toLowerCase()===item.name.trim().toLowerCase()):null)
+                                if(!candidate)return null
+                                return (
+                                  <button type="button" onClick={()=>setChangeVariantItem({...item,product_id:candidate.id})}
+                                    className="px-2 py-1.5 rounded-lg text-[11px] font-medium text-primary hover:bg-primary-50 transition-colors">
+                                    {item.variant_label?'Trocar variação':'Escolher variação'}
+                                  </button>
+                                )
+                              })()}
                               <button type="button" onClick={()=>setEditItem(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors" title="Editar"><Edit3 size={13}/></button>
                               <button type="button" onClick={()=>duplicateItem(item)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 transition-colors" title="Duplicar item"><Copy size={13}/></button>
                               <button type="button" onClick={()=>removeItem(item.id)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light transition-colors" title="Excluir"><Trash2 size={13}/></button>
