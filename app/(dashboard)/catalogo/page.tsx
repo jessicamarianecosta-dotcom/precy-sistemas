@@ -12,7 +12,7 @@ import { clsx } from 'clsx'
 import {
   LayoutGrid, Package, BookOpen, Settings, Plus, Trash2, Edit2,
   Search, CheckSquare, Square, Loader2, ShoppingBag,
-  TrendingUp, DollarSign, Tags, Copy, MoreVertical, CreditCard,
+  TrendingUp, DollarSign, Tags, Copy, MoreVertical, CreditCard, ExternalLink,
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils/format'
 import { toSlug } from '@/lib/utils/slug'
@@ -33,6 +33,8 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
 
 export default function CatalogoPage() {
   const [tab, setTab] = useState<Tab>('dashboard')
+  const supabase = createClient()
+  const { companyId } = useCompanyId()
 
   // /catalogo?aba=produtos abre direto na aba (ex.: ao voltar de Produtos → Editar)
   useEffect(() => {
@@ -40,9 +42,33 @@ export default function CatalogoPage() {
     if (aba && TABS.some(t => t.id === aba)) setTab(aba as Tab)
   }, [])
 
+  const { data: slug } = useQuery({
+    queryKey: ['catalogo-slug', companyId],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const { data } = await (supabase.from('catalog_settings') as any)
+        .select('slug').eq('company_id', companyId!).maybeSingle()
+      return (data?.slug as string | undefined) ?? null
+    },
+  })
+
   return (
     <div className="p-4 lg:p-6 max-w-6xl mx-auto space-y-5">
-      <Header title="Catálogo Online" subtitle="Sua loja própria, integrada com Pedidos, Financeiro e Estoque" />
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <Header title="Catálogo Online" subtitle="Sua loja própria, integrada com Pedidos, Financeiro e Estoque" />
+        </div>
+        {slug && (
+          <a
+            href={`/loja/${slug}`}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-secondary text-xs sm:text-sm flex items-center gap-1.5 whitespace-nowrap mt-1 flex-shrink-0"
+          >
+            <ExternalLink size={14} /> Ver loja
+          </a>
+        )}
+      </div>
 
       <div className="flex gap-1.5 overflow-x-auto no-scrollbar border-b border-border dark:border-border-dark pb-px">
         {TABS.map(t => {
