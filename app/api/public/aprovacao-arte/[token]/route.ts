@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createHash } from 'crypto'
+import { isIP } from 'net'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { ART_APPROVAL_CONSENT_TEXT } from '@/lib/orders/digitalArtApproval'
 const hash=(token:string)=>createHash('sha256').update(token).digest('hex')
@@ -54,7 +55,9 @@ export async function POST(req:Request,context:{params:Promise<{token:string}>})
   const response=action==='approve'?'aprovada':'alteracao_solicitada'
   const attachments=Array.isArray(body.attachmentPaths)?body.attachmentPaths.filter((p:unknown)=>typeof p==='string'&&p.startsWith(`${link.company_id}/${link.order_id}/${link.order_item_id}/customer/`)):[]
   if(action==='request_changes'&&attachments.length!==(body.attachmentPaths??[]).length) return NextResponse.json({error:'Anexo inválido.'},{status:400})
-  const {error}=await db.from('order_art_approval_responses').insert({version_id:version.id,attachment_paths:attachments,response,customer_name:String(body.customerName??'').trim().slice(0,160)||null,customer_note:note||null,consent_text:ART_APPROVAL_CONSENT_TEXT,consented_at:new Date().toISOString(),ip_address:req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()??null,user_agent:req.headers.get('user-agent')})
+  const forwarded=req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()??''
+  const ipAddress=isIP(forwarded)?forwarded:null
+  const {error}=await db.from('order_art_approval_responses').insert({version_id:version.id,attachment_paths:attachments,response,customer_name:String(body.customerName??'').trim().slice(0,160)||null,customer_note:note||null,consent_text:ART_APPROVAL_CONSENT_TEXT,consented_at:new Date().toISOString(),ip_address:ipAddress,user_agent:req.headers.get('user-agent')})
   if(error){if(error.code==='23505') return NextResponse.json({error:'Esta versão já recebeu uma resposta.'},{status:409});throw error}
   const status=action==='approve'?'aprovada':'alteracao_solicitada'
   await db.from('order_art_approval_versions').update({status}).eq('id',version.id).eq('status','aguardando_aprovacao')
