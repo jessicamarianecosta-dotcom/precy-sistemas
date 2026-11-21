@@ -40,7 +40,8 @@ export async function POST(req:Request,context:{params:Promise<{token:string}>})
   const {token}=await context.params
   const link=await getLink(token)
   if(!link) return NextResponse.json({error:'Link indisponível.'},{status:404})
-  if(link.status==='aprovada') return NextResponse.json({error:'Esta arte já foi aprovada.'},{status:409})
+  if(link.status==='aprovada'||link.status==='cancelada') return NextResponse.json({error:'Esta arte já foi respondida ou encerrada.'},{status:409})
+  if(link.deadline&&new Date(link.deadline).getTime()<Date.now()) return NextResponse.json({error:'O prazo deste link expirou.'},{status:410})
   const body=await req.json(); const action=body.action
   const note=String(body.note??'').trim().slice(0,3000)
   if(body.consent!==true) return NextResponse.json({error:'É necessário confirmar a leitura das orientações.'},{status:400})
@@ -50,13 +51,18 @@ export async function POST(req:Request,context:{params:Promise<{token:string}>})
   const {data:version}=await db.from('order_art_approval_versions').select('id,status').eq('link_id',link.id).eq('version_number',link.current_version).single()
   if(!version||version.status!=='aguardando_aprovacao') return NextResponse.json({error:'Esta versão já recebeu uma resposta.'},{status:409})
   const response=action==='approve'?'aprovada':'alteracao_solicitada'
-  const {error}=await db.from('order_art_approval_responses').insert({version_id:version.id,response,customer_name:String(body.customerName??'').trim().slice(0,160)||null,customer_note:note||null,consent_text:ART_APPROVAL_CONSENT_TEXT,consented_at:new Date().toISOString(),ip_address:req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()??null,user_agent:req.headers.get('user-agent')})
+  const attachments=Array.isArray(body.attachmentPaths)?body.attachmentPaths.filter((p:unknown)=>typeof p==='string'&&p.startsWith(`${link.company_id}/${link.order_id}/${link.order_item_id}/customer/`)):[]
+  if(action==='request_changes'&&attachments.length!==(body.attachmentPaths??[]).length) return NextResponse.json({error:'Anexo inválido.'},{status:400})
+  const {error}=await db.from('order_art_approval_responses').insert({version_id:version.id,attachment_paths:attachments,response,customer_name:String(body.customerName??'').trim().slice(0,160)||null,customer_note:note||null,consent_text:ART_APPROVAL_CONSENT_TEXT,consented_at:new Date().toISOString(),ip_address:req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()??null,user_agent:req.headers.get('user-agent')})
   if(error){if(error.code==='23505') return NextResponse.json({error:'Esta versão já recebeu uma resposta.'},{status:409});throw error}
   const status=action==='approve'?'aprovada':'alteracao_solicitada'
   await db.from('order_art_approval_versions').update({status}).eq('id',version.id).eq('status','aguardando_aprovacao')
   await db.from('order_art_approval_links').update({status,updated_at:new Date().toISOString()}).eq('id',link.id).eq('status','aguardando_aprovacao')
   const {error:eventError}=await db.from('order_art_events').insert({order_id:link.order_id,company_id:link.company_id,event_type:action==='approve'?'aprovacao_digital_aprovada':'aprovacao_digital_alteracao_solicitada',description:action==='approve'?'Cliente aprovou a arte pelo link público.':`Cliente solicitou alteração: ${note}`})
   if(eventError) console.error('[public art approval:event]',eventError)
+  const {data:responseRow}=await db.from('order_art_approval_responses').select('id').eq('version_id',version.id).maybeSingle()
+  const {error:notificationError}=await db.from('order_art_approval_notifications').insert({company_id:link.company_id,link_id:link.id,version_id:version.id,response_id:responseRow?.id??null,notification_type:status,title:action==='approve'?'Arte aprovada pelo cliente':'Alteração solicitada pelo cliente',message:action==='approve'?'O cliente aprovou a versão enviada.':`O cliente solicitou alteração: ${note}`})
+  if(notificationError) console.error('[public art approval:notification]',notificationError)
   return NextResponse.json({ok:true,status})
  }catch(e){console.error('[public art approval:post]',e);return NextResponse.json({error:'Não foi possível registrar sua resposta.'},{status:500})}
 }
