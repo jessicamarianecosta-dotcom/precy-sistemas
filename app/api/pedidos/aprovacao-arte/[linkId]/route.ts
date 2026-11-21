@@ -4,7 +4,7 @@ import { cookies } from 'next/headers'
 import { randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { resolveCompanyIdForUser } from '@/lib/supabase/pgHelpers'
-import { ART_FINISHING_INSTRUCTIONS, ART_FINISHING_INSTRUCTIONS_VERSION, hasDigitalArtApprovalBeta } from '@/lib/orders/digitalArtApproval'
+import { ART_FINISHING_INSTRUCTIONS, ART_FINISHING_INSTRUCTIONS_VERSION, hasDigitalArtApprovalBeta, decryptApprovalToken } from '@/lib/orders/digitalArtApproval'
 
 async function owner() {
  const auth=createServerComponentClient({cookies})
@@ -17,7 +17,7 @@ export async function GET(_req:Request,ctx:{params:Promise<{linkId:string}>}) {
   const {user,companyId}=await owner()
   if(!user||!companyId) return NextResponse.json({error:'Não autorizado.'},{status:401})
   const {linkId}=await ctx.params; const db=supabaseAdmin as any
-  const {data:link,error}=await db.from('order_art_approval_links').select('id,status,current_version,created_at,deadline,public_notes,revoked_at,cancelled_at').eq('id',linkId).eq('company_id',companyId).maybeSingle()
+  const {data:link,error}=await db.from('order_art_approval_links').select('id,status,current_version,created_at,deadline,public_notes,revoked_at,cancelled_at,token_ciphertext').eq('id',linkId).eq('company_id',companyId).maybeSingle()
   if(error) throw error
   if(!link) return NextResponse.json({error:'Link não encontrado.'},{status:404})
   const {data:versions,error:ve}=await db.from('order_art_approval_versions').select('id,version_number,status,created_at,instructions_version,public_notes').eq('link_id',linkId).order('version_number',{ascending:false})
@@ -27,7 +27,7 @@ export async function GET(_req:Request,ctx:{params:Promise<{linkId:string}>}) {
   if(re) throw re
   const {data:notifications,error:ne}=await db.from('order_art_approval_notifications').select('id,title,message,notification_type,read_at,created_at').eq('link_id',linkId).order('created_at',{ascending:false})
   if(ne) throw ne
-  return NextResponse.json({link,notifications:notifications??[],history:(versions??[]).map((v:any)=>({...v,response:(responses??[]).find((r:any)=>r.version_id===v.id)??null}))})
+  return NextResponse.json({link:{...link,publicUrl:link.token_ciphertext?`${process.env.NEXT_PUBLIC_SITE_URL||process.env.NEXT_PUBLIC_APP_URL||''}/aprovar-arte/${decryptApprovalToken(link.token_ciphertext)}`:null},notifications:notifications??[],history:(versions??[]).map((v:any)=>({...v,response:(responses??[]).find((r:any)=>r.version_id===v.id)??null}))})
  } catch(e) { console.error('[art approval history]',e); return NextResponse.json({error:'Não foi possível carregar o histórico.'},{status:500}) }
 }
 export async function POST(req:Request,ctx:{params:Promise<{linkId:string}>}) {
