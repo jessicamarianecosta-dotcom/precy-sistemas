@@ -17,9 +17,17 @@ const D = (iso?: string | null) => {
   } catch { return '' }
 }
 
+export interface ReceiptPrintItem {
+  name: string
+  description: string
+  quantity: number
+  unit_price: number
+  subtotal: number
+}
+
 export interface ReceiptPrintVM {
   company: { name: unknown; email?: unknown; phone?: unknown; cnpj?: unknown; logoUrl?: string | null; primaryColor?: unknown }
-  order: { number: unknown; serviceName?: unknown; balanceAfter: number }
+  order: { number: unknown; serviceName?: unknown; balanceAfter: number; items?: ReceiptPrintItem[] }
   customer: { name?: unknown; cpfCnpj?: unknown }
   receipt: { amount: number; paymentDate: string; paymentMethodLabel: string; observation?: unknown }
 }
@@ -33,6 +41,41 @@ export function renderReceiptPrintHTML(vm: ReceiptPrintVM): string {
     : `<div style="width:48px;height:48px;background:${primary};border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;font-weight:700;">${coName.charAt(0).toUpperCase()}</div>`
 
   const docTitle = `Recibo — Pedido ${X(vm.order.number)}`
+
+  const items = vm.order.items ?? []
+  const itemsRowsHTML = items.map(item => {
+    const qty = Number(item.quantity) || 1
+    const up  = Number(item.unit_price) || 0
+    const sub = Number(item.subtotal)   || 0
+    return `
+      <tr>
+        <td>
+          <div class="it-name">${X(item.name)}</div>
+          ${item.description ? `<div class="it-desc">${X(item.description)}</div>` : ''}
+        </td>
+        <td class="r">${qty}</td>
+        <td class="r">${formatCurrency(up)}</td>
+        <td class="r">${formatCurrency(sub)}</td>
+      </tr>`
+  }).join('')
+
+  const itemsBlockHTML = items.length > 0 ? `
+  <div class="islbl">Itens pagos</div>
+  <div class="itw">
+    <table>
+      <thead>
+        <tr>
+          <th>Produto / Descrição</th>
+          <th class="r" style="width:50px;">Qtd</th>
+          <th class="r" style="width:90px;">Vlr. Unit.</th>
+          <th class="r" style="width:90px;">Subtotal</th>
+        </tr>
+      </thead>
+      <tbody>${itemsRowsHTML}</tbody>
+    </table>
+  </div>
+  ${vm.order.balanceAfter > 0 ? `
+  <div class="items-note">Pagamento parcial — o valor recebido neste recibo está destacado acima; os itens listados correspondem ao pedido completo.</div>` : ''}` : ''
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -61,6 +104,21 @@ export function renderReceiptPrintHTML(vm: ReceiptPrintVM): string {
   .lbl{font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#bbb;margin-bottom:3px;}
   .val{font-size:13px;color:#1a1208;font-weight:600;}
   .obs{margin:0 28px 20px;font-size:11.5px;color:#666;}
+  .islbl{font-size:9px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:#bbb;
+    padding:4px 28px 7px;display:flex;align-items:center;gap:8px;}
+  .islbl::after{content:'';flex:1;height:1px;background:#ede9e3;}
+  .itw{padding:0 28px 10px;}
+  .itw table{width:100%;border-collapse:collapse;border:1px solid #ede9e3;border-radius:8px;overflow:hidden;table-layout:fixed;}
+  .itw thead tr{background:#f5f2ee;}
+  .itw th{padding:8px 10px;font-size:8.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;
+    color:#9a8a7a;text-align:left;}
+  .itw th.r{text-align:right;}
+  .itw td{padding:9px 10px;border-top:1px solid #ede9e3;font-size:11.5px;color:#333;
+    vertical-align:top;word-wrap:break-word;overflow-wrap:break-word;white-space:normal;}
+  .itw td.r{text-align:right;white-space:nowrap;}
+  .itw .it-name{font-weight:600;color:#1a1208;line-height:1.4;}
+  .itw .it-desc{font-size:10.5px;color:#9a8a7a;margin-top:2px;line-height:1.5;white-space:pre-wrap;}
+  .items-note{margin:0 28px 20px;font-size:10.5px;color:#9a8a7a;font-style:italic;}
   .footer{padding:16px 28px;border-top:1px solid #ede9e3;font-size:10px;color:#aaa;display:flex;justify-content:space-between;}
 </style>
 </head>
@@ -98,6 +156,8 @@ export function renderReceiptPrintHTML(vm: ReceiptPrintVM): string {
   <div class="obs" style="color:#15803d;"><b>Pedido quitado.</b></div>`}
 
   ${vm.receipt.observation ? `<div class="obs">${X(vm.receipt.observation)}</div>` : ''}
+
+  ${itemsBlockHTML}
 
   <div class="footer">
     <span>${coName}</span>

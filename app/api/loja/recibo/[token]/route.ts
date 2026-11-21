@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit'
+import { getOrderItems } from '@/lib/pdf/getOrderItems'
 
 /**
  * GET /api/loja/recibo/[token]
@@ -26,7 +27,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
     .from('payment_history')
     .select(`
       id, amount, payment_date, payment_method, observation, created_at, order_id,
-      orders(order_number, service_name, total, company_id, customer_id),
+      orders(order_number, service_name, description, total, subtotal, company_id, customer_id),
       customers(name, cpf_cnpj)
     `)
     .eq('public_token', token)
@@ -49,6 +50,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   const received = (paymentsRaw ?? []).reduce((s: number, p: any) => s + Number(p.amount), 0)
   const balance = Math.max(0, Math.round((Number(payment.orders.total) - received) * 100) / 100)
 
+  // Itens do pedido — mesma fonte única usada no PDF do pedido (getOrderItems),
+  // nunca inventa descrição/valor: vem de order_items reais, com fallback para
+  // pedidos legados sem carrinho (service_name/description/total do próprio pedido).
+  const { data: itemsRaw } = await db
+    .from('order_items')
+    .select('id, name, description, quantity, unit_price, subtotal, width, height, measurement_unit, finishings, finishing_type, technical_notes, variant_label, created_at')
+    .eq('order_id', payment.order_id)
+    .order('created_at', { ascending: true })
+  const items = getOrderItems(payment.orders, itemsRaw ?? [])
+
   const METHOD_LABELS: Record<string, string> = {
     dinheiro: 'Dinheiro', pix: 'Pix', cartao_credito: 'Cartão de Crédito', cartao_debito: 'Cartão de Débito',
     boleto: 'Boleto', transferencia: 'Transferência', crediario: 'Crediário', outro: 'Outro',
@@ -68,6 +79,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
       service_name: payment.orders.service_name,
       total: Number(payment.orders.total),
       balance_after: balance,
+      items,
     },
     customer: {
       name: payment.customers?.name ?? null,

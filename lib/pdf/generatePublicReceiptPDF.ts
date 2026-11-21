@@ -32,6 +32,13 @@ export function generatePublicReceiptPDF(data: PublicReceiptPrintData): void {
       number: o.order_number,
       serviceName: o.service_name,
       balanceAfter: Number(o.balance_after) || 0,
+      items: Array.isArray(o.items) ? o.items.map((i: any) => ({
+        name: String(i.name ?? ''),
+        description: String(i.description ?? ''),
+        quantity: Number(i.quantity) || 1,
+        unit_price: Number(i.unit_price) || 0,
+        subtotal: Number(i.subtotal) || 0,
+      })) : [],
     },
     customer: {
       name: cu.name,
