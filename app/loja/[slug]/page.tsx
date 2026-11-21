@@ -15,6 +15,7 @@ import { StoreInfoBar } from '@/components/catalog/storefront/StoreInfoBar'
 import { ProductCard } from '@/components/catalog/storefront/ProductCard'
 import { StoreEmptyState } from '@/components/catalog/storefront/StoreEmptyState'
 import { StoreFooter } from '@/components/catalog/storefront/StoreFooter'
+import { StoreBackground } from '@/components/catalog/storefront/StoreBackground'
 import { StoreThemeRoot, StoreThemeToggle } from '@/components/catalog/storefront/StoreThemeRoot'
 import { resolvePalettes } from '@/lib/catalog/theme/palette'
 import type { StorefrontSettings, StorefrontProduct } from '@/components/catalog/storefront/types'
@@ -26,7 +27,11 @@ type ViewFilter = '' | 'novidades' | 'mais-vendidos'
 const SETTINGS_COLUMNS = `
   company_id, slug, logo_url, banner_url, description, whatsapp, instagram,
   facebook, tiktok, youtube, pinterest, website, city, state, address,
-  business_hours, policies_text, theme_color, theme_palette, companies(name)
+  business_hours, policies_text, theme_color, theme_palette, companies(name),
+  banner_height, banner_image_position, banner_rounded, banner_show_text,
+  banner_button_text, banner_button_link,
+  background_type, background_theme, background_color, background_image_url,
+  background_image_size, background_image_position, background_overlay_opacity
 `
 
 export default function LojaPage() {
@@ -148,7 +153,8 @@ export default function LojaPage() {
 
   return (
     <StoreThemeRoot palettes={palettes}>
-    <div className="min-h-screen bg-[var(--store-bg)] text-[var(--store-text)] flex flex-col">
+    <StoreBackground settings={settings} />
+    <div className="min-h-screen text-[var(--store-text)] flex flex-col">
       <StoreHeader slug={slug} storeName={storeName} logoUrl={settings.logo_url} cartCount={cartCount} favoriteCount={favoriteProducts.length} />
       <StoreHero settings={settings} storeName={storeName} categories={categories} themeToggle={<StoreThemeToggle />} />
 

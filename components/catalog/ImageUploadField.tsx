@@ -9,7 +9,7 @@ interface Props {
   label:             string
   value:             string | null
   onUploaded:        (url: string) => void
-  context:           'logo' | 'banner' | 'seo'
+  context:           'logo' | 'banner' | 'background' | 'seo'
   recommendedSize:   string
   recommendedFormat: string
   maxSizeMb:         number

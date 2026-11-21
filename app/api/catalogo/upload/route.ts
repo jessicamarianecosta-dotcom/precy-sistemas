@@ -12,6 +12,7 @@ const ALLOWED_TYPES_BY_CONTEXT: Record<string, string[]> = {
 const MAX_SIZE_BY_CONTEXT: Record<string, number> = {
   logo:          2 * 1024 * 1024,
   banner:        5 * 1024 * 1024,
+  background:    8 * 1024 * 1024,
   seo:           5 * 1024 * 1024,
   product:       10 * 1024 * 1024,
   'product-video': 25 * 1024 * 1024,
@@ -47,8 +48,8 @@ export async function POST(request: Request) {
   const clientDuration = formData.get('duration') != null ? Number(formData.get('duration')) : null
 
   if (!file) return NextResponse.json({ error: 'Arquivo não enviado' }, { status: 400 })
-  if (!productId && !['logo', 'banner', 'seo', 'product'].includes(context)) {
-    return NextResponse.json({ error: 'productId ou context (logo/banner/seo/product) é obrigatório' }, { status: 400 })
+  if (!productId && !['logo', 'banner', 'background', 'seo', 'product'].includes(context)) {
+    return NextResponse.json({ error: 'productId ou context (logo/banner/background/seo/product) é obrigatório' }, { status: 400 })
   }
   if (mediaType === 'video' && !productId) {
     return NextResponse.json({ error: 'productId é obrigatório para vídeo' }, { status: 400 })
