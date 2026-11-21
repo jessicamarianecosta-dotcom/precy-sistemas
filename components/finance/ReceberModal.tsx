@@ -4,12 +4,14 @@ import { useState, useMemo, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { X, Loader2, CheckCircle2 } from 'lucide-react'
+import { X, Loader2, CheckCircle2, Copy, Check, ExternalLink } from 'lucide-react'
 import { useToast } from '@/components/ui/Toaster'
 import { formatCurrency } from '@/lib/utils/format'
 import { ORDER_PAYMENT_METHODS } from '@/lib/orders/paymentSchedule'
 import { recalcOrderPaymentStatus, recalcCustomerTotalPurchases } from '@/lib/orders/recalc'
 import type { OrderReceivable, ReceivableInstallment, ReceivableStatus } from '@/lib/orders/receivables'
+import { WhatsAppShareButton } from '@/components/finance/WhatsAppShareButton'
+import { buildReceiptMessage } from '@/lib/orders/whatsapp'
 
 type SupabaseClient = any
 
@@ -64,6 +66,8 @@ export function ReceberModal({
   const [method, setMethod] = useState<string>(defaultInstallment?.paymentMethod ?? receivable.paymentMethod ?? 'pix')
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const submitting = useRef(false)
+  const [receipts, setReceipts] = useState<{ token: string; amount: number }[] | null>(null)
+  const [copiedToken, setCopiedToken] = useState<string | null>(null)
 
   const amount = useMemo(() => parseBRL(amountText), [amountText])
 
@@ -156,9 +160,10 @@ export function ReceberModal({
         /* Mesma RPC transacional usada pelo módulo Pedidos: grava
            payment_history + financial_transactions + payment_schedule num
            único INSERT. Se um falha, o Postgres desfaz todos. */
+        const paymentIds: string[] = []
         for (const part of allocations) {
           const percentage = receivable.total > 0 ? (part.amount / receivable.total) * 100 : 0
-          const { error: rpcError } = await supabase.rpc('register_order_payment', {
+          const { data: paymentId, error: rpcError } = await supabase.rpc('register_order_payment', {
             p_order_id: receivable.orderId,
             p_company_id: companyId,
             p_customer_id: receivable.customerId,
@@ -176,6 +181,7 @@ export function ReceberModal({
             p_schedule_id: part.scheduleId,
           })
           if (rpcError) throw new Error(`Erro ao registrar recebimento: ${rpcError.message}`)
+          if (paymentId) paymentIds.push(paymentId as string)
         }
 
         await recalcOrderPaymentStatus(
@@ -184,11 +190,13 @@ export function ReceberModal({
         if (receivable.customerId) {
           await recalcCustomerTotalPurchases(supabase, receivable.customerId, companyId)
         }
+
+        return { paymentIds }
       } finally {
         submitting.current = false
       }
     },
-    onSuccess: () => {
+    onSuccess: async (data) => {
       /* Mesmas chaves invalidadas pelo módulo Pedidos — Financeiro,
          Dashboard, Fluxo de Caixa, DRE, Projeção e a própria tabela. */
       ;[
@@ -200,7 +208,24 @@ export function ReceberModal({
       qc.invalidateQueries({ queryKey: ['payment_history', receivable.orderId] })
       qc.invalidateQueries({ queryKey: ['payment_schedule', receivable.orderId] })
       toast('success', 'Recebimento registrado com sucesso.')
-      onClose()
+
+      /* Busca o token público de cada recebimento recém-criado, para
+         oferecer "baixar recibo"/"enviar pelo WhatsApp" sem fechar o
+         modal — um recibo por alocação (normalmente só uma; mais de
+         uma só em pagamento dividido entre parcelas). */
+      const ids = data?.paymentIds ?? []
+      if (ids.length > 0) {
+        const { data: rows } = await supabase.from('payment_history')
+          .select('id, public_token, amount')
+          .in('id', ids)
+        const byId: Record<string, { token: string; amount: number }> = {}
+        ;(rows ?? []).forEach((r: any) => { byId[r.id] = { token: r.public_token, amount: Number(r.amount) } })
+        const ordered = ids.map((id: string) => byId[id]).filter(Boolean)
+        if (ordered.length > 0) setReceipts(ordered)
+        else onClose()
+      } else {
+        onClose()
+      }
     },
     onError: (err: Error) => toast('error', err.message),
   })
@@ -224,6 +249,73 @@ export function ReceberModal({
           </button>
         </div>
 
+        {receipts ? (
+          <>
+            <div className="p-4 space-y-3">
+              <div className="rounded-xl bg-green-50 dark:bg-green-900/10 border border-green-200/50 dark:border-green-800/20 p-3 text-xs text-green-700 dark:text-green-400 font-medium text-center">
+                Recebimento registrado com sucesso!
+              </div>
+              {receipts.map((r, i) => {
+                const fullUrl = `${window.location.origin}/loja/recibo/${r.token}`
+                return (
+                  <div key={r.token} className="rounded-xl border border-border dark:border-border-dark p-3 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-text-primary dark:text-stone-100">
+                        Recibo{receipts.length > 1 ? ` #${i + 1}` : ''}
+                      </span>
+                      <span className="font-bold text-success-dark">{formatCurrency(r.amount)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-xl border border-border dark:border-border-dark bg-surface dark:bg-white/5 px-3 py-2 text-[11px] font-mono text-text-primary dark:text-stone-100 overflow-x-auto whitespace-nowrap">
+                      {fullUrl}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(fullUrl)
+                            setCopiedToken(r.token)
+                            setTimeout(() => setCopiedToken(null), 2000)
+                          } catch { /* ignore */ }
+                        }}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold border border-border dark:border-border-dark text-text-secondary dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800"
+                      >
+                        {copiedToken === r.token ? <Check size={13} /> : <Copy size={13} />} {copiedToken === r.token ? 'Copiado!' : 'Copiar link'}
+                      </button>
+                      <a
+                        href={`/loja/recibo/${r.token}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold bg-primary text-white hover:bg-primary/90"
+                      >
+                        <ExternalLink size={13} /> Abrir / baixar PDF
+                      </a>
+                    </div>
+                    <WhatsAppShareButton
+                      phone={receivable.customerPhone}
+                      message={buildReceiptMessage({
+                        customerName: receivable.customerName || 'Cliente',
+                        orderNumber: receivable.orderNumber,
+                        amount: r.amount,
+                        publicUrl: fullUrl,
+                      })}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="flex gap-2 p-4 border-t border-border dark:border-border-dark">
+              <button
+                onClick={onClose}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-primary text-white hover:bg-primary/90"
+              >
+                Fechar
+              </button>
+            </div>
+          </>
+        ) : (
+        <>
         <div className="p-4 space-y-4">
           <div className="rounded-xl bg-stone-50 dark:bg-stone-800/50 p-3 space-y-1.5 text-xs">
             <Row label="Cliente" value={receivable.customerName || 'Sem cliente'} />
@@ -364,6 +456,8 @@ export function ReceberModal({
               : <><CheckCircle2 size={15} /> Confirmar recebimento</>}
           </button>
         </div>
+        </>
+        )}
       </div>
     </div>
   )

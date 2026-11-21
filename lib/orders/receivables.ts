@@ -22,6 +22,7 @@ export interface OrderReceivable {
   orderNumber:    string | null
   customerId:     string | null
   customerName:   string | null
+  customerPhone:  string | null
   serviceName:    string | null
   total:          number
   received:       number
@@ -93,7 +94,7 @@ export async function fetchOrderReceivables(
   customerId?: string,
 ): Promise<OrderReceivable[]> {
   let ordersQuery = supabase.from('orders')
-    .select('id, order_number, total, status, payment_method, service_name, customer_id, paid_at, customers(name)')
+    .select('id, order_number, total, status, payment_method, service_name, customer_id, paid_at, customers(name, phone)')
     .eq('company_id', companyId)
   let paymentsQuery = supabase.from('payment_history')
     .select('order_id, amount')
@@ -154,6 +155,7 @@ export async function fetchOrderReceivables(
       orderNumber:    o.order_number ?? null,
       customerId:     o.customer_id ?? null,
       customerName:   o.customers?.name ?? null,
+      customerPhone:  o.customers?.phone ?? null,
       serviceName:    o.service_name ?? null,
       total,
       received,

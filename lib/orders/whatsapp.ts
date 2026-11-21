@@ -113,6 +113,78 @@ export function buildArtApprovedMessage(data: WhatsappArtApprovedData): string {
   return lines.join('\n')
 }
 
+export interface WhatsappChargeData {
+  customerName: string
+  orderNumber: string | null
+  amountDue: number
+  dueDate: string
+  publicUrl: string
+}
+
+/** Mensagem padrão ao compartilhar o aviso de cobrança de UM pedido pelo WhatsApp (editável antes de enviar). */
+export function buildChargeMessage(data: WhatsappChargeData): string {
+  const lines: string[] = []
+  lines.push(`${EMOJI.smile} Olá, ${data.customerName}!`)
+  lines.push('')
+  lines.push(`Segue o aviso de cobrança do pedido #${data.orderNumber || '—'}, no valor de ${formatCurrency(data.amountDue)}, com vencimento em ${formatDateBR(data.dueDate)}.`)
+  lines.push('')
+  lines.push(data.publicUrl)
+  lines.push('')
+  lines.push('O link mostra o QR Code e o código Pix copia e cola para pagamento. Depois de pagar, por favor nos avise aqui para confirmarmos o recebimento.')
+  return lines.join('\n')
+}
+
+export interface WhatsappCustomerChargeData {
+  customerName: string
+  orderCount: number
+  amountDue: number
+  dueDate: string
+  publicUrl: string
+}
+
+/** Mensagem padrão ao compartilhar o aviso de cobrança AGREGADO (vários pedidos) de um cliente pelo WhatsApp (editável antes de enviar). */
+export function buildCustomerChargeMessage(data: WhatsappCustomerChargeData): string {
+  const lines: string[] = []
+  lines.push(`${EMOJI.smile} Olá, ${data.customerName}!`)
+  lines.push('')
+  const pedidosLabel = data.orderCount === 1 ? '1 pedido' : `${data.orderCount} pedidos`
+  lines.push(`Segue o aviso de cobrança referente a ${pedidosLabel} em aberto, totalizando ${formatCurrency(data.amountDue)}, com vencimento em ${formatDateBR(data.dueDate)}.`)
+  lines.push('')
+  lines.push(data.publicUrl)
+  lines.push('')
+  lines.push('O link mostra o detalhamento por pedido, o QR Code e o código Pix copia e cola para pagamento. Depois de pagar, por favor nos avise aqui para confirmarmos o recebimento.')
+  return lines.join('\n')
+}
+
+export interface WhatsappReceiptData {
+  customerName: string
+  orderNumber: string | null
+  amount: number
+  publicUrl: string
+}
+
+/** Mensagem padrão ao compartilhar o recibo de um recebimento pelo WhatsApp (editável antes de enviar). */
+export function buildReceiptMessage(data: WhatsappReceiptData): string {
+  const lines: string[] = []
+  lines.push(`${EMOJI.smile} Olá, ${data.customerName}!`)
+  lines.push('')
+  lines.push(`${EMOJI.receipt} Confirmamos o recebimento de ${formatCurrency(data.amount)} referente ao pedido #${data.orderNumber || '—'}. Segue o recibo:`)
+  lines.push('')
+  lines.push(data.publicUrl)
+  lines.push('')
+  lines.push('Obrigado!')
+  return lines.join('\n')
+}
+
+function formatDateBR(iso: string): string {
+  try {
+    const d = iso.length === 10 ? new Date(iso + 'T00:00:00') : new Date(iso)
+    return d.toLocaleDateString('pt-BR')
+  } catch {
+    return iso
+  }
+}
+
 /**
  * No celular, o wa.me faz o deep-link direto pro app e preserva os emojis
  * sem problema. No computador, o mesmo wa.me passa por um redirecionamento
