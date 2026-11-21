@@ -10,9 +10,10 @@ async function getLink(token:string){
  if(!data||data.revoked_at||data.status==='cancelada') return null
  return data
 }
-export async function GET(_req:Request,{params}:{params:{token:string}}){
+export async function GET(_req:Request,context:{params:Promise<{token:string}>}){
  try{
-  const db=supabaseAdmin as any; const link=await getLink(params.token)
+  const {token}=await context.params
+  const db=supabaseAdmin as any; const link=await getLink(token)
   if(!link) return NextResponse.json({error:'Link indisponível.'},{status:404})
   const {data:version}=await db.from('order_art_approval_versions').select('*').eq('link_id',link.id).eq('version_number',link.current_version).maybeSingle()
   if(!version) return NextResponse.json({error:'Versão não encontrada.'},{status:404})
@@ -34,9 +35,10 @@ export async function GET(_req:Request,{params}:{params:{token:string}}){
   return NextResponse.json({company:{name:company?.name,logoUrl:company?.logo_url},order:{number:order?.order_number,deadline:link.deadline??order?.due_date},customer:{name:order?.customers?.name},item,files,notes:version.public_notes??link.public_notes,instructions:version.instructions_text,instructionsVersion:version.instructions_version,version:version.version_number,status:link.status,response,consentText:ART_APPROVAL_CONSENT_TEXT})
  }catch(e){console.error('[public art approval:get]',e);return NextResponse.json({error:'Falha ao carregar aprovação.'},{status:500})}
 }
-export async function POST(req:Request,{params}:{params:{token:string}}){
+export async function POST(req:Request,context:{params:Promise<{token:string}>}){
  try{
-  const link=await getLink(params.token)
+  const {token}=await context.params
+  const link=await getLink(token)
   if(!link) return NextResponse.json({error:'Link indisponível.'},{status:404})
   if(link.status==='aprovada') return NextResponse.json({error:'Esta arte já foi aprovada.'},{status:409})
   const body=await req.json(); const action=body.action
