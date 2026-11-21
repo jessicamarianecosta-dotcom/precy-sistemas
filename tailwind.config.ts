@@ -11,43 +11,48 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // PRECY+ Paleta Oficial
+        // PRECY+ — tokens de interface. Os valores reais vêm de variáveis CSS
+        // (ver styles/globals.css), uma "paleta" (--data-palette) por vez,
+        // para que a tela de Configurações > Aparência troque toda a
+        // interface sem rebuild. `<alpha-value>` é o placeholder nativo do
+        // Tailwind para opacidade (ex: bg-primary/10) funcionar com cor
+        // vinda de variável — por isso os valores no CSS são "R G B".
         primary: {
-          DEFAULT: '#8B6C4F',
-          50: '#F5F0EB',
-          100: '#EDE3D8',
-          200: '#D9C4A9',
-          300: '#C4A47B',
-          400: '#AF854E',
-          500: '#8B6C4F',
-          600: '#7A5D43',
-          700: '#614A35',
-          800: '#4A3827',
-          900: '#32261A',
-          hover: '#7A5D43',
+          DEFAULT: 'rgb(var(--color-primary) / <alpha-value>)',
+          50: 'rgb(var(--color-primary-50) / <alpha-value>)',
+          100: 'rgb(var(--color-primary-100) / <alpha-value>)',
+          200: 'rgb(var(--color-primary-200) / <alpha-value>)',
+          300: 'rgb(var(--color-primary-300) / <alpha-value>)',
+          400: 'rgb(var(--color-primary-400) / <alpha-value>)',
+          500: 'rgb(var(--color-primary-500) / <alpha-value>)',
+          600: 'rgb(var(--color-primary-600) / <alpha-value>)',
+          700: 'rgb(var(--color-primary-700) / <alpha-value>)',
+          800: 'rgb(var(--color-primary-800) / <alpha-value>)',
+          900: 'rgb(var(--color-primary-900) / <alpha-value>)',
+          hover: 'rgb(var(--color-primary-hover) / <alpha-value>)',
         },
         secondary: {
-          DEFAULT: '#B8956A',
-          hover: '#A07B52',
+          DEFAULT: 'rgb(var(--color-secondary) / <alpha-value>)',
+          hover: 'rgb(var(--color-secondary-hover) / <alpha-value>)',
         },
         background: {
-          DEFAULT: '#FAF7F4',
-          dark: '#1C1714',
+          DEFAULT: 'rgb(var(--color-background) / <alpha-value>)',
+          dark: 'rgb(var(--color-background-dark) / <alpha-value>)',
         },
         surface: {
-          DEFAULT: '#FFFFFF',
-          dark: '#2A2220',
-          card: '#FFFFFF',
-          'card-dark': '#252018',
+          DEFAULT: 'rgb(var(--color-surface) / <alpha-value>)',
+          dark: 'rgb(var(--color-surface-dark) / <alpha-value>)',
+          card: 'rgb(var(--color-surface-card) / <alpha-value>)',
+          'card-dark': 'rgb(var(--color-surface-card-dark) / <alpha-value>)',
         },
         border: {
-          DEFAULT: '#EDE8E2',
-          dark: '#3A3028',
+          DEFAULT: 'rgb(var(--color-border) / <alpha-value>)',
+          dark: 'rgb(var(--color-border-dark) / <alpha-value>)',
         },
         text: {
-          primary: '#2C2018',
-          secondary: '#7A6855',
-          muted: '#B8A898',
+          primary: 'rgb(var(--color-text-primary) / <alpha-value>)',
+          secondary: 'rgb(var(--color-text-secondary) / <alpha-value>)',
+          muted: 'rgb(var(--color-text-muted) / <alpha-value>)',
         },
         // Status Colors
         success: {
@@ -91,9 +96,9 @@ const config: Config = {
         'btn': '0 1px 2px 0 rgba(0,0,0,0.08)',
       },
       backgroundImage: {
-        'gradient-primary': 'linear-gradient(135deg, #8B6C4F 0%, #B8956A 50%, #C4A47B 100%)',
-        'gradient-soft': 'linear-gradient(135deg, #FAF7F4 0%, #F0E8DE 100%)',
-        'gradient-dark': 'linear-gradient(135deg, #1C1714 0%, #2A2220 100%)',
+        'gradient-primary': 'linear-gradient(135deg, rgb(var(--color-primary)) 0%, rgb(var(--color-secondary)) 50%, rgb(var(--color-primary-300)) 100%)',
+        'gradient-soft': 'linear-gradient(135deg, rgb(var(--color-background)) 0%, rgb(var(--color-primary-100)) 100%)',
+        'gradient-dark': 'linear-gradient(135deg, rgb(var(--color-background-dark)) 0%, rgb(var(--color-surface-dark)) 100%)',
       },
       keyframes: {
         shimmer: {

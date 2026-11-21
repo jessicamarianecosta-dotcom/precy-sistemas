@@ -1,4 +1,10 @@
 import type { StoreThemePalettes } from '@/lib/catalog/theme/palette'
+import type { BackgroundThemeId } from '@/lib/catalog/theme/backgroundThemes'
+
+export type BannerHeight = 'sm' | 'md' | 'lg'
+export type BannerImagePosition = 'left' | 'center' | 'right'
+export type BackgroundType = 'theme' | 'image' | 'color'
+export type BackgroundImageSize = 'cover' | 'repeat' | 'contain'
 
 export interface StorefrontSettings {
   company_id:   string
@@ -20,6 +26,23 @@ export interface StorefrontSettings {
   policies_text: string | null
   theme_color:  string
   theme_palette: StoreThemePalettes | null
+
+  // Banner principal (hero) — Seção 2 do redesign
+  banner_height:         BannerHeight
+  banner_image_position: BannerImagePosition
+  banner_rounded:        boolean
+  banner_show_text:      boolean
+  banner_button_text:    string | null
+  banner_button_link:    string | null
+
+  // Aparência da loja / fundo — Seção 3 do redesign
+  background_type:            BackgroundType
+  background_theme:           BackgroundThemeId
+  background_color:           string | null
+  background_image_url:       string | null
+  background_image_size:      BackgroundImageSize
+  background_image_position:  BannerImagePosition
+  background_overlay_opacity: number
 }
 
 export interface StorefrontProduct {

@@ -1,16 +1,31 @@
 import type { Metadata } from 'next'
+import { cookies } from 'next/headers'
 import Link from 'next/link'
 import { MontagemStudio } from '@/components/montagem/MontagemStudio'
+import { MontagemPaywall } from '@/components/montagem/MontagemPaywall'
 import { ThemeToggleButton } from '@/components/montagem/ThemeToggleButton'
+import { hasActivePrecySubscription } from '@/lib/montagem/subscriberAccess'
+import { MONTAGEM_ACCESS_COOKIE, verifyMontagemAccess } from '@/lib/montagem/accessCookie'
 
 export const metadata: Metadata = {
-  title: 'Montagem de Artes Gráficas Online e Gratuita',
-  description: 'Monte e aproveite artes para impressão em folhas (A4, A3, A5 ou personalizada) ou bobinas. Calcule o encaixe exato, visualize e exporte em PDF ou PNG — grátis, sem cadastro.',
+  title: 'Montagem de Artes Gráficas Online',
+  description: 'Monte e aproveite artes para impressão em folhas (A4, A3, A5 ou personalizada) ou bobinas. Calcule o encaixe exato, visualize e exporte em PDF ou PNG — grátis para assinantes do Precy+, ou avulso por R$ 27,00/ano.',
   alternates: { canonical: '/montagem' },
   robots: { index: true, follow: true },
 }
 
-export default function MontagemPublicPage() {
+async function hasMontagemAccess(): Promise<boolean> {
+  if (await hasActivePrecySubscription()) return true
+
+  const cookieStore = await cookies()
+  const token = cookieStore.get(MONTAGEM_ACCESS_COOKIE)?.value
+  if (!token) return false
+  return verifyMontagemAccess(token) != null
+}
+
+export default async function MontagemPublicPage() {
+  const unlocked = await hasMontagemAccess()
+
   return (
     <div className="min-h-screen bg-background dark:bg-background-dark">
       <header className="border-b border-border dark:border-border-dark bg-white dark:bg-surface-dark">
@@ -31,11 +46,11 @@ export default function MontagemPublicPage() {
       </header>
 
       <main className="max-w-[1400px] mx-auto px-4 py-6">
-        <MontagemStudio variant="public" />
+        {unlocked ? <MontagemStudio variant="public" /> : <MontagemPaywall />}
       </main>
 
       <footer className="max-w-[1400px] mx-auto px-4 py-8 text-center text-xs text-text-muted dark:text-stone-500">
-        PRECY MONTAGEM é uma ferramenta gratuita do{' '}
+        PRECY MONTAGEM é uma ferramenta do{' '}
         <Link href="/" className="text-primary hover:underline">Precy+</Link>.
         Nenhum arquivo enviado aqui é armazenado em nossos servidores.
       </footer>

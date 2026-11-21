@@ -34,6 +34,18 @@ const GLASS_BUTTON = 'flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs
 const NAME_SHADOW = { textShadow: '0 3px 15px rgba(0,0,0,.65)' }
 const DESC_SHADOW = { textShadow: '0 2px 8px rgba(0,0,0,.60)' }
 
+const HEIGHT_CLASSES: Record<'sm' | 'md' | 'lg', string> = {
+  sm: 'min-h-48 sm:min-h-56 lg:min-h-64',
+  md: 'min-h-64 sm:min-h-72 lg:min-h-80',
+  lg: 'min-h-80 sm:min-h-96 lg:min-h-[28rem]',
+}
+
+const OBJECT_POSITION: Record<'left' | 'center' | 'right', string> = {
+  left: 'left center',
+  center: 'center',
+  right: 'right center',
+}
+
 export function StoreHero({ settings, storeName, categories = [], themeToggle }: Props) {
   const { toast } = useToast()
   const { isFavorite, toggle } = useFavorites()
@@ -42,6 +54,11 @@ export function StoreHero({ settings, storeName, categories = [], themeToggle }:
   const gradient = useMemo(() => overlayGradient(brightness), [brightness])
 
   const storeUrl = typeof window !== 'undefined' ? window.location.href : ''
+  const heightClass = HEIGHT_CLASSES[settings.banner_height ?? 'md']
+  const objectPosition = OBJECT_POSITION[settings.banner_image_position ?? 'center']
+  const rounded = settings.banner_rounded ?? true
+  const showText = settings.banner_show_text ?? true
+  const hasButton = showText && !!settings.banner_button_text && !!settings.banner_button_link
 
   async function handleShare() {
     if (navigator.share) {
@@ -58,18 +75,25 @@ export function StoreHero({ settings, storeName, categories = [], themeToggle }:
       {/* Foto de fundo em tela cheia — cresce junto com o conteúdo, nunca corta o texto */}
       <div className="absolute inset-0 overflow-hidden">
         {settings.banner_url ? (
-          <Image src={settings.banner_url} alt="" fill sizes="100vw" priority className="object-cover" />
+          <Image src={settings.banner_url} alt="" fill sizes="100vw" priority className="object-cover" style={{ objectPosition }} />
         ) : (
           <div className="w-full h-full" style={{ background: 'linear-gradient(135deg, var(--store-primary), var(--store-accent))' }} />
         )}
-        {/* Overlay escuro inteligente — mais forte quanto mais claro for o banner */}
-        <div className="absolute inset-0" style={{ background: gradient }} />
+        {/* Overlay escuro inteligente — só quando há texto sobre a imagem (mesmo caso contrário, ainda ajuda a loja vazia) */}
+        {(showText || !settings.banner_url) && <div className="absolute inset-0" style={{ background: gradient }} />}
       </div>
 
-      <div className="relative min-h-64 sm:min-h-72 lg:min-h-80 flex items-end">
-        <div className="max-w-6xl mx-auto px-4 pb-4 sm:pb-6 w-full">
+      <div className={clsx('relative flex items-end', heightClass)}>
+        {!showText ? (
+          // Modo "só imagem" — nenhum texto/badge/botão sobreposto ao banner.
+          <div className="w-full" />
+        ) : (
+        <div className={clsx('mx-auto w-full', rounded ? 'max-w-6xl px-4 pb-4 sm:pb-6' : 'px-0 pb-0')}>
           {/* Caixa de conteúdo — nunca deixa o texto "solto" direto sobre a imagem */}
-          <div className="rounded-3xl bg-black/[0.35] backdrop-blur-[12px] border border-white/[0.08] p-5 sm:p-8">
+          <div className={clsx(
+            'bg-black/[0.35] backdrop-blur-[12px] border border-white/[0.08] p-5 sm:p-8',
+            rounded ? 'rounded-3xl' : 'rounded-none border-x-0 max-w-6xl mx-auto px-4 sm:px-8'
+          )}>
             <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-5 sm:gap-6 items-start">
               {/* Coluna 1 — Logo (permanece exatamente onde está) */}
               <div className="flex justify-center sm:justify-start">
@@ -141,10 +165,25 @@ export function StoreHero({ settings, storeName, categories = [], themeToggle }:
                   </button>
                   {themeToggle}
                 </div>
+
+                {hasButton && (
+                  <div className="mt-4">
+                    <a
+                      href={settings.banner_button_link!}
+                      target={settings.banner_button_link!.startsWith('http') ? '_blank' : undefined}
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full text-sm font-bold shadow-lg transition-transform hover:scale-105"
+                      style={{ backgroundColor: 'var(--store-primary)', color: 'var(--store-button-text)' }}
+                    >
+                      {settings.banner_button_text}
+                    </a>
+                  </div>
+                )}
               </div>
             </div>
           </div>
         </div>
+        )}
       </div>
     </div>
   )

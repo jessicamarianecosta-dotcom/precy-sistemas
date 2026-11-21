@@ -71,6 +71,23 @@ export const viewport: Viewport = {
   ],
 }
 
+/* Aplica a paleta salva (localStorage) na tag <html> antes da primeira
+   pintura — mesmo mecanismo que o next-themes usa para claro/escuro, só
+   que para a paleta de cor (ver providers/AppThemeProvider). Sem isso,
+   a interface nasceria sempre na paleta "clássico" e só trocaria de cor
+   um instante depois, no primeiro efeito do React (flash perceptível). */
+const SET_PALETTE_SCRIPT = `
+(function () {
+  try {
+    var v = localStorage.getItem('precy_app_palette');
+    var valid = ['classico', 'rosa', 'verde', 'azul', 'roxo', 'grafite'];
+    document.documentElement.setAttribute('data-palette', valid.indexOf(v) !== -1 ? v : 'classico');
+  } catch (e) {
+    document.documentElement.setAttribute('data-palette', 'classico');
+  }
+})();
+`
+
 export default function RootLayout({
   children,
 }: {
@@ -78,6 +95,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: SET_PALETTE_SCRIPT }} />
+      </head>
       <body className={`${inter.variable} font-sans`}>
         <Providers>{children}</Providers>
         <ServiceWorkerRegister />

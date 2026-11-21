@@ -39,7 +39,7 @@ const STATUS_COLORS = {
   pending:    '#C4893A',
   production: '#3A7EC4',
   ready:      '#5C8B4F',
-  delivered:  '#8B6C4F',
+  delivered:  'rgb(var(--color-primary))',
   cancelled:  '#C4503A',
 }
 const STATUS_LABELS = {
@@ -313,7 +313,7 @@ export default function DashboardPage() {
             </p>
             <a href="/assinatura/upgrade"
               className="text-xs font-bold text-white px-4 py-2 rounded-lg flex-shrink-0 hover:opacity-90"
-              style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}>
+              style={{ background: 'linear-gradient(135deg, rgb(var(--color-primary)), rgb(var(--color-secondary)))' }}>
               Renovar agora
             </a>
           </div>
@@ -331,7 +331,7 @@ export default function DashboardPage() {
             {(data?.revenue ?? 0) === 0 &&
              (data?.activeOrdersCount ?? 0) === 0 && (
               <div className="rounded-2xl border border-primary/25 overflow-hidden"
-                style={{ background: 'linear-gradient(135deg, rgba(139,108,79,0.07), rgba(184,149,106,0.04))' }}>
+                style={{ background: 'linear-gradient(135deg, rgba(var(--color-primary) / 0.07), rgba(var(--color-secondary) / 0.04))' }}>
                 <div className="p-5">
                   <div className="flex items-start gap-3 mb-4">
                     <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 text-xl">🚀</div>
@@ -535,7 +535,7 @@ export default function DashboardPage() {
                     <AreaChart data={data.chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                       <defs>
                         {[
-                          { id: 'receita',  color: '#8B6C4F' },
+                          { id: 'receita',  color: 'rgb(var(--color-primary))' },
                           { id: 'despesas', color: '#C4503A' },
                           { id: 'lucro',    color: '#5C8B4F' },
                         ].map(g => (
@@ -545,12 +545,12 @@ export default function DashboardPage() {
                           </linearGradient>
                         ))}
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(139,108,79,0.08)" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(var(--color-primary) / 0.08)" />
                       <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#B8A898' }} axisLine={false} tickLine={false} />
                       <YAxis tick={{ fontSize: 10, fill: '#B8A898' }} axisLine={false} tickLine={false}
                         tickFormatter={v => `R$${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
                       <Tooltip content={<ChartTooltip />} />
-                      <Area type="monotone" dataKey="receita"  stroke="#8B6C4F" strokeWidth={2} fill="url(#grad-receita)"  name="Receita" />
+                      <Area type="monotone" dataKey="receita"  stroke="rgb(var(--color-primary))" strokeWidth={2} fill="url(#grad-receita)"  name="Receita" />
                       <Area type="monotone" dataKey="despesas" stroke="#C4503A" strokeWidth={2} fill="url(#grad-despesas)" name="Despesas" />
                       <Area type="monotone" dataKey="lucro"    stroke="#5C8B4F" strokeWidth={2} fill="url(#grad-lucro)"    name="Lucro" />
                     </AreaChart>
@@ -589,7 +589,7 @@ export default function DashboardPage() {
                         <Pie data={pieData} cx="50%" cy="50%" innerRadius={42} outerRadius={60} paddingAngle={3} dataKey="value">
                           {pieData.map((e, i) => <Cell key={i} fill={e.color} />)}
                         </Pie>
-                        <Tooltip formatter={(v: number) => [v, 'pedidos']} contentStyle={{ borderRadius: '12px', fontSize: 11, border: '1px solid rgba(139,108,79,0.15)' }} />
+                        <Tooltip formatter={(v: number) => [v, 'pedidos']} contentStyle={{ borderRadius: '12px', fontSize: 11, border: '1px solid rgba(var(--color-primary) / 0.15)' }} />
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="space-y-1.5 mt-1">
@@ -633,11 +633,11 @@ export default function DashboardPage() {
                       margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
                       barSize={28}
                     >
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(139,108,79,0.08)" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(var(--color-primary) / 0.08)" vertical={false} />
                       <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#B8A898' }} axisLine={false} tickLine={false} />
                       <YAxis tick={{ fontSize: 10, fill: '#B8A898' }} axisLine={false} tickLine={false} />
                       <Tooltip
-                        cursor={{ fill: 'rgba(139,108,79,0.05)' }}
+                        cursor={{ fill: 'rgba(var(--color-primary) / 0.05)' }}
                         formatter={(v: number) => [v, 'pedidos']}
                         contentStyle={{ borderRadius: '12px', fontSize: 11 }}
                       />

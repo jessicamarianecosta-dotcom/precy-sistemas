@@ -708,7 +708,7 @@ export default function ProdutosPage() {
 
             {/* Header */}
             <div className="flex items-start justify-between p-4 sm:p-5 border-b border-border dark:border-border-dark flex-shrink-0"
-              style={{ background: 'linear-gradient(135deg, rgba(139,108,79,0.07), rgba(184,149,106,0.04))' }}>
+              style={{ background: 'linear-gradient(135deg, rgba(var(--color-primary) / 0.07), rgba(var(--color-secondary) / 0.04))' }}>
               <div className="flex items-start gap-3 min-w-0">
                 <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
                   <Package size={18} className="text-primary" />
