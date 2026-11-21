@@ -188,6 +188,15 @@ function FichaSection({
   )
 }
 
+/* 'service' só existe para produtos criados pela calculadora do Essencial
+   (ver components/precificacao/EssencialPricingCalculator.tsx) — produced e
+   resale continuam exatamente como antes. */
+function productTypeLabel(type: string | null | undefined): string {
+  if (type === 'produced') return 'Produzido'
+  if (type === 'service')  return 'Serviço'
+  return 'Revenda'
+}
+
 /* ─── Page ─── */
 export default function ProdutosPage() {
   const supabase      = createClient()
@@ -588,7 +597,7 @@ export default function ProdutosPage() {
                               <span className="badge badge-primary">{p.category}</span>
                               {p.product_type && (
                                 <span className="badge badge-info text-[9px]">
-                                  {p.product_type === 'produced' ? 'Produzido' : 'Revenda'}
+                                  {productTypeLabel(p.product_type)}
                                 </span>
                               )}
                             </div>
@@ -652,7 +661,7 @@ export default function ProdutosPage() {
                             <span className="badge badge-primary">{p.category}</span>
                             {p.product_type && (
                               <span className="badge badge-info text-[9px]">
-                                {p.product_type === 'produced' ? 'Produzido' : 'Revenda'}
+                                {productTypeLabel(p.product_type)}
                               </span>
                             )}
                           </div>
@@ -710,7 +719,7 @@ export default function ProdutosPage() {
                     <span className="badge badge-primary">{vp?.category}</span>
                     {vp?.product_type && (
                       <span className={clsx('badge', vp.product_type === 'produced' ? 'badge-info' : 'badge-warning')}>
-                        {vp.product_type === 'produced' ? '🔨 Produzido' : '🛍️ Revenda'}
+                        {vp.product_type === 'produced' ? '🔨 Produzido' : vp.product_type === 'service' ? '🧰 Serviço' : '🛍️ Revenda'}
                       </span>
                     )}
                     <span className="badge badge-primary text-[9px]">{vp?.unit}</span>
@@ -733,7 +742,7 @@ export default function ProdutosPage() {
                   {[
                     { label: 'Categoria',   value: vp?.category },
                     { label: 'Unidade',     value: vp?.unit },
-                    { label: 'Tipo',        value: vp?.product_type === 'produced' ? 'Produzido' : vp?.product_type === 'resale' ? 'Revenda' : '—' },
+                    { label: 'Tipo',        value: vp?.product_type ? productTypeLabel(vp.product_type) : '—' },
                     { label: 'Prod. (horas)', value: vp?.production_time_hours ? `${vp.production_time_hours}h` : '—' },
                   ].map(item => (
                     <div key={item.label} className="rounded-xl p-2.5 bg-primary-50/50 dark:bg-primary/5">

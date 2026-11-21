@@ -2,17 +2,22 @@ import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
 import { NextResponse }           from 'next/server'
 import type { NextRequest }       from 'next/server'
 import { canAccessCatalog }       from '@/lib/catalog/betaAccess'
+import { canAccessNotasFiscais }  from '@/lib/notasFiscais/betaAccess'
 import { TERMS_VERSION, PRIVACY_VERSION } from '@/lib/legal/versions'
 
 /* ── Rotas públicas ── */
+// /api/auth/signup precisa ser pública: é chamada por um visitante ainda SEM
+// sessão (ver app/(auth)/cadastro/page.tsx) — sem isso, o middleware barra a
+// chamada e manda pro /login antes de criar a conta, quebrando o cadastro de
+// usuários novos.
 const PUBLIC = ['/', '/login', '/cadastro', '/recuperar-senha', '/nova-senha',
                 '/termos', '/privacidade', '/reembolso', '/cancelamento', '/suporte',
-                '/loja', '/api/loja',
+                '/loja', '/api/loja', '/api/auth/signup',
                 // PRECY MONTAGEM — ferramenta pública, sem cadastro. Rota literal
                 // '/montagem' apenas: NÃO usar prefixo que bata em '/montagem-studio'
                 // (painel interno, autenticado e restrito por e-mail em
                 // app/(dashboard)/montagem-studio/layout.tsx).
-                '/montagem']
+                '/montagem', '/aprovar-arte', '/api/public/aprovacao-arte']
 
 /* ── Gate de re-aceite de Termos/Privacidade: liberado mesmo sem aceite
    atual, para não gerar loop de redirecionamento ── */
@@ -46,6 +51,14 @@ const FEEDBACK_LOCKED_ROUTE = '/feedback-indisponivel'
    público) continua liberado, só a administração do catálogo é restrita ── */
 const CATALOG_ROUTES = ['/catalogo', '/api/catalogo']
 const CATALOG_SOON_ROUTE = '/catalogo-em-breve'
+
+/* ── Notas Fiscais (emissão via Bling): beta privado, restrito ao ID
+   estável de uma única conta (ver lib/notasFiscais/betaAccess.ts) — não
+   depende de plano nem de e-mail enviado pelo client. Cobre a UI
+   (/notas-fiscais) e as rotas de API do módulo (/api/notas-fiscais,
+   /api/bling) — usuárias fora do beta recebem 404 na UI (nunca revela
+   que a rota existe) e 403 nas rotas de API. ── */
+const NOTAS_FISCAIS_ROUTES = ['/notas-fiscais', '/api/notas-fiscais', '/api/bling']
 
 /* ── Rotas de bloqueio ── */
 const BLOCKED_ROUTE       = '/assinatura/bloqueada'   // era pagante, parou de pagar
@@ -276,6 +289,20 @@ export async function middleware(req: NextRequest) {
       return NextResponse.json({ error: 'Catálogo Online ainda não está disponível para esta conta.' }, { status: 403 })
     }
     return NextResponse.redirect(new URL(CATALOG_SOON_ROUTE, req.url))
+  }
+
+  /* ── Notas Fiscais: beta de uma única conta, checado pelo ID estável
+     da sessão (session.user.id vem do JWT validado pelo
+     createMiddlewareClient — nunca de um header/e-mail que o próprio
+     browser poderia mandar). Fora do beta: 404 na UI (não revela que a
+     rota existe) e 403 nas rotas de API — reconferido de novo dentro de
+     cada rota em lib/notasFiscais/server-auth.ts, nunca só aqui. ── */
+  const isNotasFiscaisRoute = NOTAS_FISCAIS_ROUTES.some(r => pathname === r || pathname.startsWith(r + '/'))
+  if (isNotasFiscaisRoute && !canAccessNotasFiscais(session.user.id)) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Notas Fiscais ainda não está disponível para esta conta.' }, { status: 403 })
+    }
+    return NextResponse.rewrite(new URL('/404', req.url))
   }
 
   /* ── Proteção de rotas Essencial/PRO ── */

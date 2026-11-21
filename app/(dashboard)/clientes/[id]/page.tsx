@@ -13,6 +13,7 @@ import { ptBR } from 'date-fns/locale'
 import { formatCurrency } from '@/lib/utils/format'
 import { normalizePhoneToWhatsapp, openWhatsappConversation } from '@/lib/orders/whatsapp'
 import { fetchOrderReceivables, type OrderReceivable } from '@/lib/orders/receivables'
+import { GerarCobrancaClienteModal } from '@/components/finance/GerarCobrancaClienteModal'
 import {
   ArrowLeft, Edit2, MessageCircle, Mail, Phone, MapPin, Calendar,
   Loader2, UserX, Wallet, TrendingUp, AlertTriangle, ArrowDownCircle,
@@ -142,6 +143,7 @@ export default function FichaClientePage() {
 
   const [tab, setTab] = useState<TabId>('visao')
   const [detailOrder, setDetailOrder] = useState<OrderRow | null>(null)
+  const [showGerarCobranca, setShowGerarCobranca] = useState(false)
   const [filterStatus, setFilterStatus] = useState<string>('')
   const [filterSituacao, setFilterSituacao] = useState<string>('')
   const [filterFrom, setFilterFrom] = useState<string>('')
@@ -237,6 +239,13 @@ export default function FichaClientePage() {
   )
   const totalVencido = useMemo(
     () => (receivables ?? []).filter(r => r.status === 'vencido').reduce((s, r) => s + r.balance, 0),
+    [receivables]
+  )
+  /* Pedidos com saldo em aberto deste cliente — base do aviso de cobrança agregado. */
+  const openOrdersForCharge = useMemo(
+    () => (receivables ?? [])
+      .filter(r => (r.status === 'a_receber' || r.status === 'parcial' || r.status === 'vencido') && r.balance > 0)
+      .map(r => ({ orderId: r.orderId, orderNumber: r.orderNumber, serviceName: r.serviceName, balance: r.balance, dueDate: r.dueDate })),
     [receivables]
   )
   const totalPagoAoCliente = useMemo(
@@ -618,9 +627,20 @@ export default function FichaClientePage() {
 
             {/* Contas a receber */}
             <div>
-              <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-2 flex items-center gap-1.5">
-                <CreditCard size={14} /> Contas a receber
-              </h3>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100 flex items-center gap-1.5">
+                  <CreditCard size={14} /> Contas a receber
+                </h3>
+                {openOrdersForCharge.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowGerarCobranca(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-primary text-white hover:bg-primary/90"
+                  >
+                    <Receipt size={13} /> Gerar aviso de cobrança
+                  </button>
+                )}
+              </div>
               <div className="card p-0 overflow-hidden">
                 {(receivables ?? []).length === 0 ? (
                   <EmptyState icon={CreditCard} title="Nenhum valor a receber" description="Este cliente não possui contas a receber." />
@@ -834,6 +854,14 @@ export default function FichaClientePage() {
             </div>
           </div>
         </div>
+      )}
+
+      {showGerarCobranca && customer && (
+        <GerarCobrancaClienteModal
+          customer={{ id: customer.id, name: customer.name, phone: customer.phone }}
+          openOrders={openOrdersForCharge}
+          onClose={() => setShowGerarCobranca(false)}
+        />
       )}
     </div>
   )

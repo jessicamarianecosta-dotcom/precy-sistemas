@@ -74,7 +74,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const { data: order, error: orderError } = await db
     .from('orders')
-    .select('id, company_id, customer_id, order_number, service_name, total, status, paid_at')
+    .select('id, company_id, customer_id, order_number, service_name, total, status, paid_at, customers(name, phone)')
     .eq('id', orderId)
     .eq('company_id', companyId)
     .maybeSingle()
@@ -174,5 +174,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     orderStatus: order.status,
   })
 
-  return NextResponse.json({ charge, display, public_url: `/loja/cobranca/${charge.public_token}` })
+  return NextResponse.json({
+    charge,
+    display,
+    public_url: `/loja/cobranca/${charge.public_token}`,
+    customer: { name: order.customers?.name ?? null, phone: order.customers?.phone ?? null },
+  })
 }

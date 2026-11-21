@@ -85,6 +85,8 @@ import {
 } from '@/lib/orders/paymentSchedule'
 import { fetchOrderReceivables, type OrderReceivable } from '@/lib/orders/receivables'
 import { GerarCobrancaModal } from '@/components/finance/GerarCobrancaModal'
+import { WhatsAppShareButton } from '@/components/finance/WhatsAppShareButton'
+import { buildReceiptMessage } from '@/lib/orders/whatsapp'
 import { extractPixSnapshot } from '@/lib/company/pix'
 import { VariantPickerModal, type VariantSelection } from '@/components/produtos/VariantPickerModal'
 import { useProductsWithVariants } from '@/hooks/useProductsWithVariants'
@@ -373,6 +375,9 @@ function PedidosPage() {
   /* Payment registration modal */
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showGerarCobranca, setShowGerarCobranca] = useState(false)
+  const [reciboShare, setReciboShare] = useState<{
+    token: string; amount: number; orderNumber: string | null; customerName: string | null; customerPhone: string | null
+  } | null>(null)
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null)
   const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null)
   const [viewingPaymentId, setViewingPaymentId] = useState<string | null>(null)
@@ -878,6 +883,32 @@ function PedidosPage() {
     })
   }
 
+  const [settingArtOriginId, setSettingArtOriginId] = useState<string | null>(null)
+
+  /**
+   * Habilita o fluxo de aprovação de arte num item de pedido criado
+   * manualmente (fora do Catálogo Online, que já grava art_origin no
+   * checkout). Só atua em itens já persistidos (id é UUID real), senão a
+   * UPDATE não encontraria a linha — item recém-adicionado e ainda não
+   * salvo precisa ser salvo primeiro.
+   */
+  async function setItemArtOrigin(item: OrderItem, origin: 'own' | 'lumilife') {
+    if (!UUID_RE.test(item.id)) { toast('error', 'Salve o pedido antes de habilitar a aprovação de arte neste item'); return }
+    setSettingArtOriginId(item.id)
+    try {
+      const { error } = await (supabase.from('order_items') as any)
+        .update({ art_origin: origin, art_approval_status: 'pending', updated_at: new Date().toISOString() })
+        .eq('id', item.id)
+      if (error) throw error
+      setItems(prev => prev.map(i => i.id === item.id ? { ...i, art_origin: origin, art_approval_status: i.art_approval_status ?? 'pending' } : i))
+      toast('success', 'Aprovação de arte habilitada para este item')
+    } catch (e: any) {
+      toast('error', e.message ?? 'Não foi possível habilitar a aprovação de arte')
+    } finally {
+      setSettingArtOriginId(null)
+    }
+  }
+
   function applyVariantToItem(item: OrderItem, sel: VariantSelection) {
     const rest = (item.description || '').split('\n').filter(l => !l.startsWith('Variação:')).join('\n')
     const next: OrderItem = {
@@ -1182,7 +1213,7 @@ function PedidosPage() {
       /* Registra recebimento + lançamento financeiro atomicamente (RPC
          register_order_payment) — se um dos dois inserts falhar, o Postgres
          desfaz os dois, evitando dessincronia entre os módulos. */
-      const { error: rpcError } = await (supabase.rpc as any)('register_order_payment', {
+      const { data: paymentId, error: rpcError } = await (supabase.rpc as any)('register_order_payment', {
         p_order_id: editingId,
         p_company_id: companyId,
         p_customer_id: orderRecord.customer_id,
@@ -1207,10 +1238,17 @@ function PedidosPage() {
         await recalcCustomerTotalPurchases(supabase, orderRecord.customer_id, companyId)
       }
 
-      return newPaymentStatus
+      return {
+        newPaymentStatus,
+        paymentId: (paymentId as string | null) ?? null,
+        amount,
+        orderNumber: orderRecord.order_number ?? null,
+        customerName: orderRecord.customers?.name ?? null,
+        customerPhone: orderRecord.customers?.phone ?? null,
+      }
     },
 
-    onSuccess: () => {
+    onSuccess: async (result) => {
       queryClient.invalidateQueries({ queryKey: ['payment_history', editingId] })
       queryClient.invalidateQueries({ queryKey: ['payment_schedule', editingId] })
       queryClient.invalidateQueries({ queryKey: ['orders', companyId] })
@@ -1227,6 +1265,25 @@ function PedidosPage() {
       setAmountDisplayText('')
       setPercentageDisplayText('')
       toast('success', 'Recebimento registrado!')
+
+      /* Busca o token público do recibo deste recebimento para oferecer
+         "baixar recibo"/"enviar pelo WhatsApp", mesmo padrão do Financeiro
+         (ReceberModal). */
+      if (result.paymentId) {
+        const { data: row } = await (supabase.from('payment_history') as any)
+          .select('public_token')
+          .eq('id', result.paymentId)
+          .maybeSingle()
+        if (row?.public_token) {
+          setReciboShare({
+            token: row.public_token,
+            amount: result.amount,
+            orderNumber: result.orderNumber,
+            customerName: result.customerName,
+            customerPhone: result.customerPhone,
+          })
+        }
+      }
     },
 
     onError: (err: Error) => {
@@ -2203,6 +2260,7 @@ function PedidosPage() {
                           key={order.id}
                           draggable
                           onDragStart={() => setDragging(order.id)}
+                          onClick={() => openOrder(order)}
                           className={clsx(
                             'group bg-white dark:bg-surface-dark rounded-2xl p-3.5 shadow-card border transition-all cursor-grab active:cursor-grabbing',
                             dragging === order.id
@@ -2965,6 +3023,27 @@ function PedidosPage() {
                               </button>
                             </div>
                           </div>
+                          {editingId && companyId && !item.art_origin && UUID_RE.test(item.id) && (
+                            <div className="mt-2 pt-2 border-t border-dashed border-border dark:border-border-dark flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] text-text-muted">Habilitar aprovação de arte neste item:</span>
+                              <button
+                                type="button"
+                                disabled={settingArtOriginId === item.id}
+                                onClick={() => setItemArtOrigin(item, 'own')}
+                                className="text-[11px] font-medium px-2 py-1 rounded-lg border border-border dark:border-border-dark hover:bg-surface dark:hover:bg-white/5 disabled:opacity-50"
+                              >
+                                Cliente enviou arte própria
+                              </button>
+                              <button
+                                type="button"
+                                disabled={settingArtOriginId === item.id}
+                                onClick={() => setItemArtOrigin(item, 'lumilife')}
+                                className="text-[11px] font-medium px-2 py-1 rounded-lg border border-border dark:border-border-dark hover:bg-surface dark:hover:bg-white/5 disabled:opacity-50"
+                              >
+                                Arte feita pela equipe
+                              </button>
+                            </div>
+                          )}
                           {editingId && companyId && item.art_origin && (
                             <OrderItemArtPanel
                               orderId={editingId}
@@ -3629,6 +3708,7 @@ function PedidosPage() {
           orderNumber: currentOrder?.order_number ?? null,
           customerId: watch('customer_id') || null,
           customerName: selectedCustomer?.name ?? null,
+          customerPhone: selectedCustomer?.phone ?? null,
           serviceName: watch('service_name') || null,
           total: orderTotal,
           received: totalReceived,
@@ -3643,6 +3723,59 @@ function PedidosPage() {
           installmentsPaid: 0,
         }
         return <GerarCobrancaModal receivable={receivable} onClose={() => setShowGerarCobranca(false)} />
+      })()}
+
+      {/* ══════════════════════════════════
+          RECIBO — baixar / enviar pelo WhatsApp após registrar recebimento
+      ══════════════════════════════════ */}
+
+      {reciboShare && (() => {
+        const token = reciboShare.token
+        const fullUrl = `${window.location.origin}/loja/recibo/${token}`
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={() => setReciboShare(null)}>
+            <div className="w-full sm:max-w-md bg-white dark:bg-surface-dark rounded-t-2xl sm:rounded-2xl shadow-modal max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between p-4 border-b border-border dark:border-border-dark">
+                <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Recibo do recebimento</h3>
+                <button onClick={() => setReciboShare(null)} className="p-1 rounded-lg text-text-muted hover:bg-stone-100 dark:hover:bg-stone-800">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="p-4 space-y-4">
+                <div className="rounded-xl bg-green-50 dark:bg-green-900/10 border border-green-200/50 dark:border-green-800/20 p-3 text-xs text-green-700 dark:text-green-400 font-medium text-center">
+                  Recebimento de {fmtGlobal(reciboShare.amount)} registrado com sucesso!
+                </div>
+                <div className="flex items-center gap-2 rounded-xl border border-border dark:border-border-dark bg-surface dark:bg-white/5 px-3 py-2.5 text-xs font-mono text-text-primary dark:text-stone-100 overflow-x-auto whitespace-nowrap">
+                  {fullUrl}
+                </div>
+                <div className="flex gap-2">
+                  <a
+                    href={`/loja/recibo/${token}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold bg-primary text-white hover:bg-primary/90"
+                  >
+                    Abrir / baixar PDF
+                  </a>
+                </div>
+                <WhatsAppShareButton
+                  phone={reciboShare.customerPhone}
+                  message={buildReceiptMessage({
+                    customerName: reciboShare.customerName || 'Cliente',
+                    orderNumber: reciboShare.orderNumber,
+                    amount: reciboShare.amount,
+                    publicUrl: fullUrl,
+                  })}
+                />
+              </div>
+              <div className="flex gap-2 p-4 border-t border-border dark:border-border-dark">
+                <button onClick={() => setReciboShare(null)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-primary text-white hover:bg-primary/90">
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        )
       })()}
 
       {/* ══════════════════════════════════

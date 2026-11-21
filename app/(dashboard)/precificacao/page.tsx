@@ -20,6 +20,7 @@ import { useToast } from '@/components/ui/Toaster'
 import { formatCurrency as fmt } from '@/lib/utils/format'
 import { formatDimDisplay, formatAreaM2, getDimBlock } from '@/lib/utils/dimensions'
 import { useSubscription } from '@/hooks/useSubscription'
+import { EssencialPricingCalculator } from '@/components/precificacao/EssencialPricingCalculator'
 
 /* ─────────────────────────── Types ─── */
 type ProductType = 'produced' | 'resale' | 'meter_product'
@@ -2592,6 +2593,23 @@ function Row({ label, value, color }: { label: string; value: number; color: str
   )
 }
 
+/* Roteamento por plano: assinantes do Essencial (sem PRO) usam a calculadora
+   genérica do Essencial ao CRIAR um cálculo novo. Editar um produto/variação
+   existente (productId/variantId na URL) sempre abre a calculadora do PRO,
+   pois é ela quem sabe ler o payload desses produtos já cadastrados — isso
+   também preserva 100% do comportamento atual do PRO, que nunca passa por
+   aqui. */
+function PrecificacaoRouter() {
+  const searchParams = useSearchParams()
+  const isEditing = !!searchParams.get('productId') || !!searchParams.get('variantId')
+  const { data: sub } = useSubscription()
+
+  if (!isEditing && sub?.isEssencial && !sub?.isPro) {
+    return <EssencialPricingCalculator />
+  }
+  return <PrecificacaoPage />
+}
+
 /* Suspense wrapper necessário para useSearchParams no Next.js App Router */
 export default function PrecificacaoPageWrapper() {
   return (
@@ -2600,7 +2618,7 @@ export default function PrecificacaoPageWrapper() {
         <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     }>
-      <PrecificacaoPage />
+      <PrecificacaoRouter />
     </Suspense>
   )
 }

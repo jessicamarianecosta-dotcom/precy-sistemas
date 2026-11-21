@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Package, Boxes, ShoppingCart,
   Users, FileText, DollarSign, Settings, Calculator,
   ChevronLeft, ChevronRight, Lock, LogOut, Moon, Sun, CalendarDays, BarChart2, Crown, TrendingUp, Truck, Store,
-  MessageSquare, FileStack, Layers, ListChecks, Ruler,
+  MessageSquare, FileStack, Layers, ListChecks, Ruler, Receipt,
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { createClient } from '@/lib/supabase/client'
@@ -17,6 +17,7 @@ import { useSidebar } from '@/providers/SidebarProvider'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSubscription } from '@/hooks/useSubscription'
 import { canAccessCatalog } from '@/lib/catalog/betaAccess'
+import { canAccessNotasFiscais } from '@/lib/notasFiscais/betaAccess'
 import { getProductDisplayName } from '@/lib/branding/productName'
 
 /* ─── Menu ─── */
@@ -36,7 +37,7 @@ const menuItems = [
       { href: '/estoque',     icon: Boxes,       label: 'Estoque'   },
       { href: '/pedidos',     icon: ShoppingCart,label: 'Pedidos'   },
       { href: '/tarefas',     icon: ListChecks,  label: 'Tarefas'   },
-      { href: '/declaracao-conteudo', icon: FileStack, label: 'Declaração de Conteúdo' },
+      { href: '/declaracao-conteudo', icon: FileStack, label: 'Declaração de Conteúdo', hideForEssencial: true },
       { href: '/agenda',      icon: CalendarDays,label: 'Agenda',   essencial: true },
       { href: '/clientes',    icon: Users,       label: 'Clientes'  },
       { href: '/fornecedores',icon: Truck,       label: 'Fornecedores' },
@@ -47,7 +48,7 @@ const menuItems = [
     items: [
       { href: '/orcamentos',  icon: FileText,   label: 'Orçamentos' },
       { href: '/financeiro',  icon: DollarSign, label: 'Financeiro', essencial: true },
-      { href: '/financeiro-avancado', icon: TrendingUp, label: 'Financeiro Avançado', pro: true },
+      { href: '/financeiro-avancado', icon: TrendingUp, label: 'Financeiro Avançado', pro: true, hideForEssencial: true },
       { href: '/relatorios',  icon: BarChart2,  label: 'Relatórios', essencial: true },
     ],
   },
@@ -86,11 +87,22 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
       return user?.email ?? null
     },
   })
+  const { data: userId } = useQuery({
+    queryKey: ['auth-user-id'],
+    staleTime: 10 * 60 * 1000,
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      return user?.id ?? null
+    },
+  })
   // Vitrine Virtual (Catálogo Online): Basic e Essencial, não Pro — trial
   // ativo libera em qualquer plano, mesmo critério usado em middleware.ts.
   const hasCatalogAccess = isTrial || canAccessCatalog(userEmail, sub?.data?.plan)
   const comingSoon = hasCatalogAccess ? BASE_COMING_SOON : [...BASE_COMING_SOON, 'Catálogo Online']
   const isAdmin = userEmail === ADMIN_EMAIL
+  // Notas Fiscais: beta de uma única conta, pelo ID estável (ver
+  // lib/notasFiscais/betaAccess.ts) — independe de plano/e-mail.
+  const hasNotasFiscaisAccess = canAccessNotasFiscais(userId)
   const productName = getProductDisplayName(sub?.data?.plan)
 
   async function handleLogout() {
@@ -177,6 +189,7 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
             <ul className="space-y-0.5">
               {group.items
                 .filter(item => !((item as any).hideOnTrial && isTrial))
+                .filter(item => !((item as any).hideForEssencial && isEssencial && !isPro))
                 .map(item => (
                   <li key={item.href}>
                     <NavLink href={item.href} icon={item.icon} label={item.label} pro={(item as any).pro} essencial={(item as any).essencial} />
@@ -185,6 +198,11 @@ function SidebarInner({ collapsed, onClose }: { collapsed: boolean; onClose?: ()
               {group.title === 'Negócio' && hasCatalogAccess && (
                 <li>
                   <NavLink href="/catalogo" icon={Store} label="Catálogo Online" />
+                </li>
+              )}
+              {group.title === 'Financeiro' && hasNotasFiscaisAccess && (
+                <li>
+                  <NavLink href="/notas-fiscais" icon={Receipt} label="Notas Fiscais" />
                 </li>
               )}
               {group.title === 'Negócio' && isAdmin && (

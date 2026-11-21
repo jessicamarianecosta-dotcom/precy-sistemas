@@ -6,6 +6,8 @@ import { X, Loader2, Copy, Check, ExternalLink, Banknote } from 'lucide-react'
 import { useToast } from '@/components/ui/Toaster'
 import { formatCurrency } from '@/lib/utils/format'
 import type { OrderReceivable } from '@/lib/orders/receivables'
+import { WhatsAppShareButton } from '@/components/finance/WhatsAppShareButton'
+import { buildChargeMessage } from '@/lib/orders/whatsapp'
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
@@ -39,7 +41,7 @@ export function GerarCobrancaModal({
   const [dueDate, setDueDate] = useState(receivable.dueDate || format(new Date(), 'yyyy-MM-dd'))
   const [notes, setNotes] = useState('')
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<{ publicUrl: string } | null>(null)
+  const [result, setResult] = useState<{ publicUrl: string; customerPhone: string | null } | null>(null)
   const [copied, setCopied] = useState(false)
 
   const amount = useMemo(() => parseBRL(amountText), [amountText])
@@ -62,7 +64,7 @@ export function GerarCobrancaModal({
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Erro ao gerar cobrança.')
-      setResult({ publicUrl: json.public_url })
+      setResult({ publicUrl: json.public_url, customerPhone: json.customer?.phone ?? null })
     } catch (err: any) {
       toast('error', err.message)
     } finally {
@@ -174,6 +176,16 @@ export function GerarCobrancaModal({
                 <ExternalLink size={14} /> Abrir / baixar PDF
               </a>
             </div>
+            <WhatsAppShareButton
+              phone={result.customerPhone}
+              message={buildChargeMessage({
+                customerName: receivable.customerName || 'Cliente',
+                orderNumber: receivable.orderNumber,
+                amountDue: round2(amount),
+                dueDate,
+                publicUrl: fullUrl,
+              })}
+            />
           </div>
         )}
 

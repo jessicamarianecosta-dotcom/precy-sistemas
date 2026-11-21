@@ -12,6 +12,7 @@ coverage
 # Next.js
 /.next/
 /out/
+*.tsbuildinfo
 
 # Production
 /build
