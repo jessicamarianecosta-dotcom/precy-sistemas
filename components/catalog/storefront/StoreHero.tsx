@@ -9,10 +9,15 @@ interface Props {
   storeName: string
 }
 
+// No mobile, a altura segue a proporção real da imagem (aspect-ratio) em vez de
+// um min-height fixo — senão, em telas estreitas, o object-cover corta as
+// laterais do banner (que é bem largo, proporção ~3.84:1). Do tablet (sm) em
+// diante, o viewport já é largo o bastante para a altura configurada caber
+// sem cortar demais os lados.
 const HEIGHT_CLASSES: Record<'sm' | 'md' | 'lg', string> = {
-  sm: 'min-h-48 sm:min-h-56 lg:min-h-64',
-  md: 'min-h-64 sm:min-h-72 lg:min-h-80',
-  lg: 'min-h-80 sm:min-h-96 lg:min-h-[28rem]',
+  sm: 'aspect-[1920/500] sm:aspect-auto sm:min-h-56 lg:min-h-64',
+  md: 'aspect-[1920/500] sm:aspect-auto sm:min-h-72 lg:min-h-80',
+  lg: 'aspect-[1920/500] sm:aspect-auto sm:min-h-96 lg:min-h-[28rem]',
 }
 
 const OBJECT_POSITION: Record<'left' | 'center' | 'right', string> = {
