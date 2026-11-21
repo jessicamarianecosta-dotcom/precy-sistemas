@@ -9,11 +9,12 @@ interface Props {
   storeName: string
 }
 
-// No mobile, a altura segue a proporção real da imagem (aspect-ratio) em vez de
-// um min-height fixo — senão, em telas estreitas, o object-cover corta as
-// laterais do banner (que é bem largo, proporção ~3.84:1). Do tablet (sm) em
-// diante, o viewport já é largo o bastante para a altura configurada caber
-// sem cortar demais os lados.
+// A altura configurada (Compacto/Médio/Grande) só faz sentido quando o banner
+// tem largura limitada (max-w-6xl, modo "cantos arredondados") — nesse caso a
+// largura real do container é sempre parecida, então uma altura fixa não
+// corta muito. No mobile, mesmo nesse modo, a largura cai bastante (telas
+// estreitas), então usamos a proporção real da imagem (aspect-ratio) em vez
+// da altura fixa, e só aplicamos a altura configurada do tablet (sm) em diante.
 const HEIGHT_CLASSES: Record<'sm' | 'md' | 'lg', string> = {
   sm: 'aspect-[1920/500] sm:aspect-auto sm:min-h-56 lg:min-h-64',
   md: 'aspect-[1920/500] sm:aspect-auto sm:min-h-72 lg:min-h-80',
@@ -41,7 +42,10 @@ export function StoreHero({ settings, storeName }: Props) {
 
   return (
     <div className="relative w-full">
-      <div className={clsx('relative w-full overflow-hidden', rounded ? 'max-w-6xl mx-auto mt-4 rounded-3xl' : '', heightClass)}>
+      <div className={clsx(
+        'relative w-full overflow-hidden',
+        rounded ? clsx('max-w-6xl mx-auto mt-4 rounded-3xl', heightClass) : 'aspect-[1920/500]'
+      )}>
         <Image src={settings.banner_url} alt={storeName} fill sizes="100vw" priority className="object-cover" style={{ objectPosition }} />
 
         {hasButton && (
