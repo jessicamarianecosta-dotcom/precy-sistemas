@@ -106,7 +106,7 @@ export default function NotaFiscalPedidoPage() {
     && !['enviando', 'processando', 'autorizada', 'rejeitada', 'cancelada'].includes(existingInvoice.status)
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-3xl">
+    <div className="p-4 sm:p-6 space-y-6 max-w-6xl">
       <div>
         <button onClick={() => router.push('/notas-fiscais')} className="text-xs text-text-muted flex items-center gap-1 mb-2">
           <ArrowLeft size={13} /> Voltar
@@ -135,8 +135,9 @@ export default function NotaFiscalPedidoPage() {
         </div>
       )}
 
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
       {/* Resumo do pedido aproveitado */}
-      <div className="card p-5 space-y-3">
+      <div className="card p-5 space-y-3 lg:col-span-2">
         <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Resumo</h3>
         <div className="text-sm text-text-secondary dark:text-stone-300 space-y-1">
           <p>Cliente: <span className="font-medium">{customer?.name ?? '—'}</span></p>
@@ -172,7 +173,7 @@ export default function NotaFiscalPedidoPage() {
       </div>
 
       {/* Estado atual / ações */}
-      <div className="card p-5 space-y-4">
+      <div className="card p-5 space-y-4 lg:col-span-1 lg:sticky lg:top-20">
         <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Status</h3>
 
         {!existingInvoice && (
@@ -255,6 +256,7 @@ export default function NotaFiscalPedidoPage() {
             )}
           </div>
         )}
+      </div>
       </div>
     </div>
   )
