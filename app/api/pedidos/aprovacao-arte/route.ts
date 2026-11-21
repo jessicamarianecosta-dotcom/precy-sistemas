@@ -4,7 +4,23 @@ import { cookies } from 'next/headers'
 import { randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { resolveCompanyIdForUser } from '@/lib/supabase/pgHelpers'
-import { createApprovalToken, encryptApprovalToken, ART_FINISHING_INSTRUCTIONS, ART_FINISHING_INSTRUCTIONS_VERSION, hasDigitalArtApprovalBeta } from '@/lib/orders/digitalArtApproval'
+import { createApprovalToken, encryptApprovalToken, decryptApprovalToken, ART_FINISHING_INSTRUCTIONS, ART_FINISHING_INSTRUCTIONS_VERSION, hasDigitalArtApprovalBeta } from '@/lib/orders/digitalArtApproval'
+
+
+export async function GET(request:Request) {
+ try {
+  const auth=createServerComponentClient({cookies}); const {data:{user}}=await auth.auth.getUser()
+  if(!user||!hasDigitalArtApprovalBeta(user.email)) return NextResponse.json({error:'Recurso indisponível.'},{status:404})
+  const companyId=await resolveCompanyIdForUser(user.id); if(!companyId) return NextResponse.json({error:'Empresa não encontrada.'},{status:404})
+  const url=new URL(request.url); const orderId=url.searchParams.get('orderId'); const itemId=url.searchParams.get('itemId')
+  if(!orderId||!itemId) return NextResponse.json({error:'Pedido e item são obrigatórios.'},{status:400})
+  const db=supabaseAdmin as any
+  const {data:link,error}=await db.from('order_art_approval_links').select('id,status,token_ciphertext,current_version').eq('company_id',companyId).eq('order_id',orderId).eq('order_item_id',itemId).is('revoked_at',null).neq('status','cancelada').order('created_at',{ascending:false}).limit(1).maybeSingle()
+  if(error) throw error
+  if(!link||!link.token_ciphertext) return NextResponse.json({link:null})
+  return NextResponse.json({link:{id:link.id,status:link.status,version:link.current_version,url:new URL('/aprovar-arte/'+decryptApprovalToken(link.token_ciphertext),request.url).toString()}})
+ } catch(e) { console.error('[art approval:restore]',e); return NextResponse.json({error:'Não foi possível recuperar o link.'},{status:500}) }
+}
 
 export async function POST(request: Request) {
  try {
