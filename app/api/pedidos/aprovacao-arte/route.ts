@@ -1,84 +1,114 @@
 import { NextResponse } from 'next/server'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
-import { randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { resolveCompanyIdForUser } from '@/lib/supabase/pgHelpers'
-import { createApprovalToken, encryptApprovalToken, decryptApprovalToken, ART_FINISHING_INSTRUCTIONS, ART_FINISHING_INSTRUCTIONS_VERSION, hasDigitalArtApprovalBeta } from '@/lib/orders/digitalArtApproval'
-
+import { createApprovalToken, encryptApprovalToken, decryptApprovalToken, hasDigitalArtApprovalBeta } from '@/lib/orders/digitalArtApproval'
 
 /**
- * itemId é opcional: quando o chamador (painel de arte por item, do
- * Catálogo Online) não informa, o link é tratado por PEDIDO — resolve-se
- * o item-âncora (o primeiro item do pedido) automaticamente, só para
- * satisfazer a FK obrigatória de order_art_approval_links.order_item_id;
- * nenhuma tela mostra esse item ao usuário nesse modo.
+ * Aprovação digital de arte — modelo por PEDIDO, não por item: um único
+ * link cobre quantas artes forem anexadas, e cada arte (order_art_
+ * approval_artworks) tem seu próprio status. Este endpoint cuida só do
+ * link (criar/ajustar observação e prazo); a lista de artes é gerida em
+ * /api/pedidos/aprovacao-arte/artworks.
  */
-async function resolveAnchorItemId(db:any,orderId:string) {
- const {data,error}=await db.from('order_items').select('id').eq('order_id',orderId).order('created_at',{ascending:true}).limit(1).maybeSingle()
- if(error) throw error
- return data?.id as string|undefined
+
+async function loadLinkWithArtworks(db: any, orderId: string, companyId: string, requestUrl: string) {
+  const { data: link, error } = await db.from('order_art_approval_links')
+    .select('id,status,token_ciphertext,public_notes,deadline')
+    .eq('company_id', companyId).eq('order_id', orderId)
+    .is('revoked_at', null).neq('status', 'cancelada')
+    .order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (error) throw error
+  if (!link) return { link: null, artworks: [] }
+
+  const { data: artworks, error: ae } = await db.from('order_art_approval_artworks')
+    .select('id,order_item_id,label,position,current_version,status,order_items(name)')
+    .eq('link_id', link.id).order('position', { ascending: true })
+  if (ae) throw ae
+
+  const versionIds = (artworks ?? []).map((a: any) => a.current_version)
+  const artworkIds = (artworks ?? []).map((a: any) => a.id)
+  const { data: versions } = artworkIds.length
+    ? await db.from('order_art_approval_versions').select('id,artwork_id,version_number,file_ids').in('artwork_id', artworkIds)
+    : { data: [] }
+
+  const enriched = []
+  for (const a of artworks ?? []) {
+    const version = (versions ?? []).find((v: any) => v.artwork_id === a.id && v.version_number === a.current_version)
+    const fileId = version?.file_ids?.[0] ?? null
+    let fileName: string | null = null
+    if (fileId) {
+      const { data: file } = await db.from('order_files').select('file_name,file_url').eq('id', fileId).maybeSingle()
+      fileName = file?.file_name ?? null
+    }
+    enriched.push({
+      id: a.id, itemId: a.order_item_id, itemName: a.order_items?.name ?? null,
+      label: a.label, position: a.position, status: a.status, version: a.current_version,
+      fileId, fileName,
+    })
+  }
+
+  return {
+    link: {
+      id: link.id, status: link.status, publicNotes: link.public_notes, deadline: link.deadline,
+      url: link.token_ciphertext ? new URL('/aprovar-arte/' + decryptApprovalToken(link.token_ciphertext), requestUrl).toString() : null,
+    },
+    artworks: enriched,
+  }
 }
 
-export async function GET(request:Request) {
- try {
-  const auth=createServerComponentClient({cookies}); const {data:{user}}=await auth.auth.getUser()
-  if(!user||!hasDigitalArtApprovalBeta(user.email)) return NextResponse.json({error:'Recurso indisponível.'},{status:404})
-  const companyId=await resolveCompanyIdForUser(user.id); if(!companyId) return NextResponse.json({error:'Empresa não encontrada.'},{status:404})
-  const url=new URL(request.url); const orderId=url.searchParams.get('orderId'); let itemId=url.searchParams.get('itemId')
-  if(!orderId) return NextResponse.json({error:'Pedido é obrigatório.'},{status:400})
-  const db=supabaseAdmin as any
-  if(!itemId) itemId=(await resolveAnchorItemId(db,orderId))??null
-  if(!itemId) return NextResponse.json({link:null})
-  const {data:link,error}=await db.from('order_art_approval_links').select('id,status,token_ciphertext,current_version').eq('company_id',companyId).eq('order_id',orderId).eq('order_item_id',itemId).is('revoked_at',null).neq('status','cancelada').order('created_at',{ascending:false}).limit(1).maybeSingle()
-  if(error) throw error
-  if(!link||!link.token_ciphertext) return NextResponse.json({link:null})
-  return NextResponse.json({link:{id:link.id,status:link.status,version:link.current_version,url:new URL('/aprovar-arte/'+decryptApprovalToken(link.token_ciphertext),request.url).toString()}})
- } catch(e) { console.error('[art approval:restore]',e); return NextResponse.json({error:'Não foi possível recuperar o link.'},{status:500}) }
+export async function GET(request: Request) {
+  try {
+    const auth = createServerComponentClient({ cookies }); const { data: { user } } = await auth.auth.getUser()
+    if (!user || !hasDigitalArtApprovalBeta(user.email)) return NextResponse.json({ error: 'Recurso indisponível.' }, { status: 404 })
+    const companyId = await resolveCompanyIdForUser(user.id); if (!companyId) return NextResponse.json({ error: 'Empresa não encontrada.' }, { status: 404 })
+    const url = new URL(request.url); const orderId = url.searchParams.get('orderId')
+    if (!orderId) return NextResponse.json({ error: 'Pedido é obrigatório.' }, { status: 400 })
+    const db = supabaseAdmin as any
+    const result = await loadLinkWithArtworks(db, orderId, companyId, request.url)
+    return NextResponse.json(result)
+  } catch (e) { console.error('[art approval:get]', e); return NextResponse.json({ error: 'Não foi possível carregar a aprovação.' }, { status: 500 }) }
 }
 
 export async function POST(request: Request) {
- try {
-  const auth=createServerComponentClient({cookies}); const {data:{user}}=await auth.auth.getUser()
-  if(!user) return NextResponse.json({error:'Não autenticado'},{status:401})
-  if(!hasDigitalArtApprovalBeta(user.email)) return NextResponse.json({error:'Recurso indisponível.'},{status:404})
-  const companyId=await resolveCompanyIdForUser(user.id); if(!companyId) return NextResponse.json({error:'Empresa não encontrada.'},{status:404})
-  const body=await request.json(); const orderId=String(body.orderId??''); let itemId=String(body.itemId??'')
-  const fileIds=Array.isArray(body.fileIds)?body.fileIds.filter((x:unknown)=>typeof x==='string'):[]
-  if(!orderId||!fileIds.length) return NextResponse.json({error:'Selecione arquivos para aprovação.'},{status:400})
-  const db=supabaseAdmin as any
-  const {data:order,error:oe}=await db.from('orders').select('id,order_number,customer_id,due_date').eq('id',orderId).eq('company_id',companyId).maybeSingle()
-  if(oe) throw oe; if(!order) return NextResponse.json({error:'Pedido não encontrado.'},{status:404})
-  if(!itemId) itemId=(await resolveAnchorItemId(db,orderId))??''
-  const {data:item,error:ie}=await db.from('order_items').select('id,name').eq('id',itemId).eq('order_id',orderId).maybeSingle()
-  if(ie) throw ie; if(!item) return NextResponse.json({error:'Pedido sem itens.'},{status:400})
-  const {data:existing,error:ee}=await db.from('order_art_approval_links').select('id,token_ciphertext').eq('company_id',companyId).eq('order_id',orderId).eq('order_item_id',itemId).is('revoked_at',null).neq('status','cancelada').order('created_at',{ascending:false}).limit(1).maybeSingle()
-  if(ee) throw ee
-  if(existing&&existing.token_ciphertext) return NextResponse.json({ok:true,linkId:existing.id,url:new URL('/aprovar-arte/'+decryptApprovalToken(existing.token_ciphertext),request.url).toString(),orderNumber:order.order_number,itemName:item.name,reused:true})
-  // Arquivos validados pelo pedido (não pelo item): o fluxo "Arquivos do
-  // Cliente" já existente faz upload sem order_item_id, e o item acima é
-  // só a âncora técnica exigida pela FK, não uma seleção do usuário.
-  const {data:files,error:fe}=await db.from('order_files').select('id,file_name,file_path,mime_type,file_size,file_role').in('id',fileIds).eq('order_id',orderId)
-  if(fe) throw fe; if(!files||files.length!==fileIds.length) return NextResponse.json({error:'Arquivo inválido para este pedido.'},{status:400})
-  const allowedRoles=['cliente_arte','referencia','proposta','versao_final']; const allowedTypes=['image/png','image/jpeg','image/webp','application/pdf']
-  if(files.some((f:any)=>!allowedRoles.includes(f.file_role)||!allowedTypes.includes(f.mime_type)||Number(f.file_size)>10*1024*1024)) return NextResponse.json({error:'Use arquivos PDF, PNG, JPG ou WEBP de até 10 MB.'},{status:400})
-  const privatePaths:string[]=[]
-  for(const f of files){
-   const {data:blob,error:de}=await supabaseAdmin.storage.from('order-files').download(f.file_path)
-   if(de||!blob) throw new Error('Não foi possível preparar um arquivo privado para aprovação.')
-   const path=`${companyId}/${orderId}/${itemId}/${randomUUID()}-${f.file_name.replace(/[^a-zA-Z0-9._-]/g,'_')}`
-   const {error:up}=await supabaseAdmin.storage.from('art-approvals').upload(path,blob,{contentType:f.mime_type||'application/octet-stream',upsert:false})
-   if(up) throw up
-   privatePaths.push(path)
-  }
-  const {token,tokenHash}=createApprovalToken()
-  const deadline=body.deadline?new Date(body.deadline).toISOString():order.due_date
-  const publicNotes=String(body.publicNotes??'').trim().slice(0,2000)||null
-  const {data:link,error:le}=await db.from('order_art_approval_links').insert({company_id:companyId,order_id:orderId,order_item_id:itemId,token_hash:tokenHash,token_ciphertext:encryptApprovalToken(token),status:'aguardando_aprovacao',current_version:1,public_notes:publicNotes,deadline,created_by:user.id}).select('id').single()
-  if(le) throw le
-  const {error:ve}=await db.from('order_art_approval_versions').insert({link_id:link.id,version_number:1,file_ids:fileIds,private_file_paths:privatePaths,instructions_version:ART_FINISHING_INSTRUCTIONS_VERSION,instructions_text:ART_FINISHING_INSTRUCTIONS,public_notes:publicNotes})
-  if(ve) throw ve
-  await db.from('order_art_events').insert({order_id:orderId,company_id:companyId,created_by:user.id,event_type:'aprovacao_digital_enviada',description:`Link público de aprovação digital criado para “${item.name}”, versão 1.`})
-  return NextResponse.json({ok:true,linkId:link.id,url:`${new URL(request.url).origin}/aprovar-arte/${token}`,orderNumber:order.order_number,itemName:item.name})
- }catch(e){console.error('[aprovacao-arte:create]',e);return NextResponse.json({error:'Não foi possível gerar o link de aprovação.'},{status:500})}
+  try {
+    const auth = createServerComponentClient({ cookies }); const { data: { user } } = await auth.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
+    if (!hasDigitalArtApprovalBeta(user.email)) return NextResponse.json({ error: 'Recurso indisponível.' }, { status: 404 })
+    const companyId = await resolveCompanyIdForUser(user.id); if (!companyId) return NextResponse.json({ error: 'Empresa não encontrada.' }, { status: 404 })
+    const body = await request.json(); const orderId = String(body.orderId ?? '')
+    if (!orderId) return NextResponse.json({ error: 'Pedido é obrigatório.' }, { status: 400 })
+    const db = supabaseAdmin as any
+    const { data: order, error: oe } = await db.from('orders').select('id,order_number,due_date').eq('id', orderId).eq('company_id', companyId).maybeSingle()
+    if (oe) throw oe; if (!order) return NextResponse.json({ error: 'Pedido não encontrado.' }, { status: 404 })
+
+    const publicNotes = body.publicNotes !== undefined ? (String(body.publicNotes ?? '').trim().slice(0, 2000) || null) : undefined
+    const deadline = body.deadline !== undefined ? (body.deadline ? new Date(body.deadline).toISOString() : null) : undefined
+
+    const { data: existing, error: ee } = await db.from('order_art_approval_links')
+      .select('id').eq('company_id', companyId).eq('order_id', orderId)
+      .is('revoked_at', null).neq('status', 'cancelada')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle()
+    if (ee) throw ee
+
+    if (existing) {
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+      if (publicNotes !== undefined) patch.public_notes = publicNotes
+      if (deadline !== undefined) patch.deadline = deadline
+      const { error: ue } = await db.from('order_art_approval_links').update(patch).eq('id', existing.id)
+      if (ue) throw ue
+    } else {
+      const { token, tokenHash } = createApprovalToken()
+      const { error: ie } = await db.from('order_art_approval_links').insert({
+        company_id: companyId, order_id: orderId, token_hash: tokenHash, token_ciphertext: encryptApprovalToken(token),
+        status: 'aguardando_aprovacao', current_version: 1,
+        public_notes: publicNotes ?? null, deadline: deadline ?? order.due_date, created_by: user.id,
+      })
+      if (ie) throw ie
+    }
+
+    const result = await loadLinkWithArtworks(db, orderId, companyId, request.url)
+    return NextResponse.json({ ok: true, ...result })
+  } catch (e) { console.error('[art approval:upsert]', e); return NextResponse.json({ error: 'Não foi possível salvar a configuração do link.' }, { status: 500 }) }
 }

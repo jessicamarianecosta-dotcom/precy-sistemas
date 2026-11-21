@@ -7,6 +7,7 @@ import { Document, Page } from 'react-pdf'
 import '@/lib/utils/pdfWorker'
 import {
   FolderOpen, Eye, Download, Trash2, Loader2, AlertCircle, Upload, CheckCircle2, History, Clock,
+  Link2, ChevronDown, ChevronUp, ExternalLink, MessageCircle, Copy, XCircle, RefreshCw,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { getFileKind, getDownloadUrl, formatFileSize } from '@/lib/utils/fileIcons'
@@ -21,16 +22,30 @@ import {
 } from './types'
 
 const ART_APPROVAL_ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf']
+const STATUS_OPTIONS: OrderFileStatus[] = ['nao_conferido', 'conferido', 'aguardando_cliente', 'aprovado', 'necessita_alteracao']
+
+const ARTWORK_STATUS_LABEL: Record<string, string> = { aguardando_aprovacao: 'Aguardando', aprovada: 'Aprovada', alteracao_solicitada: 'Alteração pedida' }
+const ARTWORK_STATUS_COLOR: Record<string, string> = {
+  aguardando_aprovacao: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  aprovada: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  alteracao_solicitada: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+}
 
 interface Props {
   orderId: string
   companyId: string
+  orderNumber?: string | null
   customerName?: string | null
   customerPhone?: string | null
   customerEmail?: string | null
+  items?: { id: string; name: string }[]
 }
 
-const STATUS_OPTIONS: OrderFileStatus[] = ['nao_conferido', 'conferido', 'aguardando_cliente', 'aprovado', 'necessita_alteracao']
+type Artwork = {
+  id: string; itemId: string | null; itemName: string | null; label: string | null
+  position: number; status: string; version: number; fileId: string | null; fileName: string | null
+}
+type LinkData = { id: string; status: string; publicNotes: string | null; deadline: string | null; url: string | null } | null
 
 function FileThumb({ file }: { file: OrderFile }) {
   const kind = getFileKind(file.file_name)
@@ -54,18 +69,21 @@ function FileThumb({ file }: { file: OrderFile }) {
 }
 
 function FileCard({
-  file, onView, onDelete, onSaveReview, saving,
+  file, onView, onDelete, onSaveReview, saving, onUseForApproval, alreadyUsed,
 }: {
   file: OrderFile
   onView: () => void
   onDelete: () => void
   onSaveReview: (status: OrderFileStatus, notes: string) => void
   saving: boolean
+  onUseForApproval?: () => void
+  alreadyUsed?: boolean
 }) {
   const kind = getFileKind(file.file_name)
   const [status, setStatus] = useState<OrderFileStatus>(file.status)
   const [notes, setNotes] = useState(file.review_notes ?? '')
   const dirty = status !== file.status || notes !== (file.review_notes ?? '')
+  const eligible = ART_APPROVAL_ALLOWED_TYPES.includes(file.mime_type ?? '')
 
   return (
     <div className="rounded-xl border border-border dark:border-border-dark p-3 space-y-3">
@@ -93,6 +111,17 @@ function FileCard({
           <Trash2 size={14} />
         </button>
       </div>
+
+      {onUseForApproval && (
+        eligible ? (
+          <button type="button" onClick={onUseForApproval} disabled={alreadyUsed}
+            className="flex w-full items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-lg border border-dashed border-violet-300 text-violet-700 hover:bg-violet-50 dark:hover:bg-violet-950/20 disabled:opacity-40 disabled:cursor-default">
+            <Link2 size={13} /> {alreadyUsed ? 'Já está na aprovação' : 'Usar para aprovação do cliente'}
+          </button>
+        ) : (
+          <p className="text-[10px] text-text-muted text-center">Apenas PNG, JPG, WEBP ou PDF podem ir para aprovação do cliente.</p>
+        )
+      )}
 
       <div className="pt-2 border-t border-border dark:border-border-dark space-y-2">
         <p className="text-[11px] font-semibold text-text-muted dark:text-stone-400 uppercase tracking-wide">Status da conferência</p>
@@ -131,7 +160,7 @@ function FileCard({
   )
 }
 
-export function OrderFilesSection({ orderId, companyId, customerName, customerPhone, customerEmail }: Props) {
+export function OrderFilesSection({ orderId, companyId, orderNumber, customerName, customerPhone, customerEmail, items = [] }: Props) {
   const supabase = createClient()
   const qc = useQueryClient()
   const { toast } = useToast()
@@ -139,32 +168,6 @@ export function OrderFilesSection({ orderId, companyId, customerName, customerPh
   const [viewingFile, setViewingFile] = useState<OrderFile | null>(null)
   const [showRequestModal, setShowRequestModal] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
-
-  const [betaAllowed, setBetaAllowed] = useState(false)
-  const [approvalLink, setApprovalLink] = useState('')
-  const [approvalLinkId, setApprovalLinkId] = useState('')
-  const [approvalNotes, setApprovalNotes] = useState('')
-  const [approvalDeadline, setApprovalDeadline] = useState('')
-  const [approvalHistory, setApprovalHistory] = useState<any[]>([])
-  const [approvalNotifications, setApprovalNotifications] = useState<any[]>([])
-  const [approvalStatusDigital, setApprovalStatusDigital] = useState('')
-  const [creatingApprovalLink, setCreatingApprovalLink] = useState(false)
-  useEffect(() => {
-    let active = true
-    supabase.auth.getUser().then(async ({ data }) => {
-      const allowed = hasDigitalArtApprovalBeta(data.user?.email)
-      if (!active) return
-      setBetaAllowed(allowed)
-      if (allowed) {
-        const r = await fetch(`/api/pedidos/aprovacao-arte?orderId=${encodeURIComponent(orderId)}`)
-        const d = await r.json()
-        if (active && r.ok && d.link) {
-          setApprovalLink(d.link.url); setApprovalLinkId(d.link.id); setApprovalStatusDigital(d.link.status)
-        }
-      }
-    })
-    return () => { active = false }
-  }, [orderId])
 
   const filesKey = ['order-files', orderId]
   const eventsKey = ['order-art-events', orderId]
@@ -218,7 +221,6 @@ export function OrderFilesSection({ orderId, companyId, customerName, customerPh
         const data = await res.json()
         if (!res.ok) throw new Error(data.error ?? 'Erro ao enviar arquivo')
       }
-      // Primeiro arquivo enviado pela equipe move a arte de "não enviada" pra "recebida"
       if ((artStatus ?? 'nao_enviada') === 'nao_enviada') {
         await (supabase.from('orders') as any).update({ art_status: 'recebida' }).eq('id', orderId)
       }
@@ -286,9 +288,137 @@ export function OrderFilesSection({ orderId, companyId, customerName, customerPh
     uploadMutation.mutate(Array.from(fileList))
   }
 
+  /* ───────────────── Aprovação digital (múltiplas artes) ───────────────── */
+  const [betaAllowed, setBetaAllowed] = useState(false)
+  const [linkData, setLinkData] = useState<LinkData>(null)
+  const [artworks, setArtworks] = useState<Artwork[]>([])
+  const [loadingArt, setLoadingArt] = useState(false)
+  const [pickerForFile, setPickerForFile] = useState<OrderFile | null>(null)
+  const [replacingArtwork, setReplacingArtwork] = useState<Artwork | null>(null)
+  const [pickerItemId, setPickerItemId] = useState('')
+  const [pickerLabel, setPickerLabel] = useState('')
+  const [savingArtwork, setSavingArtwork] = useState(false)
+  const [showSendConfig, setShowSendConfig] = useState(false)
+  const [notes, setNotes] = useState('')
+  const [deadline, setDeadline] = useState('')
+  const [history, setHistory] = useState<any[] | null>(null)
+  const [notifications, setNotifications] = useState<any[]>([])
+  const [savingLink, setSavingLink] = useState(false)
+
+  async function loadArtApproval() {
+    setLoadingArt(true)
+    try {
+      const r = await fetch(`/api/pedidos/aprovacao-arte?orderId=${encodeURIComponent(orderId)}`)
+      const d = await r.json()
+      if (r.ok) {
+        setLinkData(d.link ?? null)
+        setArtworks(d.artworks ?? [])
+        setNotes(d.link?.publicNotes ?? '')
+        setDeadline(d.link?.deadline ? d.link.deadline.slice(0, 10) : '')
+      }
+    } finally { setLoadingArt(false) }
+  }
+
+  useEffect(() => {
+    let active = true
+    supabase.auth.getUser().then(({ data }) => {
+      const allowed = hasDigitalArtApprovalBeta(data.user?.email)
+      if (!active) return
+      setBetaAllowed(allowed)
+      if (allowed) loadArtApproval()
+    })
+    return () => { active = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderId])
+
+  function openPickerForFile(file: OrderFile) {
+    setPickerForFile(file); setReplacingArtwork(null); setPickerItemId(''); setPickerLabel('')
+  }
+  function openReplacePicker(artwork: Artwork) {
+    setReplacingArtwork(artwork); setPickerForFile(null); setPickerItemId(artwork.itemId ?? ''); setPickerLabel(artwork.label ?? '')
+  }
+
+  async function confirmAddArtwork() {
+    if (!pickerForFile) return
+    setSavingArtwork(true)
+    try {
+      const r = await fetch('/api/pedidos/aprovacao-arte/artworks', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, fileId: pickerForFile.id, itemId: pickerItemId || null, label: pickerLabel || null }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error)
+      toast('success', 'Arte adicionada à aprovação')
+      setPickerForFile(null)
+      await loadArtApproval()
+    } catch (e: any) { toast('error', e.message || 'Não foi possível adicionar a arte') }
+    finally { setSavingArtwork(false) }
+  }
+
+  async function confirmReplaceArtwork(newFileId?: string) {
+    if (!replacingArtwork) return
+    setSavingArtwork(true)
+    try {
+      const body: Record<string, unknown> = { itemId: pickerItemId || null, label: pickerLabel || null }
+      if (newFileId) body.fileId = newFileId
+      const r = await fetch(`/api/pedidos/aprovacao-arte/artworks/${replacingArtwork.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error)
+      toast('success', newFileId ? 'Nova versão enviada para aprovação' : 'Arte atualizada')
+      setReplacingArtwork(null)
+      await loadArtApproval()
+    } catch (e: any) { toast('error', e.message || 'Não foi possível atualizar a arte') }
+    finally { setSavingArtwork(false) }
+  }
+
+  async function removeArtwork(artwork: Artwork) {
+    if (!window.confirm(`Remover "${artwork.label || 'esta arte'}" da aprovação? O arquivo original continua salvo no pedido.`)) return
+    try {
+      const r = await fetch(`/api/pedidos/aprovacao-arte/artworks/${artwork.id}`, { method: 'DELETE' })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error)
+      toast('success', 'Arte removida da aprovação')
+      await loadArtApproval()
+    } catch (e: any) { toast('error', e.message || 'Não foi possível remover') }
+  }
+
+  async function saveLinkConfig() {
+    setSavingLink(true)
+    try {
+      const r = await fetch('/api/pedidos/aprovacao-arte', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, publicNotes: notes, deadline: deadline || null }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error)
+      setLinkData(d.link); setArtworks(d.artworks ?? [])
+      toast('success', 'Configuração salva')
+    } catch (e: any) { toast('error', e.message || 'Não foi possível salvar') }
+    finally { setSavingLink(false) }
+  }
+
+  async function loadHistory() {
+    if (!linkData) return
+    const r = await fetch('/api/pedidos/aprovacao-arte/' + linkData.id)
+    const d = await r.json()
+    if (r.ok) { setHistory(d.artworks ?? []); setNotifications(d.notifications ?? []) }
+  }
+
+  async function cancelLink() {
+    if (!linkData) return
+    if (!window.confirm('Cancelar esta aprovação? O cliente não poderá mais responder a nenhuma arte deste link.')) return
+    const r = await fetch('/api/pedidos/aprovacao-arte/' + linkData.id, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancel' }) })
+    const d = await r.json()
+    if (!r.ok) { toast('error', d.error); return }
+    toast('success', 'Aprovação cancelada')
+    await loadArtApproval()
+  }
+
+  const usedFileIds = new Set(artworks.map(a => a.fileId).filter(Boolean))
   const list = files ?? []
   const status = artStatus ?? 'nao_enviada'
-  const approvalEligibleFiles = list.filter(f => ART_APPROVAL_ALLOWED_TYPES.includes(f.mime_type ?? ''))
 
   return (
     <section className="space-y-3">
@@ -297,7 +427,6 @@ export function OrderFilesSection({ orderId, companyId, customerName, customerPh
       </h3>
 
       <div className="rounded-xl border border-border dark:border-border-dark p-3.5 space-y-3">
-        {/* Status da arte + ações */}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className={clsx('px-2.5 py-1 rounded-full text-[11px] font-semibold', ART_STATUS_COLORS[status])}>
             Arte: {ART_STATUS_LABELS[status]}
@@ -319,127 +448,6 @@ export function OrderFilesSection({ orderId, companyId, customerName, customerPh
           </div>
         </div>
 
-        {betaAllowed && (
-          <div className="rounded-lg border border-violet-200 dark:border-violet-900/50 bg-violet-50/60 dark:bg-violet-950/20 p-3 space-y-2">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div>
-                <p className="text-xs font-semibold text-violet-800 dark:text-violet-300">Aprovação digital do cliente</p>
-                <p className="text-[10px] text-text-muted">Link público para conferir e responder sem login.</p>
-              </div>
-              <button
-                type="button"
-                disabled={creatingApprovalLink || approvalEligibleFiles.length === 0}
-                onClick={async () => {
-                  setCreatingApprovalLink(true)
-                  try {
-                    const response = await fetch('/api/pedidos/aprovacao-arte', {
-                      method: 'POST', headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ orderId, fileIds: approvalEligibleFiles.map(f => f.id), publicNotes: approvalNotes, deadline: approvalDeadline || undefined }),
-                    })
-                    const result = await response.json()
-                    if (!response.ok) throw new Error(result.error || 'Não foi possível gerar o link')
-                    setApprovalLink(result.url); setApprovalLinkId(result.linkId); setApprovalStatusDigital('aguardando_aprovacao')
-                    await navigator.clipboard.writeText(result.url)
-                    toast('success', 'Link de aprovação criado e copiado')
-                  } catch (e: any) { toast('error', e.message || 'Erro ao gerar link') }
-                  finally { setCreatingApprovalLink(false) }
-                }}
-                className="text-[11px] font-semibold rounded-lg bg-violet-700 text-white px-3 py-2 disabled:opacity-50"
-              >
-                {creatingApprovalLink ? 'Gerando...' : 'Gerar link de aprovação'}
-              </button>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <label className="text-[10px] text-text-muted">Observação visível ao cliente
-                <textarea value={approvalNotes} onChange={e => setApprovalNotes(e.target.value)} rows={2} maxLength={2000} className="mt-1 w-full rounded-md border border-violet-200 bg-white p-2 text-xs" placeholder="Informações para a conferência..." />
-              </label>
-              <label className="text-[10px] text-text-muted">Prazo de resposta
-                <input type="date" value={approvalDeadline} onChange={e => setApprovalDeadline(e.target.value)} className="mt-1 w-full rounded-md border border-violet-200 bg-white p-2 text-xs" />
-              </label>
-            </div>
-            {approvalLink && (
-              <div className="flex items-center gap-2 flex-wrap">
-                <a href={approvalLink} target="_blank" rel="noreferrer" className="text-[11px] text-violet-700 underline break-all">{approvalLink}</a>
-                <button type="button" onClick={() => navigator.clipboard.writeText(approvalLink).then(() => toast('success', 'Link copiado'))} className="text-[11px] font-medium text-violet-700">Copiar</button>
-                {customerPhone && (
-                  <button type="button" onClick={() => { const phone = normalizePhoneToWhatsapp(customerPhone); if (phone) openWhatsappConversation(phone, `Olá, ${customerName || 'tudo bem'}! Sua arte está disponível para conferência e aprovação: ${approvalLink}`) }} className="text-[11px] font-medium text-violet-700">Enviar pelo WhatsApp</button>
-                )}
-              </div>
-            )}
-            {approvalLinkId && (
-              <div className="flex flex-wrap gap-2 border-t border-violet-200 pt-2">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const r = await fetch('/api/pedidos/aprovacao-arte/' + approvalLinkId)
-                    const d = await r.json()
-                    if (r.ok) { setApprovalHistory(d.history ?? []); setApprovalNotifications(d.notifications ?? []); setApprovalStatusDigital(d.link.status); if (d.link.publicUrl) setApprovalLink(d.link.publicUrl) }
-                  }}
-                  className="text-[11px] font-medium text-violet-700"
-                >
-                  Ver histórico de versões e respostas
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!window.confirm('Cancelar este link? O cliente não poderá mais responder.')) return
-                    const r = await fetch('/api/pedidos/aprovacao-arte/' + approvalLinkId, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancel' }) })
-                    const d = await r.json()
-                    if (!r.ok) { toast('error', d.error); return }
-                    setApprovalStatusDigital('cancelada'); toast('success', 'Link cancelado')
-                  }}
-                  disabled={approvalStatusDigital === 'aprovada' || approvalStatusDigital === 'cancelada'}
-                  className="text-[11px] font-medium text-red-600 disabled:opacity-40"
-                >
-                  Cancelar link
-                </button>
-              </div>
-            )}
-            {approvalNotifications.length > 0 && (
-              <div className="space-y-1 border-t border-violet-200 pt-2">
-                {approvalNotifications.map((n: any) => (
-                  <div key={n.id} className="rounded-md bg-amber-50 p-2 text-[10px]">
-                    <b>{n.title}</b><p>{n.message}</p><span className="text-stone-500">{new Date(n.created_at).toLocaleString('pt-BR')}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {approvalLinkId && approvalStatusDigital !== 'aprovada' && approvalStatusDigital !== 'cancelada' && (
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!approvalEligibleFiles.length) { toast('error', 'Envie os arquivos da nova versão primeiro'); return }
-                  if (!window.confirm('Enviar os arquivos atuais como uma nova versão para aprovação?')) return
-                  const r = await fetch('/api/pedidos/aprovacao-arte/' + approvalLinkId, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'new_version', fileIds: approvalEligibleFiles.map(f => f.id), publicNotes: approvalNotes, deadline: approvalDeadline || undefined }) })
-                  const d = await r.json()
-                  if (!r.ok) { toast('error', d.error); return }
-                  setApprovalStatusDigital('aguardando_aprovacao'); setApprovalHistory([]); toast('success', 'Nova versão enviada para aprovação')
-                }}
-                className="text-[11px] font-semibold text-violet-700"
-              >
-                Enviar nova versão
-              </button>
-            )}
-            {approvalHistory.length > 0 && (
-              <div className="space-y-2 border-t border-violet-200 pt-2">
-                {approvalHistory.map((v: any) => (
-                  <div key={v.id} className="rounded-md bg-white p-2 text-[10px]">
-                    <b>Versão {v.version_number}</b> · {v.status} · {new Date(v.created_at).toLocaleString('pt-BR')}
-                    {v.response && <p className="mt-1">{v.response.customer_name || 'Cliente'}: {v.response.response === 'aprovada' ? 'Aprovou' : 'Solicitou alteração'}{v.response.customer_note ? ` — ${v.response.customer_note}` : ''}</p>}
-                    {v.response?.attachments?.length > 0 && (
-                      <p className="mt-1">Anexos: {v.response.attachments.map((a: any) => <a key={a.url} href={a.url} target="_blank" rel="noreferrer" className="mr-2 text-violet-700 underline">{a.name}</a>)}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            {approvalEligibleFiles.length === 0 && (
-              <p className="text-[10px] text-amber-700">Envie um arquivo PNG, JPG, WEBP ou PDF para habilitar o link.</p>
-            )}
-          </div>
-        )}
-
-        {/* Lista de arquivos */}
         {isLoading ? (
           <p className="text-xs text-text-muted py-4 text-center">Carregando arquivos...</p>
         ) : list.length === 0 ? (
@@ -454,12 +462,13 @@ export function OrderFilesSection({ orderId, companyId, customerName, customerPh
                 onDelete={() => { if (confirm(`Excluir "${f.file_name}"?`)) deleteMutation.mutate(f) }}
                 onSaveReview={(st, notes) => saveReviewMutation.mutate({ id: f.id, status: st, review_notes: notes })}
                 saving={saveReviewMutation.isPending}
+                onUseForApproval={betaAllowed ? () => openPickerForFile(f) : undefined}
+                alreadyUsed={usedFileIds.has(f.id)}
               />
             ))}
           </div>
         )}
 
-        {/* Upload */}
         <div>
           <input
             ref={inputRef}
@@ -483,7 +492,6 @@ export function OrderFilesSection({ orderId, companyId, customerName, customerPh
           )}
         </div>
 
-        {/* Histórico */}
         {events && events.length > 0 && (
           <div className="pt-2 border-t border-border dark:border-border-dark">
             <p className="text-[11px] font-semibold text-text-muted dark:text-stone-400 uppercase tracking-wide flex items-center gap-1.5 mb-2">
@@ -506,6 +514,116 @@ export function OrderFilesSection({ orderId, companyId, customerName, customerPh
         )}
       </div>
 
+      {betaAllowed && (
+        <div className="rounded-xl border border-border dark:border-border-dark p-3.5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-text-muted dark:text-stone-400 flex items-center gap-2">
+              <Link2 size={12} /> Aprovação digital do cliente
+            </h3>
+            {loadingArt && <Loader2 size={13} className="animate-spin text-text-muted" />}
+          </div>
+
+          {artworks.length === 0 ? (
+            <p className="text-[11px] text-text-muted">Marque um arquivo acima como &quot;Usar para aprovação do cliente&quot; para começar.</p>
+          ) : (
+            <div className="space-y-2">
+              {artworks.map(a => (
+                <div key={a.id} className="flex items-center gap-2.5 rounded-lg border border-border dark:border-border-dark p-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold truncate">{a.label || `Arte ${String(a.position + 1).padStart(2, '0')}`}</p>
+                    <p className="text-[10px] text-text-muted truncate">{a.itemName ?? 'Arte geral do pedido'} · v{a.version}</p>
+                  </div>
+                  <span className={clsx('text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0', ARTWORK_STATUS_COLOR[a.status])}>{ARTWORK_STATUS_LABEL[a.status]}</span>
+                  <button type="button" title="Substituir arquivo / editar" onClick={() => openReplacePicker(a)} className="p-1.5 rounded-lg text-text-muted hover:text-primary hover:bg-primary-50 dark:hover:bg-white/5 flex-shrink-0">
+                    <RefreshCw size={13} />
+                  </button>
+                  <button type="button" title="Remover da aprovação" onClick={() => removeArtwork(a)} className="p-1.5 rounded-lg text-text-muted hover:text-error hover:bg-error-light dark:hover:bg-error/10 flex-shrink-0">
+                    <XCircle size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {artworks.length > 0 && (
+            <div className="pt-2 border-t border-border dark:border-border-dark">
+              <button type="button" onClick={() => setShowSendConfig(v => !v)} className="flex w-full items-center justify-between text-xs font-semibold text-primary">
+                {linkData?.url ? 'Configurar e enviar aprovação' : 'Gerar link para aprovação'}
+                {showSendConfig ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+
+              {showSendConfig && (
+                <div className="mt-3 space-y-3">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <label className="text-[10px] text-text-muted">Observação visível ao cliente
+                      <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} maxLength={2000} className="input mt-1 text-xs" placeholder="Informações para a conferência..." />
+                    </label>
+                    <label className="text-[10px] text-text-muted">Prazo de resposta
+                      <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)} className="input mt-1 text-xs" />
+                    </label>
+                  </div>
+                  <button type="button" disabled={savingLink} onClick={saveLinkConfig} className="btn-secondary text-xs py-1.5 px-3 disabled:opacity-50">
+                    {savingLink ? 'Salvando...' : linkData?.url ? 'Salvar observação e prazo' : 'Gerar link de aprovação'}
+                  </button>
+
+                  {linkData?.url && (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2 rounded-lg bg-surface dark:bg-white/5 p-2">
+                        <a href={linkData.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[11px] text-primary underline break-all flex-1 min-w-0">
+                          <ExternalLink size={11} className="flex-shrink-0" /> <span className="truncate">{linkData.url}</span>
+                        </a>
+                        <button type="button" onClick={() => navigator.clipboard.writeText(linkData.url!).then(() => toast('success', 'Link copiado'))} className="flex items-center gap-1 text-[11px] font-medium text-primary flex-shrink-0">
+                          <Copy size={11} /> Copiar
+                        </button>
+                        {customerPhone && (
+                          <button type="button" onClick={() => {
+                            const phone = normalizePhoneToWhatsapp(customerPhone)
+                            if (!phone) return
+                            const msg = `Olá, ${customerName || 'tudo bem'}! Suas artes estão prontas para conferência.\n\nAcesse o link abaixo para visualizar cada arte e realizar a aprovação individualmente.\n\n${linkData.url}${deadline ? `\n\nPrazo para resposta: ${new Date(deadline).toLocaleDateString('pt-BR')}` : ''}\n\nQualquer dúvida, estamos à disposição!`
+                            openWhatsappConversation(phone, msg)
+                          }} className="flex items-center gap-1 text-[11px] font-medium text-primary flex-shrink-0">
+                            <MessageCircle size={11} /> WhatsApp
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-3 text-[11px]">
+                        <button type="button" onClick={loadHistory} className="font-medium text-primary">Ver histórico</button>
+                        <button type="button" onClick={cancelLink} disabled={linkData.status === 'aprovada' || linkData.status === 'cancelada'} className="font-medium text-error disabled:opacity-40">Cancelar aprovação</button>
+                      </div>
+                    </>
+                  )}
+
+                  {notifications.length > 0 && (
+                    <div className="space-y-1 border-t border-border dark:border-border-dark pt-2">
+                      {notifications.map((n: any) => (
+                        <div key={n.id} className="rounded-md bg-amber-50 dark:bg-amber-950/20 p-2 text-[10px]">
+                          <b>{n.title}</b><p>{n.message}</p><span className="text-stone-500">{new Date(n.created_at).toLocaleString('pt-BR')}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {history && (
+                    <div className="space-y-2 border-t border-border dark:border-border-dark pt-2">
+                      {history.map((h: any) => (
+                        <div key={h.id} className="rounded-md bg-surface dark:bg-white/5 p-2 text-[10px]">
+                          <b>{h.label || h.itemName || 'Arte'}</b> · {ARTWORK_STATUS_LABEL[h.status] ?? h.status}
+                          {h.history?.map((v: any) => (
+                            <p key={v.id} className="mt-1">v{v.version_number} · {v.status} · {new Date(v.created_at).toLocaleDateString('pt-BR')}
+                              {v.response && <> — {v.response.customer_name || 'Cliente'}: {v.response.response === 'aprovada' ? 'Aprovou' : 'Solicitou alteração'}{v.response.customer_note ? ` — ${v.response.customer_note}` : ''}</>}
+                            </p>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {viewingFile && <OrderFileViewerModal file={viewingFile} onClose={() => setViewingFile(null)} />}
 
       {showRequestModal && (
@@ -516,6 +634,41 @@ export function OrderFilesSection({ orderId, companyId, customerName, customerPh
           onClose={() => setShowRequestModal(false)}
           onConfirm={async ({ sentVia }) => { await requestNewArtMutation.mutateAsync(sentVia) }}
         />
+      )}
+
+      {(pickerForFile || replacingArtwork) && (
+        <div className="fixed inset-0 z-[90] grid place-items-center bg-black/50 p-4" onClick={() => { setPickerForFile(null); setReplacingArtwork(null) }}>
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-surface-dark p-4 space-y-3" onClick={e => e.stopPropagation()}>
+            <h4 className="font-semibold text-sm">{replacingArtwork ? 'Atualizar arte' : 'Adicionar arte para aprovação'}</h4>
+            {pickerForFile && <p className="text-xs text-text-muted truncate">{pickerForFile.file_name}</p>}
+            {replacingArtwork && (
+              <div>
+                <p className="text-xs text-text-muted mb-1.5">Substituir arquivo (opcional) — escolha outro já enviado:</p>
+                <select className="input text-xs" onChange={e => e.target.value && confirmReplaceArtwork(e.target.value)} defaultValue="">
+                  <option value="" disabled>Selecionar arquivo...</option>
+                  {list.filter(f => ART_APPROVAL_ALLOWED_TYPES.includes(f.mime_type ?? '')).map(f => (
+                    <option key={f.id} value={f.id}>{f.file_name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <label className="block text-xs text-text-muted">Item do pedido
+              <select value={pickerItemId} onChange={e => setPickerItemId(e.target.value)} className="input mt-1 text-xs">
+                <option value="">Arte geral do pedido</option>
+                {items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+              </select>
+            </label>
+            <label className="block text-xs text-text-muted">Identificação (opcional)
+              <input value={pickerLabel} onChange={e => setPickerLabel(e.target.value)} placeholder="Ex.: Frente do cartão" className="input mt-1 text-xs" maxLength={120} />
+            </label>
+            <div className="flex gap-2 pt-1">
+              <button type="button" onClick={() => { setPickerForFile(null); setReplacingArtwork(null) }} className="btn-secondary text-xs flex-1 py-2">Cancelar</button>
+              <button type="button" disabled={savingArtwork} onClick={() => replacingArtwork ? confirmReplaceArtwork() : confirmAddArtwork()} className="btn-primary text-xs flex-1 py-2 disabled:opacity-50">
+                {savingArtwork ? 'Salvando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   )
