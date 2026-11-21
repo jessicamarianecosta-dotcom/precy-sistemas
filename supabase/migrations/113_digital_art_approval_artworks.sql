@@ -46,9 +46,11 @@ end $$;
 
 alter table public.order_art_approval_versions alter column artwork_id set not null;
 alter table public.order_art_approval_versions drop constraint if exists order_art_approval_versions_link_id_version_number_key;
-drop index if exists order_art_approval_versions_link_idx;
 create unique index if not exists order_art_approval_versions_artwork_version_idx on public.order_art_approval_versions(artwork_id,version_number);
-create index if not exists order_art_approval_versions_link_idx on public.order_art_approval_versions(link_id,created_at desc);
+-- Índice antigo (link_id,version_number desc) da migration 108 fica
+-- redundante mas inofensivo; não é removido aqui para evitar um DROP
+-- INDEX desnecessário. Este índice novo cobre as consultas por link.
+create index if not exists order_art_approval_versions_link_created_idx on public.order_art_approval_versions(link_id,created_at desc);
 
 alter table public.order_art_approval_notifications add column if not exists artwork_id uuid references public.order_art_approval_artworks(id) on delete cascade;
 

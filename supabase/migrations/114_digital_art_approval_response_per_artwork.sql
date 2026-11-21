@@ -3,7 +3,12 @@
 -- status das demais. O link só fica "aprovada" quando TODAS as artes
 -- ativas estiverem aprovadas; aprovações já dadas nunca são desfeitas
 -- quando outra arte recebe uma nova versão ou um pedido de alteração.
-create or replace function public.register_art_approval_response(
+-- Nome _v2: a assinatura antiga (p_version_id no lugar de p_artwork_id)
+-- tem um tipo de retorno diferente, e o Postgres não deixa trocar o tipo
+-- de retorno com CREATE OR REPLACE — exigiria DROP FUNCTION antes. Como
+-- nada mais chama a função antiga depois desta migration, ela fica
+-- apenas sem uso (pode ser removida numa limpeza futura).
+create or replace function public.register_art_approval_response_v2(
   p_link_id uuid,
   p_artwork_id uuid,
   p_response text,
@@ -126,5 +131,5 @@ begin
 end;
 $$;
 
-revoke all on function public.register_art_approval_response(uuid, uuid, text, text, text, text, inet, text, text[]) from public, anon, authenticated;
-grant execute on function public.register_art_approval_response(uuid, uuid, text, text, text, text, inet, text, text[]) to service_role;
+revoke all on function public.register_art_approval_response_v2(uuid, uuid, text, text, text, text, inet, text, text[]) from public, anon, authenticated;
+grant execute on function public.register_art_approval_response_v2(uuid, uuid, text, text, text, text, inet, text, text[]) to service_role;
