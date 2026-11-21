@@ -27,7 +27,7 @@ export async function GET(_req:Request,ctx:{params:Promise<{linkId:string}>}) {
   if(re) throw re
   const {data:notifications,error:ne}=await db.from('order_art_approval_notifications').select('id,title,message,notification_type,read_at,created_at').eq('link_id',linkId).order('created_at',{ascending:false})
   if(ne) throw ne
-  return NextResponse.json({link:{...link,publicUrl:link.token_ciphertext?`${process.env.NEXT_PUBLIC_SITE_URL||process.env.NEXT_PUBLIC_APP_URL||''}/aprovar-arte/${decryptApprovalToken(link.token_ciphertext)}`:null},notifications:notifications??[],history:(versions??[]).map((v:any)=>({...v,response:(responses??[]).find((r:any)=>r.version_id===v.id)??null}))})
+  return NextResponse.json({link:{...link,publicUrl:link.token_ciphertext?new URL(`/aprovar-arte/${decryptApprovalToken(link.token_ciphertext)}`,_req.url).toString():null},notifications:notifications??[],history:(versions??[]).map((v:any)=>({...v,response:(responses??[]).find((r:any)=>r.version_id===v.id)??null}))})
  } catch(e) { console.error('[art approval history]',e); return NextResponse.json({error:'Não foi possível carregar o histórico.'},{status:500}) }
 }
 export async function POST(req:Request,ctx:{params:Promise<{linkId:string}>}) {
