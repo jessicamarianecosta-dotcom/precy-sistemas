@@ -1,0 +1,1 @@
+alter table public.order_art_approval_versions add column if not exists private_file_paths text[] not null default '{}';
