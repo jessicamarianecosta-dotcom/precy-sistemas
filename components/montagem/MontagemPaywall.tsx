@@ -32,10 +32,14 @@ export function MontagemPaywall() {
       <div className="rounded-xl border border-border dark:border-border-dark p-4 text-left space-y-2">
         <p className="text-sm font-semibold text-text-primary dark:text-stone-100">Não usa o Precy+?</p>
         <p className="text-sm text-text-secondary dark:text-stone-400">
-          Compre o acesso avulso só ao Montagem, sem assinar o resto do sistema.
+          Compre o acesso avulso só ao Montagem, sem assinar o resto do sistema — <strong className="text-text-primary dark:text-stone-100">R$ 27,00 por 1 ano</strong>.
         </p>
+        {/* Rótulo curto de propósito: o botão força white-space: nowrap
+           (globals.css) — um texto mais longo com o preço junto vazava
+           pra fora da borda em telas estreitas de celular; o preço já
+           aparece destacado no parágrafo acima. */}
         <Link href="/montagem/comprar" className="btn-primary w-full justify-center mt-1">
-          Comprar acesso — R$ 27,00/ano
+          Comprar acesso
         </Link>
       </div>
     </div>
