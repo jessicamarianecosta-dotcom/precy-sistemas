@@ -33,13 +33,13 @@ const PERIOD_LABELS: Record<Period, string> = {
   quarter: 'Trimestre', year: 'Este ano', all: 'Todo período',
 }
 
-const COLORS = ['#8B6C4F', '#B8956A', '#5C8B4F', '#4F6B8B', '#8B4F7A', '#7A8B4F']
+const COLORS = ['rgb(var(--color-primary))', 'rgb(var(--color-secondary))', '#5C8B4F', '#4F6B8B', '#8B4F7A', '#7A8B4F']
 
 const ORDER_STATUS = {
   pending:    { label: 'Pendente',   color: '#F59E0B' },
   production: { label: 'Produção',   color: '#3B82F6' },
   ready:      { label: 'Pronto',     color: '#10B981' },
-  delivered:  { label: 'Entregue',   color: '#8B6C4F' },
+  delivered:  { label: 'Entregue',   color: 'rgb(var(--color-primary))' },
 }
 
 const BUDGET_STATUS = {
@@ -47,7 +47,7 @@ const BUDGET_STATUS = {
   sent:      { label: 'Enviado',    color: '#3B82F6' },
   approved:  { label: 'Aprovado',   color: '#10B981' },
   rejected:  { label: 'Recusado',   color: '#EF4444' },
-  converted: { label: 'Convertido', color: '#8B6C4F' },
+  converted: { label: 'Convertido', color: 'rgb(var(--color-primary))' },
 }
 
 /* ─── KPI Card ─── */
@@ -329,7 +329,7 @@ export default function RelatoriosPage() {
 
   const tooltipStyle = {
     backgroundColor: '#1C1714',
-    border: '1px solid rgba(139,108,79,0.3)',
+    border: '1px solid rgba(var(--color-primary) / 0.3)',
     borderRadius: '10px',
     color: '#FAF7F4',
     fontSize: 12,
@@ -360,7 +360,7 @@ export default function RelatoriosPage() {
               <>
                 <button onClick={() => handleExportPDF('pdf')} disabled={exporting}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 hover:opacity-90 transition-opacity shadow-sm"
-                  style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}>
+                  style={{ background: 'linear-gradient(135deg, rgb(var(--color-primary)), rgb(var(--color-secondary)))' }}>
                   {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
                   {exporting ? 'Gerando...' : 'Baixar PDF'}
                 </button>
@@ -414,7 +414,7 @@ export default function RelatoriosPage() {
             <a
               href="/assinatura/upgrade"
               className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-white px-4 py-2.5 rounded-xl hover:opacity-90 transition-opacity"
-              style={{ background: 'linear-gradient(135deg, #8B6C4F, #B8956A)' }}
+              style={{ background: 'linear-gradient(135deg, rgb(var(--color-primary)), rgb(var(--color-secondary)))' }}
             >
               <Crown size={13} /> Fazer upgrade
             </a>
@@ -447,7 +447,7 @@ export default function RelatoriosPage() {
                 <p className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-4">Receitas vs Despesas por período</p>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={finChartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(139,108,79,0.1)" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(var(--color-primary) / 0.1)" />
                     <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#9a8a7a' }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: '#9a8a7a' }} axisLine={false} tickLine={false} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
                     <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => [fmt(v), '']} />
@@ -566,11 +566,11 @@ export default function RelatoriosPage() {
                 <p className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-4">Top clientes por valor (pedidos)</p>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={topClients} layout="vertical" margin={{ top: 0, right: 40, left: 10, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(139,108,79,0.1)" horizontal={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(var(--color-primary) / 0.1)" horizontal={false} />
                     <XAxis type="number" tick={{ fontSize: 10, fill: '#9a8a7a' }} axisLine={false} tickLine={false} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
                     <YAxis dataKey="name" type="category" tick={{ fontSize: 11, fill: '#9a8a7a' }} width={90} axisLine={false} tickLine={false} />
                     <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => [fmt(v), 'Total']} />
-                    <Bar dataKey="total" fill="#8B6C4F" radius={[0,4,4,0]} />
+                    <Bar dataKey="total" fill="rgb(var(--color-primary))" radius={[0,4,4,0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -602,13 +602,13 @@ export default function RelatoriosPage() {
                 <p className="text-sm font-semibold text-text-primary dark:text-stone-100 mb-4">Margem de lucro por produto (%)</p>
                 <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={productsWithMargin} layout="vertical" margin={{ top: 0, right: 50, left: 10, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(139,108,79,0.1)" horizontal={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(var(--color-primary) / 0.1)" horizontal={false} />
                     <XAxis type="number" tick={{ fontSize: 10, fill: '#9a8a7a' }} axisLine={false} tickLine={false} tickFormatter={v => `${v.toFixed(0)}%`} />
                     <YAxis dataKey="name" type="category" tick={{ fontSize: 10, fill: '#9a8a7a' }} width={100} axisLine={false} tickLine={false} />
                     <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => [`${Number(v).toFixed(1)}%`, 'Margem']} />
                     <Bar dataKey="margin" radius={[0,4,4,0]}>
                       {productsWithMargin.map((p, i) => (
-                        <Cell key={i} fill={p.margin >= 40 ? '#5C8B4F' : p.margin >= 20 ? '#8B6C4F' : '#EF4444'} />
+                        <Cell key={i} fill={p.margin >= 40 ? '#5C8B4F' : p.margin >= 20 ? 'rgb(var(--color-primary))' : '#EF4444'} />
                       ))}
                     </Bar>
                   </BarChart>

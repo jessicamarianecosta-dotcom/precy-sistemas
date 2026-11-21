@@ -2264,7 +2264,7 @@ function PedidosPage() {
                           className={clsx(
                             'group bg-white dark:bg-surface-dark rounded-2xl p-3.5 shadow-card border transition-all cursor-grab active:cursor-grabbing',
                             dragging === order.id
-                              ? 'border-primary/40 shadow-[0_0_0_2px_rgba(139,108,79,0.15)] scale-[0.98] opacity-70'
+                              ? 'border-primary/40 shadow-[0_0_0_2px_rgba(var(--color-primary)_/_0.15)] scale-[0.98] opacity-70'
                               : 'border-border dark:border-border-dark hover:border-primary/30 hover:shadow-md'
                           )}
                         >

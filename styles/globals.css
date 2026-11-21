@@ -7,6 +7,219 @@
    do Google Fonts aqui: isso duplicava o carregamento da fonte e
    adicionava uma requisição render-blocking a fonts.googleapis.com. */
 
+/* ═══════════════════════════════════════════════════════════════
+   TEMA DA INTERFACE (Configurações > Aparência)
+   ═══════════════════════════════════════════════════════════════
+   Cada paleta define os mesmos tokens de cor (primary/secondary/
+   background/surface/border/text) como variáveis "R G B" (sem rgb()),
+   para que o Tailwind resolva opacidade via <alpha-value> (ex: bg-primary/10).
+   O atributo [data-palette] fica na tag <html> (ver providers/AppThemeProvider
+   e o script inline em app/layout.tsx, que aplica a preferência salva antes
+   da primeira pintura, evitando flash). O modo claro/escuro continua
+   controlado pela classe ".dark" do next-themes — independente da paleta:
+   os tokens *-dark (background-dark, surface-dark, border-dark) só entram
+   em uso quando os componentes aplicam a variante `dark:`, então uma
+   paleta já carrega os dois conjuntos de valores.
+   NÃO afeta: cores de marca dos PDFs/orçamentos (companies.primary_color /
+   secondary_color, lib/branding) nem o tema da loja pública (--store-*,
+   lib/catalog/theme) — sistemas independentes por design. */
+
+:root {
+  --color-primary-50: 245 240 235;
+  --color-primary-100: 237 227 216;
+  --color-primary-200: 217 196 169;
+  --color-primary-300: 196 164 123;
+  --color-primary-400: 175 133 78;
+  --color-primary-500: 139 108 79;
+  --color-primary-600: 122 93 67;
+  --color-primary-700: 97 74 53;
+  --color-primary-800: 74 56 39;
+  --color-primary-900: 50 38 26;
+  --color-primary: 139 108 79;
+  --color-primary-hover: 122 93 67;
+  --color-secondary: 184 149 106;
+  --color-secondary-hover: 160 123 82;
+  --color-background: 250 247 244;
+  --color-background-dark: 28 23 20;
+  --color-surface: 255 255 255;
+  --color-surface-dark: 42 34 32;
+  --color-surface-card: 255 255 255;
+  --color-surface-card-dark: 37 32 24;
+  --color-border: 237 232 226;
+  --color-border-dark: 58 48 40;
+  --color-text-primary: 44 32 24;
+  --color-text-secondary: 122 104 85;
+  --color-text-muted: 184 168 152;
+}
+
+[data-palette="classico"] {
+  --color-primary-50: 245 240 235;
+  --color-primary-100: 237 227 216;
+  --color-primary-200: 217 196 169;
+  --color-primary-300: 196 164 123;
+  --color-primary-400: 175 133 78;
+  --color-primary-500: 139 108 79;
+  --color-primary-600: 122 93 67;
+  --color-primary-700: 97 74 53;
+  --color-primary-800: 74 56 39;
+  --color-primary-900: 50 38 26;
+  --color-primary: 139 108 79;
+  --color-primary-hover: 122 93 67;
+  --color-secondary: 184 149 106;
+  --color-secondary-hover: 160 123 82;
+  --color-background: 250 247 244;
+  --color-background-dark: 28 23 20;
+  --color-surface: 255 255 255;
+  --color-surface-dark: 42 34 32;
+  --color-surface-card: 255 255 255;
+  --color-surface-card-dark: 37 32 24;
+  --color-border: 237 232 226;
+  --color-border-dark: 58 48 40;
+  --color-text-primary: 44 32 24;
+  --color-text-secondary: 122 104 85;
+  --color-text-muted: 184 168 152;
+}
+
+[data-palette="rosa"] {
+  --color-primary-50: 253 241 245;
+  --color-primary-100: 251 225 235;
+  --color-primary-200: 243 185 208;
+  --color-primary-300: 233 148 184;
+  --color-primary-400: 214 107 152;
+  --color-primary-500: 194 72 122;
+  --color-primary-600: 168 55 104;
+  --color-primary-700: 133 42 83;
+  --color-primary-800: 97 32 64;
+  --color-primary-900: 61 20 42;
+  --color-primary: 194 72 122;
+  --color-primary-hover: 168 55 104;
+  --color-secondary: 217 143 176;
+  --color-secondary-hover: 194 111 149;
+  --color-background: 255 246 248;
+  --color-background-dark: 35 20 24;
+  --color-surface: 255 255 255;
+  --color-surface-dark: 46 27 32;
+  --color-surface-card: 255 255 255;
+  --color-surface-card-dark: 42 24 29;
+  --color-border: 246 221 230;
+  --color-border-dark: 74 38 48;
+  --color-text-primary: 58 20 32;
+  --color-text-secondary: 138 84 104;
+  --color-text-muted: 199 154 171;
+}
+
+[data-palette="verde"] {
+  --color-primary-50: 238 246 236;
+  --color-primary-100: 220 238 218;
+  --color-primary-200: 179 218 176;
+  --color-primary-300: 138 197 133;
+  --color-primary-400: 95 168 90;
+  --color-primary-500: 63 138 60;
+  --color-primary-600: 51 112 47;
+  --color-primary-700: 39 85 36;
+  --color-primary-800: 28 62 25;
+  --color-primary-900: 17 38 15;
+  --color-primary: 63 138 60;
+  --color-primary-hover: 51 112 47;
+  --color-secondary: 116 168 81;
+  --color-secondary-hover: 92 138 62;
+  --color-background: 245 250 243;
+  --color-background-dark: 20 28 18;
+  --color-surface: 255 255 255;
+  --color-surface-dark: 30 42 27;
+  --color-surface-card: 255 255 255;
+  --color-surface-card-dark: 26 37 24;
+  --color-border: 225 238 221;
+  --color-border-dark: 46 63 41;
+  --color-text-primary: 23 41 15;
+  --color-text-secondary: 90 115 82;
+  --color-text-muted: 155 174 147;
+}
+
+[data-palette="azul"] {
+  --color-primary-50: 237 244 252;
+  --color-primary-100: 217 232 249;
+  --color-primary-200: 174 203 240;
+  --color-primary-300: 130 174 230;
+  --color-primary-400: 79 139 214;
+  --color-primary-500: 46 111 194;
+  --color-primary-600: 37 90 160;
+  --color-primary-700: 29 68 122;
+  --color-primary-800: 21 47 85;
+  --color-primary-900: 13 27 49;
+  --color-primary: 46 111 194;
+  --color-primary-hover: 37 90 160;
+  --color-secondary: 91 155 217;
+  --color-secondary-hover: 67 130 190;
+  --color-background: 243 248 253;
+  --color-background-dark: 16 23 31;
+  --color-surface: 255 255 255;
+  --color-surface-dark: 25 35 48;
+  --color-surface-card: 255 255 255;
+  --color-surface-card-dark: 22 31 43;
+  --color-border: 222 234 246;
+  --color-border-dark: 39 56 74;
+  --color-text-primary: 15 30 46;
+  --color-text-secondary: 78 101 121;
+  --color-text-muted: 146 163 178;
+}
+
+[data-palette="roxo"] {
+  --color-primary-50: 245 240 250;
+  --color-primary-100: 232 220 245;
+  --color-primary-200: 203 170 232;
+  --color-primary-300: 174 121 219;
+  --color-primary-400: 143 81 203;
+  --color-primary-500: 117 54 180;
+  --color-primary-600: 96 43 148;
+  --color-primary-700: 73 33 112;
+  --color-primary-800: 51 23 77;
+  --color-primary-900: 29 13 43;
+  --color-primary: 117 54 180;
+  --color-primary-hover: 96 43 148;
+  --color-secondary: 168 120 212;
+  --color-secondary-hover: 145 99 189;
+  --color-background: 250 246 253;
+  --color-background-dark: 25 18 30;
+  --color-surface: 255 255 255;
+  --color-surface-dark: 36 26 43;
+  --color-surface-card: 255 255 255;
+  --color-surface-card-dark: 32 23 38;
+  --color-border: 235 223 245;
+  --color-border-dark: 58 43 69;
+  --color-text-primary: 36 17 50;
+  --color-text-secondary: 107 90 125;
+  --color-text-muted: 172 156 188;
+}
+
+[data-palette="grafite"] {
+  --color-primary-50: 241 243 245;
+  --color-primary-100: 226 230 234;
+  --color-primary-200: 191 200 209;
+  --color-primary-300: 156 169 182;
+  --color-primary-400: 116 131 148;
+  --color-primary-500: 86 100 117;
+  --color-primary-600: 70 82 95;
+  --color-primary-700: 52 61 71;
+  --color-primary-800: 35 41 49;
+  --color-primary-900: 18 22 26;
+  --color-primary: 86 100 117;
+  --color-primary-hover: 70 82 95;
+  --color-secondary: 135 147 161;
+  --color-secondary-hover: 110 122 137;
+  --color-background: 247 248 250;
+  --color-background-dark: 20 23 26;
+  --color-surface: 255 255 255;
+  --color-surface-dark: 30 34 39;
+  --color-surface-card: 255 255 255;
+  --color-surface-card-dark: 26 30 34;
+  --color-border: 226 230 234;
+  --color-border-dark: 46 52 59;
+  --color-text-primary: 26 31 36;
+  --color-text-secondary: 91 102 114;
+  --color-text-muted: 154 164 172;
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -56,9 +269,9 @@
   .skeleton {
     background: linear-gradient(
       90deg,
-      rgba(139, 108, 79, 0.08) 25%,
-      rgba(139, 108, 79, 0.15) 50%,
-      rgba(139, 108, 79, 0.08) 75%
+      rgba(var(--color-primary) / 0.08) 25%,
+      rgba(var(--color-primary) / 0.15) 50%,
+      rgba(var(--color-primary) / 0.08) 75%
     );
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
@@ -150,7 +363,7 @@
 
   /* Gradient text */
   .gradient-text {
-    background: linear-gradient(135deg, #8B6C4F 0%, #B8956A 100%);
+    background: linear-gradient(135deg, rgb(var(--color-primary)) 0%, rgb(var(--color-secondary)) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;

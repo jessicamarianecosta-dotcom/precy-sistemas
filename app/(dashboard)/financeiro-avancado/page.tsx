@@ -195,7 +195,7 @@ function VisaoGeralTab({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   return (
     <div className="space-y-5">
       <div className="rounded-2xl p-5 border border-primary/20 relative overflow-hidden"
-        style={{ background: 'linear-gradient(135deg, rgba(139,108,79,0.08), rgba(184,149,106,0.05))' }}>
+        style={{ background: 'linear-gradient(135deg, rgba(var(--color-primary) / 0.08), rgba(var(--color-secondary) / 0.05))' }}>
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 text-xl">💎</div>
           <div>
@@ -833,7 +833,7 @@ function RecorrentesTab({
               <div key={b.id} className="card p-4 flex items-center gap-3.5 group">
                 <div
                   className="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0"
-                  style={{ background: cc ? `${cc.color}1A` : 'rgba(139,108,79,0.08)' }}
+                  style={{ background: cc ? `${cc.color}1A` : 'rgba(var(--color-primary) / 0.08)' }}
                 >
                   {cc?.icon ?? (billType === 'income' ? '💰' : '🔁')}
                 </div>
@@ -1246,19 +1246,19 @@ function FluxoCaixaTab({
                 <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="saldoGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#8B6C4F" stopOpacity={0.35} />
-                      <stop offset="100%" stopColor="#8B6C4F" stopOpacity={0.02} />
+                      <stop offset="0%" stopColor="rgb(var(--color-primary))" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="rgb(var(--color-primary))" stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#8B6C4F" strokeOpacity={0.08} vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--color-primary))" strokeOpacity={0.08} vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={70}
                     tickFormatter={(v) => formatCurrency(v).replace('R$', '').trim()} />
                   <Tooltip
                     formatter={(v: number) => [formatCurrency(v), 'Saldo']}
-                    contentStyle={{ borderRadius: 12, border: '1px solid rgba(139,108,79,0.2)', fontSize: 12 }}
+                    contentStyle={{ borderRadius: 12, border: '1px solid rgba(var(--color-primary) / 0.2)', fontSize: 12 }}
                   />
-                  <Area type="monotone" dataKey="saldo" stroke="#8B6C4F" strokeWidth={2} fill="url(#saldoGradient)" />
+                  <Area type="monotone" dataKey="saldo" stroke="rgb(var(--color-primary))" strokeWidth={2} fill="url(#saldoGradient)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -1981,19 +1981,19 @@ function ProjecaoTab({
                 <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="projecaoGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#8B6C4F" stopOpacity={0.35} />
-                      <stop offset="100%" stopColor="#8B6C4F" stopOpacity={0.02} />
+                      <stop offset="0%" stopColor="rgb(var(--color-primary))" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="rgb(var(--color-primary))" stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#8B6C4F" strokeOpacity={0.08} vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--color-primary))" strokeOpacity={0.08} vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval={6} />
                   <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={70}
                     tickFormatter={(v) => formatCurrency(v).replace('R$', '').trim()} />
                   <Tooltip
                     formatter={(v: number) => [formatCurrency(v), 'Saldo projetado']}
-                    contentStyle={{ borderRadius: 12, border: '1px solid rgba(139,108,79,0.2)', fontSize: 12 }}
+                    contentStyle={{ borderRadius: 12, border: '1px solid rgba(var(--color-primary) / 0.2)', fontSize: 12 }}
                   />
-                  <Area type="monotone" dataKey="saldo" stroke="#8B6C4F" strokeWidth={2} fill="url(#projecaoGradient)" />
+                  <Area type="monotone" dataKey="saldo" stroke="rgb(var(--color-primary))" strokeWidth={2} fill="url(#projecaoGradient)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
