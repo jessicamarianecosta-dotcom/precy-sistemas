@@ -38,8 +38,7 @@ export async function POST(request: Request) {
   if(le) throw le
   const {error:ve}=await db.from('order_art_approval_versions').insert({link_id:link.id,version_number:1,file_ids:fileIds,private_file_paths:privatePaths,instructions_version:ART_FINISHING_INSTRUCTIONS_VERSION,instructions_text:ART_FINISHING_INSTRUCTIONS,public_notes:publicNotes})
   if(ve) throw ve
-  await db.from('order_items').update({art_approval_status:'proposals_sent',updated_at:new Date().toISOString()}).eq('id',itemId)
   await db.from('order_art_events').insert({order_id:orderId,company_id:companyId,created_by:user.id,event_type:'aprovacao_digital_enviada',description:`Link público de aprovação digital criado para “${item.name}”, versão 1.`})
-  return NextResponse.json({ok:true,url:`${new URL(request.url).origin}/aprovar-arte/${token}`,orderNumber:order.order_number,itemName:item.name})
+  return NextResponse.json({ok:true,linkId:link.id,url:`${new URL(request.url).origin}/aprovar-arte/${token}`,orderNumber:order.order_number,itemName:item.name})
  }catch(e){console.error('[aprovacao-arte:create]',e);return NextResponse.json({error:'Não foi possível gerar o link de aprovação.'},{status:500})}
 }
