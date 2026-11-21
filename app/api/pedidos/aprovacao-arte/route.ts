@@ -4,7 +4,7 @@ import { cookies } from 'next/headers'
 import { randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { resolveCompanyIdForUser } from '@/lib/supabase/pgHelpers'
-import { createApprovalToken, ART_FINISHING_INSTRUCTIONS, ART_FINISHING_INSTRUCTIONS_VERSION, hasDigitalArtApprovalBeta } from '@/lib/orders/digitalArtApproval'
+import { createApprovalToken, encryptApprovalToken, ART_FINISHING_INSTRUCTIONS, ART_FINISHING_INSTRUCTIONS_VERSION, hasDigitalArtApprovalBeta } from '@/lib/orders/digitalArtApproval'
 
 export async function POST(request: Request) {
  try {
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   const {token,tokenHash}=createApprovalToken()
   const deadline=body.deadline?new Date(body.deadline).toISOString():order.due_date
   const publicNotes=String(body.publicNotes??'').trim().slice(0,2000)||null
-  const {data:link,error:le}=await db.from('order_art_approval_links').insert({company_id:companyId,order_id:orderId,order_item_id:itemId,token_hash:tokenHash,status:'aguardando_aprovacao',current_version:1,public_notes:publicNotes,deadline,created_by:user.id}).select('id').single()
+  const {data:link,error:le}=await db.from('order_art_approval_links').insert({company_id:companyId,order_id:orderId,order_item_id:itemId,token_hash:tokenHash,token_ciphertext:encryptApprovalToken(token),status:'aguardando_aprovacao',current_version:1,public_notes:publicNotes,deadline,created_by:user.id}).select('id').single()
   if(le) throw le
   const {error:ve}=await db.from('order_art_approval_versions').insert({link_id:link.id,version_number:1,file_ids:fileIds,private_file_paths:privatePaths,instructions_version:ART_FINISHING_INSTRUCTIONS_VERSION,instructions_text:ART_FINISHING_INSTRUCTIONS,public_notes:publicNotes})
   if(ve) throw ve
