@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toaster'
 import { clsx } from 'clsx'
-import { Plus, X, Loader2, AlertCircle, Copy, ClipboardCopy, Trash2, Sparkles, Upload, Image as ImageIcon, Calculator, Pencil, Check, FileDown, FileUp } from 'lucide-react'
+import { Plus, X, Loader2, AlertCircle, Copy, ClipboardCopy, Trash2, Sparkles, Upload, Image as ImageIcon, Calculator, Pencil, Check, FileDown, FileUp, ArrowUp, ArrowDown } from 'lucide-react'
 import { comboKey, resolveDefaultImageId, type GroupRow, type OptionRow } from '@/lib/catalog/variationCombos'
 import { compressImage } from '@/lib/catalog/useImageCompression'
 import { uploadImageXhr } from '@/lib/catalog/useImageUploadXhr'
@@ -253,6 +253,32 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
       if (err) throw err
     },
     onSuccess: invalidateGroups,
+  })
+
+  /**
+   * Reordena os grupos (ex: trazer "Modalidade" para o início, antes de
+   * "Medidas"/"Quantidade") trocando o sort_order com o vizinho na direção
+   * pedida — mesma troca simples usada em listas reordenáveis por posição.
+   * Afeta a ordem de exibição na loja e a ordem padrão do assistente
+   * "Gerenciar combinações" (grupo-pai default = grupo imediatamente
+   * anterior nesta ordem).
+   */
+  const reorderGroupMutation = useMutation({
+    mutationFn: async ({ id, direction }: { id: string; direction: 'up' | 'down' }) => {
+      const idx = groupsSorted.findIndex(g => g.id === id)
+      const swapIdx = direction === 'up' ? idx - 1 : idx + 1
+      if (idx === -1 || swapIdx < 0 || swapIdx >= groupsSorted.length) return
+      const current = groupsSorted[idx]
+      const neighbor = groupsSorted[swapIdx]
+      const { error: err1 } = await (supabase.from('product_variation_groups') as any)
+        .update({ sort_order: neighbor.sort_order }).eq('id', current.id)
+      if (err1) throw err1
+      const { error: err2 } = await (supabase.from('product_variation_groups') as any)
+        .update({ sort_order: current.sort_order }).eq('id', neighbor.id)
+      if (err2) throw err2
+    },
+    onSuccess: invalidateGroups,
+    onError: (err: Error) => setError(err.message),
   })
 
   function startEditGroup(group: GroupRow) {
@@ -771,6 +797,26 @@ export const VariationsEditor = forwardRef<VariationsEditorHandle, Props>(functi
                 </form>
               ) : (
                 <span className="flex items-center gap-1.5 min-w-0">
+                  <span className="flex items-center flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => reorderGroupMutation.mutate({ id: group.id, direction: 'up' })}
+                      disabled={groupsSorted.findIndex(g => g.id === group.id) === 0 || reorderGroupMutation.isPending}
+                      className="text-text-muted hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed p-0.5"
+                      title="Mover grupo para cima (aparece antes na loja)"
+                    >
+                      <ArrowUp size={11} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => reorderGroupMutation.mutate({ id: group.id, direction: 'down' })}
+                      disabled={groupsSorted.findIndex(g => g.id === group.id) === groupsSorted.length - 1 || reorderGroupMutation.isPending}
+                      className="text-text-muted hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed p-0.5"
+                      title="Mover grupo para baixo (aparece depois na loja)"
+                    >
+                      <ArrowDown size={11} />
+                    </button>
+                  </span>
                   <span className="text-xs font-semibold text-text-primary dark:text-stone-100 truncate">{group.name}</span>
                   <button type="button" onClick={() => startEditGroup(group)} className="text-text-muted hover:text-primary flex-shrink-0" title="Renomear grupo">
                     <Pencil size={11} />
