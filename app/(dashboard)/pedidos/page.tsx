@@ -68,7 +68,7 @@ import { z } from 'zod'
 
 import { clsx } from 'clsx'
 
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, addDays } from 'date-fns'
 
 import { ptBR } from 'date-fns/locale'
 import { formatCurrency as fmtGlobal } from '@/lib/utils/format'
@@ -168,6 +168,27 @@ const schema = z.object({
 })
 
 type FormData = z.infer<typeof schema>
+
+function getNewOrderDefaults(): Partial<FormData> {
+  const today = new Date()
+  return {
+    service_name: '',
+    description: '',
+    status: 'pending',
+    subtotal: 0,
+    discount: 0,
+    delivery_fee: 0,
+    additional_charges: 0,
+    total: 0,
+    notes: '',
+    due_date: format(addDays(today, 3), 'yyyy-MM-dd'),
+    priority: 'normal',
+    payment_method: '',
+    product_id: '',
+    order_date: format(today, 'yyyy-MM-dd'),
+    responsavel: '',
+  }
+}
 
 /* ─────────────────────────────────────────────
    ITENS DO PEDIDO (carrinho)
@@ -668,23 +689,7 @@ function PedidosPage() {
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: {
-      service_name: '',
-      description: '',
-      status: 'pending',
-      subtotal: 0,
-      discount: 0,
-      delivery_fee: 0,
-      additional_charges: 0,
-      total: 0,
-      notes: '',
-      due_date: '',
-      priority: 'normal',
-      payment_method: '',
-      product_id: '',
-      order_date: '',
-      responsavel: '',
-    },
+    defaultValues: getNewOrderDefaults(),
   })
 
   const {
@@ -1580,7 +1585,7 @@ function PedidosPage() {
   ───────────────────────────────────────────── */
 
   function resetOrderForm() {
-    reset()
+    reset(getNewOrderDefaults())
     setEditingId(null)
     setEditingPaymentId(null)
     setItems([])
