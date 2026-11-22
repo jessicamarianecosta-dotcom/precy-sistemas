@@ -135,7 +135,7 @@ export default function OrcamentosPage() {
   const [editItem,setEditItem]=useState<BudgetItem|null>(null)
   const [addMode,setAddMode]=useState<'product'|null>(null)
   const [prodSearch,setProdSearch]=useState('')
-  const productsWithVariants=useProductsWithVariants(companyId)
+  const {data:productsWithVariants,isLoading:productsWithVariantsLoading}=useProductsWithVariants(companyId)
   const [variantProduct,setVariantProduct]=useState<any|null>(null)
   // item cuja variação está sendo trocada (reabre o seletor para o mesmo produto)
   const [changeVariantItem,setChangeVariantItem]=useState<BudgetItem|null>(null)
@@ -1122,7 +1122,7 @@ export default function OrcamentosPage() {
                       <div className="max-h-44 overflow-y-auto divide-y divide-border dark:divide-stone-800">
                         {filteredProducts.length===0?(<p className="text-xs text-text-muted text-center py-4">Nenhum produto encontrado</p>
                         ):filteredProducts.map((p:any)=>(
-                          <button key={p.id} type="button" onClick={()=>productsWithVariants.has(p.id)?setVariantProduct(p):addItemFromProduct(p)}
+                          <button key={p.id} type="button" onClick={()=>(productsWithVariantsLoading||productsWithVariants.has(p.id))?setVariantProduct(p):addItemFromProduct(p)}
                             className="w-full text-left px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-primary-50/50 dark:hover:bg-primary/10 transition-colors">
                             <div className="min-w-0">
                               <p className="text-sm font-medium text-text-primary dark:text-stone-100 leading-snug break-words">{p.name}</p>

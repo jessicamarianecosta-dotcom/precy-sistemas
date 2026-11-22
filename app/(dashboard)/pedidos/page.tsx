@@ -320,7 +320,7 @@ function PedidosPage() {
   const searchParams = useSearchParams()
 
   const { companyId } = useCompanyId()
-  const productsWithVariants = useProductsWithVariants(companyId)
+  const { data: productsWithVariants, isLoading: productsWithVariantsLoading } = useProductsWithVariants(companyId)
   const { data: sub } = useSubscription()
 
   const [showModal, setShowModal] = useState(false)
@@ -822,7 +822,10 @@ function PedidosPage() {
       id: uid(),
       product_id: p.id,
       name: p.name,
-      description: variant ? `Variação: ${variant.label}` : (p.description || ''),
+      // A descrição do cadastro do produto é exclusiva da loja online — não
+      // entra aqui. "Descrição" do item de pedido fica livre para anotação
+      // manual (ou para o rótulo da variação escolhida, abaixo).
+      description: variant ? `Variação: ${variant.label}` : '',
       ...(variant ? { variant_id: variant.variantId, variant_label: variant.label, unit_cost: variant.pricing.cost } : {}),
       quantity: 1,
       unit_price: unitPrice,
@@ -2965,7 +2968,7 @@ function PedidosPage() {
                                 key={p.id as string}
                                 type="button"
                                 className="w-full text-left px-3 py-2.5 hover:bg-primary-50 dark:hover:bg-primary/10 flex items-center justify-between gap-3 border-b border-border dark:border-border-dark last:border-0 transition-colors"
-                                onClick={() => productsWithVariants.has(p.id) ? (setVariantProduct(p), setShowProductPicker(false)) : addItemFromProduct(p)}
+                                onClick={() => (productsWithVariantsLoading || productsWithVariants.has(p.id)) ? (setVariantProduct(p), setShowProductPicker(false)) : addItemFromProduct(p)}
                               >
                                 <div className="min-w-0">
                                   <p className="text-sm font-medium text-text-primary dark:text-stone-100 leading-snug break-words">{p.name as string}</p>
@@ -3005,7 +3008,16 @@ function PedidosPage() {
                             <div className="min-w-0 flex-1">
                               <p className="text-sm font-semibold text-text-primary dark:text-stone-100 leading-snug break-words">{item.name || 'Item sem nome'}</p>
                               {item.variant_label && !(item.description || '').includes(item.variant_label) && <p className="text-[11px] text-primary mt-0.5">Variação: {item.variant_label}</p>}
-                              {item.description && <p className="text-[11px] text-text-muted mt-0.5 break-words">{item.description}</p>}
+                              {(() => {
+                                // Itens antigos podem ter herdado a descrição do cadastro do
+                                // produto (bug corrigido) — nunca exibida aqui, é exclusiva da
+                                // loja online. Uma nota manual do próprio pedido continua visível.
+                                const linkedProduct = item.product_id ? (productsList ?? []).find((x: any) => x.id === item.product_id) : null
+                                const isProductDescription = !!linkedProduct && !!item.description && item.description === ((linkedProduct as any).description || '')
+                                return item.description && !isProductDescription && (
+                                  <p className="text-[11px] text-text-muted mt-0.5 break-words">{item.description}</p>
+                                )
+                              })()}
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-[11px] text-text-muted">
                                 <span>Qtd: <b className="text-text-primary dark:text-stone-200">{item.quantity}</b></span>
                                 <span>Valor: <b className="text-text-primary dark:text-stone-200">{fmtGlobal(item.unit_price)}</b></span>
