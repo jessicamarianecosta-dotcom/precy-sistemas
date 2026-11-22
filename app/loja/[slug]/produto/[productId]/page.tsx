@@ -213,8 +213,40 @@ export default function ProdutoLojaPage() {
     return [...parents].some(p => chosen.includes(p))
   }
 
-  function isOptionAllowed(optionId: string): boolean {
-    return isAllowedGiven(optionId, selectedOptions)
+  /**
+   * Checagem "fina" (por combinação real) além da checagem por regra de
+   * dependência acima: uma opção com regra cadastrada (ex: "950 un." só
+   * depende de "Oferta Especial") também precisa corresponder a uma
+   * combinação que exista de verdade para TODOS os grupos já decididos — não
+   * só o grupo-pai declarado na regra. Sem isso, "950 un." ficaria
+   * clicável em qualquer Medida dentro de "Oferta Especial" (a regra só
+   * sabe de Modalidade), em vez de só na Medida com que foi cadastrada.
+   * Só se aplica a opções que já têm alguma regra (`parentsByOption`) — um
+   * produto sem nenhuma regra configurada mantém o comportamento cartesiano
+   * de sempre (nenhuma mudança de comportamento pra quem não usa dependências).
+   */
+  function matchesExistingVariant(groupIdx: number, optionId: string, selection: Record<string, string>): boolean {
+    return variantsNormalized.some(v => {
+      if (v.optionIds[groupIdx] !== optionId) return false
+      return groups.every((g, k) => {
+        if (k === groupIdx) return true
+        const sel = selection[g.id]
+        if (sel === undefined) return true // grupo ainda sem seleção decidida — não restringe
+        if (sel === '') return v.optionIds[k] == null // grupo opcional deliberadamente sem opção
+        return v.optionIds[k] === sel
+      })
+    })
+  }
+
+  /** Combina as duas checagens acima contra uma seleção qualquer (estado atual ou parcial, dentro de computeSelection). */
+  function isOptionAllowedInSelection(groupIdx: number, optionId: string, selection: Record<string, string>): boolean {
+    if (!isAllowedGiven(optionId, selection)) return false
+    if (!parentsByOption.has(optionId)) return true
+    return matchesExistingVariant(groupIdx, optionId, selection)
+  }
+
+  function isOptionAllowed(groupIdx: number, optionId: string): boolean {
+    return isOptionAllowedInSelection(groupIdx, optionId, selectedOptions)
   }
 
   /**
@@ -229,15 +261,15 @@ export default function ProdutoLojaPage() {
    */
   function computeSelection(base: Record<string, string>): Record<string, string> {
     const next: Record<string, string> = {}
-    for (const g of groups) {
+    groups.forEach((g, idx) => {
       // '' = grupo opcional desmarcado de propósito (ver pills abaixo) — ao
       // contrário de "ainda não escolhido" (chave ausente), não deve ser
       // reatribuído automaticamente à primeira opção. Preserva a marcação
       // (em vez de simplesmente omitir a chave) pra não ser desfeita no
       // próximo recálculo (useEffect abaixo, que roda de novo a cada render).
-      if (g.is_required === false && base[g.id] === '') { next[g.id] = ''; continue }
+      if (g.is_required === false && base[g.id] === '') { next[g.id] = ''; return }
       const current = g.options.find(o => o.id === base[g.id])
-      if (current && isAllowedGiven(current.id, next)) {
+      if (current && isOptionAllowedInSelection(idx, current.id, next)) {
         // Mantém a escolha atual (inclusive de um grupo opcional já marcado
         // pelo cliente), enquanto ela continuar válida.
         next[g.id] = current.id
@@ -248,10 +280,10 @@ export default function ProdutoLojaPage() {
         // carregamento inicial quanto um clique que desmarcou a opção.
         next[g.id] = ''
       } else {
-        const firstAllowed = g.options.find(o => isAllowedGiven(o.id, next))
+        const firstAllowed = g.options.find(o => isOptionAllowedInSelection(idx, o.id, next))
         if (firstAllowed) next[g.id] = firstAllowed.id
       }
-    }
+    })
     return next
   }
 
@@ -485,7 +517,7 @@ export default function ProdutoLojaPage() {
             )}
             {groups.length > 0 && (
               <div className="space-y-3 mb-5">
-                {groups.map(g => {
+                {groups.map((g, groupIdx) => {
                   if (isCapaGroup(g.name)) {
                     const selectedOpt = g.options.find(o => o.id === selectedOptions[g.id])
                     const selectedImageUrl = selectedOpt?.default_image_id ? imageById.get(selectedOpt.default_image_id)?.url ?? null : null
@@ -534,7 +566,7 @@ export default function ProdutoLojaPage() {
                       <div className="flex flex-wrap gap-1.5">
                         {g.options.map(opt => {
                           const active = selectedOptions[g.id] === opt.id
-                          const allowed = isOptionAllowed(opt.id)
+                          const allowed = isOptionAllowed(groupIdx, opt.id)
                           return (
                             <button
                               key={opt.id}
@@ -685,7 +717,8 @@ export default function ProdutoLojaPage() {
       {settings && <StoreFooter settings={settings as any} storeName={storeName} />}
 
       {coverModalGroupId && (() => {
-        const group = groups.find(g => g.id === coverModalGroupId)
+        const groupIdx = groups.findIndex(g => g.id === coverModalGroupId)
+        const group = groupIdx !== -1 ? groups[groupIdx] : undefined
         if (!group) return null
         return (
           <CoverPickerModal
@@ -694,7 +727,7 @@ export default function ProdutoLojaPage() {
               id: opt.id,
               value: opt.value,
               imageUrl: opt.default_image_id ? imageById.get(opt.default_image_id)?.url ?? null : null,
-              allowed: isOptionAllowed(opt.id),
+              allowed: isOptionAllowed(groupIdx, opt.id),
             }))}
             selectedId={selectedOptions[group.id] ?? null}
             onSelect={optionId => {
