@@ -28,7 +28,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ord
   if (!order) return NextResponse.json({ error: 'Pedido não encontrado' }, { status: 404 })
 
   const { data: items, error: itemsErr } = await (supabaseAdmin.from('order_items') as any)
-    .select('id, name, quantity, unit_price, product_id, product:products(id, name, unit, ncm), variant:product_variants(sku)')
+    .select('id, name, quantity, unit_price, product_id, ncm, product:products(id, name, unit, ncm), variant:product_variants(sku)')
     .eq('order_id', order.id)
 
   if (itemsErr) return NextResponse.json({ error: itemsErr.message }, { status: 500 })
@@ -49,10 +49,15 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ord
     unit_price: item.unit_price,
     unit: item.product?.unit ?? null,
     code: item.variant?.sku || item.product?.id || item.id,
-    product_ncm: item.product?.ncm ?? null,
+    // NCM do produto do catálogo quando existe; senão o NCM gravado direto
+    // no item do pedido (order_items.ncm) — fallback para itens avulsos
+    // sem product_id, que não têm onde guardar NCM no cadastro de produto.
+    product_ncm: item.product?.ncm ?? item.ncm ?? null,
     // id do produto no catálogo (para a tela de revisão deixar preencher
     // o NCM direto ali, sem precisar ir em Produtos) — não entra no
-    // payload da NF-e, só serve de referência pro front.
+    // payload da NF-e, só serve de referência pro front. null quando o
+    // item não está vinculado a um produto do catálogo (nesse caso o
+    // front salva o NCM em order_items.ncm, usando o próprio `id` acima).
     product_id: item.product?.id ?? null,
   }))
 

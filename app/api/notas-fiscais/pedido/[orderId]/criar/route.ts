@@ -62,7 +62,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ord
   if (!order) return NextResponse.json({ error: 'Pedido não encontrado' }, { status: 404 })
 
   const { data: items } = await (supabaseAdmin.from('order_items') as any)
-    .select('id, name, quantity, unit_price, product:products(id, unit, ncm), variant:product_variants(sku)')
+    .select('id, name, quantity, unit_price, ncm, product:products(id, unit, ncm), variant:product_variants(sku)')
     .eq('order_id', order.id)
 
   const mappedItems = (items ?? []).map((item: any) => ({
@@ -75,7 +75,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ord
     // variação do pedido quando existe, senão cai pro id do produto (o
     // cadastro de produto do Precy+ não tem um campo de SKU próprio).
     code: item.variant?.sku || item.product?.id || item.id,
-    product_ncm: item.product?.ncm ?? null,
+    // NCM do produto do catálogo quando existe; senão o NCM gravado direto
+    // no item do pedido (order_items.ncm) — fallback para itens avulsos
+    // sem product_id, que não têm onde guardar NCM no cadastro de produto.
+    product_ncm: item.product?.ncm ?? item.ncm ?? null,
   }))
 
   const missingFields = getMissingFields(order.customer, mappedItems)

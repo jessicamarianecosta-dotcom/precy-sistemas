@@ -90,6 +90,7 @@ import { buildReceiptMessage } from '@/lib/orders/whatsapp'
 import { extractPixSnapshot } from '@/lib/company/pix'
 import { VariantPickerModal, type VariantSelection } from '@/components/produtos/VariantPickerModal'
 import { useProductsWithVariants } from '@/hooks/useProductsWithVariants'
+import { canAccessNotasFiscais } from '@/lib/notasFiscais/betaAccess'
 
 const OrderItemArtPanel = dynamic(
   () => import('@/components/orders/OrderItemArtPanel').then(m => m.OrderItemArtPanel),
@@ -322,6 +323,19 @@ function PedidosPage() {
   const { companyId } = useCompanyId()
   const { data: productsWithVariants, isLoading: productsWithVariantsLoading } = useProductsWithVariants(companyId)
   const { data: sub } = useSubscription()
+
+  // Notas Fiscais: beta de uma única conta, pelo ID estável (ver
+  // lib/notasFiscais/betaAccess.ts) — mesmo padrão/queryKey da Sidebar, então
+  // não dispara uma segunda chamada quando a Sidebar já carregou isso.
+  const { data: userId } = useQuery({
+    queryKey: ['auth-user-id'],
+    staleTime: 10 * 60 * 1000,
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      return user?.id ?? null
+    },
+  })
+  const hasNotasFiscaisAccess = canAccessNotasFiscais(userId)
 
   const [showModal, setShowModal] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -2673,6 +2687,16 @@ function PedidosPage() {
                       if (orderRecord) handleGeneratePDF(orderRecord, mode)
                     }}
                   />
+                )}
+                {editingId && hasNotasFiscaisAccess && (
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/notas-fiscais/${editingId}`)}
+                    title="Emitir nota fiscal deste pedido"
+                    className="btn-secondary text-xs flex items-center gap-1.5 px-3 py-2"
+                  >
+                    <Receipt size={14} /> Nota Fiscal
+                  </button>
                 )}
                 <button
                   onClick={() => { setShowModal(false); resetOrderForm() }}

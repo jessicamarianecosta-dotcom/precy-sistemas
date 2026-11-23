@@ -176,17 +176,12 @@ export default function NotaFiscalPedidoPage() {
                 {item.quantity}x {item.name ?? 'Item'}
               </span>
               <div className="flex items-center gap-3 flex-shrink-0">
-                {item.product_id ? (
-                  <EditarNcmInline
-                    productId={item.product_id}
-                    initialValue={item.product_ncm}
-                    onSaved={() => queryClient.invalidateQueries({ queryKey: ['notas_fiscais_preview', params.orderId] })}
-                  />
-                ) : !item.product_ncm ? (
-                  <span className="text-amber-600">NCM faltando</span>
-                ) : (
-                  <span className="text-text-muted">NCM {item.product_ncm}</span>
-                )}
+                <EditarNcmInline
+                  productId={item.product_id}
+                  orderItemId={item.id}
+                  initialValue={item.product_ncm}
+                  onSaved={() => queryClient.invalidateQueries({ queryKey: ['notas_fiscais_preview', params.orderId] })}
+                />
                 <span className="text-text-muted whitespace-nowrap">{formatCurrency(item.unit_price)}</span>
               </div>
             </div>
