@@ -118,15 +118,43 @@ function inferContribuinte(_customer: CustomerFiscalData): 9 {
   return 9
 }
 
+/**
+ * Campos opcionais da nota, todos confirmados contra
+ * NotasFiscaisDadosPostDTO em developer.bling.com.br (verificado em
+ * 2026-11-23 direto no openapi.json da referência oficial — não só na
+ * tela do Bling). De propósito NÃO inclui campos que a tela do Bling
+ * mostra mas que o schema real não aceita no POST /nfe: série e vendedor
+ * (somente leitura — vêm do retorno da API, não são enviáveis), consumidor
+ * final e unidade de negócio (existem só nos DTOs de Pedido de
+ * Venda/Orçamento, não no da NF-e — só dá pra definir no pedido antes de
+ * gerar a nota a partir dele), indicador de presença e código do regime
+ * tributário (não existem em lugar nenhum do schema), e categoria
+ * financeira da parcela (não existe em NotasFiscaisParcelaDTO).
+ */
+export interface NfeExtraFields {
+  /** 1 Normal, 2 Complementar, 3 Ajuste, 4 Devolução, 5 Crédito, 6 Débito. */
+  finalidade?: 1 | 2 | 3 | 4 | 5 | 6
+  /** Obrigatório (código de 2 dígitos) quando finalidade é 5 ou 6. */
+  tipoNota?: string
+  /** Texto livre da nota — único campo de observação que existe no schema (não são 3 campos como a tela do Bling mostra). */
+  observacoes?: string
+  seguro?: number
+  despesas?: number
+  desconto?: number
+  /** Cada parcela aceita data/valor/observações; forma de pagamento fica de fora por depender de um cadastro de formas de pagamento já existente na conta Bling, como naturezaOperacao. */
+  parcelas?: Array<{ data: string; valor: number; observacoes?: string }>
+}
+
 export function buildNfePayload(params: {
   customer: CustomerFiscalData
   items: OrderItemFiscalData[]
   naturezaOperacaoId: number
   orderNumber: string
+  extras?: NfeExtraFields
 }): Record<string, unknown> {
-  const { customer, items, naturezaOperacaoId, orderNumber } = params
+  const { customer, items, naturezaOperacaoId, orderNumber, extras } = params
 
-  return {
+  const payload: Record<string, unknown> = {
     tipo: 1, // 1 = saída (venda) — Precy+ só emite notas de venda, nunca de entrada
     numero: orderNumber,
     // formato "yyyy-MM-dd HH:mm:ss", confirmado no schema oficial (dataOperacao)
@@ -159,4 +187,22 @@ export function buildNfePayload(params: {
       // Sem campo de CFOP no item: o Bling resolve o CFOP pela natureza de operação escolhida.
     })),
   }
+
+  if (extras?.finalidade) payload.finalidade = extras.finalidade
+  if ((extras?.finalidade === 5 || extras?.finalidade === 6) && extras.tipoNota) {
+    payload.tipoNota = extras.tipoNota
+  }
+  if (extras?.observacoes) payload.observacoes = extras.observacoes
+  if (extras?.seguro != null) payload.seguro = extras.seguro
+  if (extras?.despesas != null) payload.despesas = extras.despesas
+  if (extras?.desconto != null) payload.desconto = extras.desconto
+  if (extras?.parcelas && extras.parcelas.length > 0) {
+    payload.parcelas = extras.parcelas.map(p => ({
+      data: p.data,
+      valor: p.valor,
+      ...(p.observacoes ? { observacoes: p.observacoes } : {}),
+    }))
+  }
+
+  return payload
 }

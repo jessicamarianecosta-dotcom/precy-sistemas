@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { CompletarDestinatarioModal, type DestinatarioFiscalEditavel } from '@/components/notasFiscais/CompletarDestinatarioModal'
 import { EditarNcmInline } from '@/components/notasFiscais/EditarNcmInline'
+import { NotaFiscalExtrasForm, criarNfeExtrasPadrao, extrasParaPayload, type NfeExtrasState } from '@/components/notasFiscais/NotaFiscalExtrasForm'
 
 interface MissingField {
   field: string
@@ -42,6 +43,7 @@ export default function NotaFiscalPedidoPage() {
   const queryClient = useQueryClient()
   const [naturezaOperacao, setNaturezaOperacao] = useState('Venda de mercadoria')
   const [showClienteModal, setShowClienteModal] = useState(false)
+  const [extras, setExtras] = useState<NfeExtrasState>(criarNfeExtrasPadrao())
 
   const { data, isLoading } = useQuery<PreviewData>({
     queryKey: ['notas_fiscais_preview', params.orderId],
@@ -57,7 +59,7 @@ export default function NotaFiscalPedidoPage() {
       const res = await fetch(`/api/notas-fiscais/pedido/${params.orderId}/criar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ naturezaOperacao }),
+        body: JSON.stringify({ naturezaOperacao, extras: extrasParaPayload(extras) }),
       })
       const body = await res.json()
       if (!res.ok) throw new Error(body?.error || 'Falha ao criar a nota no Bling')
@@ -289,6 +291,10 @@ export default function NotaFiscalPedidoPage() {
         )}
       </div>
       </div>
+
+      {!existingInvoice && (
+        <NotaFiscalExtrasForm value={extras} onChange={setExtras} />
+      )}
 
       {showClienteModal && customer && (
         <CompletarDestinatarioModal

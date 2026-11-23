@@ -14,6 +14,7 @@ import {
   AlertTriangle, FileText, Pencil,
 } from 'lucide-react'
 import { CompletarDestinatarioModal } from '@/components/notasFiscais/CompletarDestinatarioModal'
+import { NotaFiscalExtrasForm, criarNfeExtrasPadrao, extrasParaPayload, type NfeExtrasState } from '@/components/notasFiscais/NotaFiscalExtrasForm'
 
 interface AvulsaItem {
   tempId: string
@@ -44,6 +45,7 @@ export default function NovaNotaAvulsaPage() {
   const queryClient = useQueryClient()
 
   const [naturezaOperacao, setNaturezaOperacao] = useState('Venda de mercadoria')
+  const [extras, setExtras] = useState<NfeExtrasState>(criarNfeExtrasPadrao())
 
   // ── Destinatário ──
   const [customerMode, setCustomerMode] = useState<'existing' | 'new'>('existing')
@@ -171,6 +173,7 @@ export default function NovaNotaAvulsaPage() {
             description: i.name, code: i.code || undefined, unit: i.unit,
             quantity: Number(i.quantity), unitPrice: Number(i.unitPrice), ncm: i.ncm || null,
           })),
+          extras: extrasParaPayload(extras),
         }),
       })
       const bodyJson = await res.json()
@@ -489,6 +492,8 @@ export default function NovaNotaAvulsaPage() {
         </button>
       </div>
       </div>
+
+      <NotaFiscalExtrasForm value={extras} onChange={setExtras} />
 
       {showEditCustomerModal && selectedCustomer && (
         <CompletarDestinatarioModal

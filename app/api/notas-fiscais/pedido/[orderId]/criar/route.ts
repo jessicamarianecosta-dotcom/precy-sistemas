@@ -3,7 +3,7 @@ import { requireNotasFiscaisAccess } from '@/lib/notasFiscais/server-auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getActiveBlingAccessToken } from '@/lib/notasFiscais/blingConnection'
 import { criarNfeNoBling, consultarNfeNoBling, buscarNaturezasOperacao, SITUACAO_NFE_LABELS, BlingApiError } from '@/lib/notasFiscais/blingClient'
-import { buildNfePayload, getMissingFields } from '@/lib/notasFiscais/fieldMapping'
+import { buildNfePayload, getMissingFields, type NfeExtraFields } from '@/lib/notasFiscais/fieldMapping'
 
 /**
  * `naturezaOperacao` da NF-e é `{ id }`, referenciando um registro já
@@ -52,6 +52,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ord
   const { orderId } = await params
   const body = await req.json().catch(() => ({}))
   const naturezaOperacao: string = body?.naturezaOperacao || 'Venda de mercadoria'
+  const extras: NfeExtraFields | undefined = body?.extras
 
   const { data: order, error: orderErr } = await (supabaseAdmin.from('orders') as any)
     .select('id, order_number, customer_id, customer:customers(*)')
@@ -132,6 +133,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ord
     items: mappedItems,
     naturezaOperacaoId,
     orderNumber: order.order_number,
+    extras,
   })
 
   const invoiceId: string = existing?.id ?? (await (supabaseAdmin.from('fiscal_invoices') as any)

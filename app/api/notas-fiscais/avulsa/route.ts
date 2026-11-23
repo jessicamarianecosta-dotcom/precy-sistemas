@@ -3,7 +3,7 @@ import { requireNotasFiscaisAccess } from '@/lib/notasFiscais/server-auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getActiveBlingAccessToken } from '@/lib/notasFiscais/blingConnection'
 import { criarNfeNoBling, consultarNfeNoBling, SITUACAO_NFE_LABELS, BlingApiError } from '@/lib/notasFiscais/blingClient'
-import { buildNfePayload, getMissingFields, type OrderItemFiscalData } from '@/lib/notasFiscais/fieldMapping'
+import { buildNfePayload, getMissingFields, type OrderItemFiscalData, type NfeExtraFields } from '@/lib/notasFiscais/fieldMapping'
 import { resolveNaturezaOperacaoId } from '@/lib/notasFiscais/naturezaOperacao'
 
 interface AvulsaItemInput {
@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
   const customerId: string | undefined = body?.customerId
   const naturezaOperacao: string = body?.naturezaOperacao || 'Venda de mercadoria'
   const itemsInput: AvulsaItemInput[] = Array.isArray(body?.items) ? body.items : []
+  const extras: NfeExtraFields | undefined = body?.extras
 
   if (!customerId) {
     return NextResponse.json({ error: 'Selecione ou cadastre o destinatário da nota.' }, { status: 400 })
@@ -108,6 +109,7 @@ export async function POST(req: NextRequest) {
     items: mappedItems,
     naturezaOperacaoId,
     orderNumber: avulsaNumero,
+    extras,
   })
 
   const { data: inserted, error: insertErr } = await (supabaseAdmin.from('fiscal_invoices') as any)
