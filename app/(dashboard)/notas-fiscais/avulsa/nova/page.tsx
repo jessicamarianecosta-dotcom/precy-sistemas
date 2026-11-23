@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useCompanyId } from '@/hooks/useCompanyId'
 import { useToast } from '@/components/ui/Toaster'
@@ -11,8 +11,9 @@ import { formatCurrency } from '@/lib/utils/format'
 import { clsx } from 'clsx'
 import {
   ArrowLeft, Search, UserCheck, UserPlus, Package, Plus, Trash2, Loader2,
-  AlertTriangle, FileText,
+  AlertTriangle, FileText, Pencil,
 } from 'lucide-react'
+import { CompletarDestinatarioModal } from '@/components/notasFiscais/CompletarDestinatarioModal'
 
 interface AvulsaItem {
   tempId: string
@@ -40,6 +41,7 @@ export default function NovaNotaAvulsaPage() {
   const { companyId } = useCompanyId()
   const { toast } = useToast()
   const router = useRouter()
+  const queryClient = useQueryClient()
 
   const [naturezaOperacao, setNaturezaOperacao] = useState('Venda de mercadoria')
 
@@ -48,6 +50,7 @@ export default function NovaNotaAvulsaPage() {
   const [customerSearch, setCustomerSearch] = useState('')
   const [showCustomerPicker, setShowCustomerPicker] = useState(false)
   const [customerId, setCustomerId] = useState<string | null>(null)
+  const [showEditCustomerModal, setShowEditCustomerModal] = useState(false)
   const [newCustomer, setNewCustomer] = useState({
     name: '', phone: '', email: '', cpf_cnpj: '', person_type: 'fisica' as 'fisica' | 'juridica',
     street: '', number: '', neighborhood: '', city: '', state: '', zip_code: '',
@@ -58,7 +61,7 @@ export default function NovaNotaAvulsaPage() {
     enabled: !!companyId,
     queryFn: async () => {
       let query = (supabase.from('customers') as any)
-        .select('id, name, phone, cpf_cnpj, street, number, neighborhood, city, state, zip_code')
+        .select('id, name, phone, person_type, cpf_cnpj, street, number, complement, neighborhood, city, state, zip_code')
         .eq('company_id', companyId!)
         .order('name', { ascending: true })
         .limit(20)
@@ -300,10 +303,17 @@ export default function NovaNotaAvulsaPage() {
             </div>
 
             {selectedCustomer && (
-              <div className="rounded-xl border border-border dark:border-border-dark p-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs max-w-md">
+              <div className="rounded-xl border border-border dark:border-border-dark p-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs max-w-md relative">
                 <div><span className="text-text-muted">Nome: </span><b className="text-text-primary dark:text-stone-100">{selectedCustomer.name}</b></div>
                 <div><span className="text-text-muted">CPF/CNPJ: </span><b className="text-text-primary dark:text-stone-100">{selectedCustomer.cpf_cnpj || '—'}</b></div>
                 <div className="sm:col-span-2"><span className="text-text-muted">Endereço: </span><b className="text-text-primary dark:text-stone-100">{[selectedCustomer.street, selectedCustomer.city, selectedCustomer.state].filter(Boolean).join(' — ') || '—'}</b></div>
+                <button
+                  type="button"
+                  onClick={() => setShowEditCustomerModal(true)}
+                  className="sm:col-span-2 text-[11px] text-primary hover:underline flex items-center gap-1 mt-1"
+                >
+                  <Pencil size={10} /> completar/editar dados fiscais
+                </button>
               </div>
             )}
           </div>
@@ -479,6 +489,17 @@ export default function NovaNotaAvulsaPage() {
         </button>
       </div>
       </div>
+
+      {showEditCustomerModal && selectedCustomer && (
+        <CompletarDestinatarioModal
+          customer={selectedCustomer}
+          onClose={() => setShowEditCustomerModal(false)}
+          onSaved={() => {
+            setShowEditCustomerModal(false)
+            queryClient.invalidateQueries({ queryKey: ['notas_fiscais_avulsa_customers', companyId] })
+          }}
+        />
+      )}
     </div>
   )
 }

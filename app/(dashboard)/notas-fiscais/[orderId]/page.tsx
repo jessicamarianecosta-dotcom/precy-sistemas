@@ -8,8 +8,10 @@ import { formatCurrency } from '@/lib/utils/format'
 import { clsx } from 'clsx'
 import { useState } from 'react'
 import {
-  ArrowLeft, AlertTriangle, Loader2, CheckCircle2, Send, FileText, Download, RefreshCw,
+  ArrowLeft, AlertTriangle, Loader2, CheckCircle2, Send, FileText, Download, RefreshCw, Pencil,
 } from 'lucide-react'
+import { CompletarDestinatarioModal, type DestinatarioFiscalEditavel } from '@/components/notasFiscais/CompletarDestinatarioModal'
+import { EditarNcmInline } from '@/components/notasFiscais/EditarNcmInline'
 
 interface MissingField {
   field: string
@@ -20,8 +22,11 @@ interface MissingField {
 
 interface PreviewData {
   order: { id: string; order_number: string; total: number }
-  customer: { id: string; name: string } | null
-  items: { id: string; name: string | null; quantity: number; unit_price: number; product_ncm: string | null }[]
+  customer: DestinatarioFiscalEditavel | null
+  items: {
+    id: string; name: string | null; quantity: number; unit_price: number
+    product_ncm: string | null; product_id: string | null
+  }[]
   company: { name: string }
   missingFields: MissingField[]
   existingInvoice: null | {
@@ -36,6 +41,7 @@ export default function NotaFiscalPedidoPage() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const [naturezaOperacao, setNaturezaOperacao] = useState('Venda de mercadoria')
+  const [showClienteModal, setShowClienteModal] = useState(false)
 
   const { data, isLoading } = useQuery<PreviewData>({
     queryKey: ['notas_fiscais_preview', params.orderId],
@@ -118,18 +124,27 @@ export default function NotaFiscalPedidoPage() {
         <div className="card p-4 border-l-4 border-l-amber-500 bg-amber-50 dark:bg-amber-900/10">
           <div className="flex items-start gap-2">
             <AlertTriangle size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
-            <div>
+            <div className="flex-1">
               <p className="text-sm font-semibold text-amber-800 dark:text-amber-400">Faltam dados para emitir</p>
               <ul className="mt-1.5 space-y-1 text-xs text-amber-700 dark:text-amber-400">
                 {missingFields.map((m, idx) => (
                   <li key={idx}>
                     • {m.label}{m.productName ? ` — ${m.productName}` : ''}
                     {m.where === 'empresa' && ' (completar em Configurações → Empresa)'}
-                    {m.where === 'cliente' && ' (completar no cadastro do cliente)'}
-                    {m.where === 'produto' && ' (completar no cadastro do produto)'}
+                    {m.where === 'cliente' && ' — preencha ao lado em "Cliente"'}
+                    {m.where === 'produto' && ' — preencha o NCM na lista de itens abaixo'}
                   </li>
                 ))}
               </ul>
+              {missingFields.some(m => m.where === 'cliente') && customer && (
+                <button
+                  type="button"
+                  onClick={() => setShowClienteModal(true)}
+                  className="btn-secondary text-xs flex items-center gap-1.5 mt-3"
+                >
+                  <Pencil size={12} /> Completar dados do cliente
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -140,19 +155,40 @@ export default function NotaFiscalPedidoPage() {
       <div className="card p-5 space-y-3 lg:col-span-2">
         <h3 className="text-sm font-semibold text-text-primary dark:text-stone-100">Resumo</h3>
         <div className="text-sm text-text-secondary dark:text-stone-300 space-y-1">
-          <p>Cliente: <span className="font-medium">{customer?.name ?? '—'}</span></p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p>Cliente: <span className="font-medium">{customer?.name ?? '—'}</span></p>
+            {customer && (
+              <button
+                type="button"
+                onClick={() => setShowClienteModal(true)}
+                className="text-[11px] text-primary hover:underline flex items-center gap-1"
+              >
+                <Pencil size={10} /> editar dados fiscais
+              </button>
+            )}
+          </div>
           <p>Total do pedido: <span className="font-medium">{formatCurrency(order.total)}</span></p>
         </div>
         <div className="divide-y divide-border dark:divide-border-dark rounded-xl border border-border dark:border-border-dark overflow-hidden mt-2">
           {items.map(item => (
-            <div key={item.id} className="px-3 py-2 text-xs flex items-center justify-between">
-              <span className="text-text-secondary dark:text-stone-300">
+            <div key={item.id} className="px-3 py-2 text-xs flex items-center justify-between gap-3">
+              <span className="text-text-secondary dark:text-stone-300 min-w-0 truncate">
                 {item.quantity}x {item.name ?? 'Item'}
-                {!item.product_ncm && (
-                  <span className="text-amber-600 ml-1">(NCM faltando)</span>
-                )}
               </span>
-              <span className="text-text-muted">{formatCurrency(item.unit_price)}</span>
+              <div className="flex items-center gap-3 flex-shrink-0">
+                {item.product_id ? (
+                  <EditarNcmInline
+                    productId={item.product_id}
+                    initialValue={item.product_ncm}
+                    onSaved={() => queryClient.invalidateQueries({ queryKey: ['notas_fiscais_preview', params.orderId] })}
+                  />
+                ) : !item.product_ncm ? (
+                  <span className="text-amber-600">NCM faltando</span>
+                ) : (
+                  <span className="text-text-muted">NCM {item.product_ncm}</span>
+                )}
+                <span className="text-text-muted whitespace-nowrap">{formatCurrency(item.unit_price)}</span>
+              </div>
             </div>
           ))}
         </div>
@@ -258,6 +294,17 @@ export default function NotaFiscalPedidoPage() {
         )}
       </div>
       </div>
+
+      {showClienteModal && customer && (
+        <CompletarDestinatarioModal
+          customer={customer}
+          onClose={() => setShowClienteModal(false)}
+          onSaved={() => {
+            setShowClienteModal(false)
+            queryClient.invalidateQueries({ queryKey: ['notas_fiscais_preview', params.orderId] })
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -50,6 +50,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ord
     unit: item.product?.unit ?? null,
     code: item.variant?.sku || item.product?.id || item.id,
     product_ncm: item.product?.ncm ?? null,
+    // id do produto no catálogo (para a tela de revisão deixar preencher
+    // o NCM direto ali, sem precisar ir em Produtos) — não entra no
+    // payload da NF-e, só serve de referência pro front.
+    product_id: item.product?.id ?? null,
   }))
 
   const missingFields = getMissingFields(order.customer, mappedItems)
