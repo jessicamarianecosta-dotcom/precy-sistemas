@@ -2,7 +2,7 @@
 
 import { AlertTriangle, CheckCircle2, RotateCw } from 'lucide-react'
 import { useMontagemStore, useMontagemComparison } from '@/lib/montagem/store'
-import { formatArea, formatMm, formatPercent } from '@/lib/montagem/units'
+import { formatArea, formatBobinaLengthCmM, formatBrNumber, formatMm, formatPercent } from '@/lib/montagem/units'
 import type { Rotation } from '@/lib/montagem/types'
 
 export function ResultsSummary() {
@@ -74,7 +74,16 @@ export function ResultsSummary() {
           </div>
 
           {best.lengthNeededMm != null && (
-            <Metric label="Comprimento de bobina necessário" value={formatMm(best.lengthNeededMm, 'cm')} />
+            <div className="space-y-1.5">
+              <Metric label="Comprimento de bobina necessário" value={formatBobinaLengthCmM(best.lengthNeededMm)} />
+              <p className="text-xs text-text-secondary dark:text-stone-400">
+                Para produzir {formatBrNumber(isBobinaQtyMode && bobina.desiredQty != null ? bobina.desiredQty : best.total, 0)} unidades, serão usados aproximadamente{' '}
+                {formatBobinaLengthCmM(best.lengthNeededMm).split(' · ')[1]} de bobina com {formatMm(bobina.rollWidthMm, 'cm')} de largura.
+              </p>
+              <p className="text-xs text-text-secondary dark:text-stone-400">
+                Área usada é a soma da área das peças produzidas; comprimento da bobina é a extensão da bobina necessária para acomodá-las. São medidas diferentes.
+              </p>
+            </div>
           )}
           {sheetsNeeded != null && (
             <Metric label={`Folhas necessárias para ${desiredQty} unidades`} value={String(sheetsNeeded)} />

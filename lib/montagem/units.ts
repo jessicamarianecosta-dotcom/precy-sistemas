@@ -49,3 +49,18 @@ export function formatArea(areaMm2: number): string {
 export function formatPercent(pct: number): string {
   return `${pct.toFixed(1).replace('.', ',')}%`
 }
+
+/** Número no padrão brasileiro (separador de milhar "." e decimal ","). */
+export function formatBrNumber(value: number, decimals = 2): string {
+  return value.toLocaleString('pt-BR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
+}
+
+/**
+ * Comprimento de bobina em cm e m, lado a lado (ex.: "1.839,08 cm · 18,39 m").
+ * Metros = centímetros / 100, cada um arredondado para 2 casas decimais.
+ */
+export function formatBobinaLengthCmM(lengthMm: number): string {
+  const cm = fromMm(lengthMm, 'cm')
+  const m = cm / 100
+  return `${formatBrNumber(cm, 2)} cm · ${formatBrNumber(m, 2)} m`
+}
