@@ -5,13 +5,14 @@ import {
   TrendingUp, ShoppingCart, AlertTriangle,
   Package, DollarSign, BarChart3, Clock, Plus, Users,
   FileText, ArrowRight, CheckCircle, Zap, Activity,
-  ChevronUp, ChevronDown, CalendarDays,
+  ChevronUp, ChevronDown, CalendarDays, Calculator,
 } from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts'
+import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useDashboard }    from '@/hooks/useDashboard'
 import { useSubscription } from '@/hooks/useSubscription'
@@ -93,7 +94,13 @@ function ChartTooltip({ active, payload, label }: {
   )
 }
 
-/* ═══════════════════════════════════════════ PAGE ═══ */
+/* ═══════════════════════════════════════════ PAGE (shell compartilhado) ═══
+   Carrega os mesmos dados pra qualquer plano (useDashboard, agenda de hoje,
+   próximos 7 dias) e só decide, no fim, qual view renderizar — Pro mantém
+   exatamente o dashboard atual (DashboardProView, extraído sem alteração),
+   Basic/Essencial recebem o novo dashboard simplificado
+   (DashboardEssencialView — projeto "Reestruturação do Precy Essencial",
+   seção 2: só indicadores principais + acompanhamento, sem gráficos). ═══ */
 export default function DashboardPage() {
   const supabase = createClient()
   const [companyId,   setCompanyId]   = useState<string | null>(null)
@@ -122,12 +129,12 @@ export default function DashboardPage() {
   }, [])
 
   const { data, isLoading, isError } = useDashboard(companyId)
-  const { data: sub }                = useSubscription()
+  const sub = useSubscription()
 
   const hour     = new Date().getHours()
   const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite'
 
-  /* ── Metric cards ── */
+  /* ── Metric cards (view Pro) ── */
   const metricCards = [
     {
       label: 'Faturamento',
@@ -287,7 +294,7 @@ export default function DashboardPage() {
     loadToday()
   }, [companyId, todayStr, next7Str])
 
-  /* ── Quick actions ── */
+  /* ── Quick actions (view Pro) ── */
   const quickActions = [
     { href: '/pedidos',     icon: ShoppingCart, label: 'Novo Pedido',     color: 'bg-info-light dark:bg-info/10 text-info-dark dark:text-info' },
     { href: '/orcamentos',  icon: FileText,     label: 'Novo Orçamento',  color: 'bg-warning-light dark:bg-warning/10 text-warning-dark dark:text-warning' },
@@ -295,29 +302,102 @@ export default function DashboardPage() {
     { href: '/produtos',    icon: Package,      label: 'Novo Produto',    color: 'bg-success-light dark:bg-success/10 text-success-dark dark:text-success' },
   ]
 
-  /* ═══════════════════ RENDER ═══════════════════ */
+  const greetingHeader = (
+    <Header
+      title={`${greeting}, ${userName || 'Usuária'}! 👋`}
+      subtitle={companyName || 'Carregando...'}
+    />
+  )
+
+  const pastDueBanner = sub?.data?.status === 'past_due' && (
+    <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-red-200/50 dark:border-red-700/30 bg-red-50/50 dark:bg-red-900/10 flex-wrap">
+      <p className="text-sm text-red-700 dark:text-red-400">
+        ⚠️ <strong>Pagamento pendente.</strong> Renove para manter o acesso.
+      </p>
+      <a href="/assinatura/upgrade"
+        className="text-xs font-bold text-white px-4 py-2 rounded-lg flex-shrink-0 hover:opacity-90"
+        style={{ background: 'linear-gradient(135deg, rgb(var(--color-primary)), rgb(var(--color-secondary)))' }}>
+        Renovar agora
+      </a>
+    </div>
+  )
+
+  /* ── Enquanto o plano não resolveu, mostra o skeleton — nunca "pisca"
+     a view errada pra depois trocar. ── */
+  if (sub.isLoading) {
+    return (
+      <div className="page-enter">
+        {greetingHeader}
+        <div className="p-3 sm:p-5 lg:p-6 space-y-4">
+          <SkeletonDashboard />
+        </div>
+      </div>
+    )
+  }
+
+  const isPro = sub?.data?.isPro ?? false
+
+  if (isPro) {
+    return (
+      <DashboardProView
+        greetingHeader={greetingHeader}
+        pastDueBanner={pastDueBanner}
+        isLoading={isLoading}
+        isError={isError}
+        data={data}
+        sub={sub?.data}
+        companyName={companyName}
+        metricCards={metricCards}
+        pieData={pieData}
+        invData={invData}
+        alerts={alerts}
+        alertBgClasses={alertBgClasses}
+        alertIconClasses={alertIconClasses}
+        alertTextClasses={alertTextClasses}
+        todayTasks={todayTasks}
+        todayOrders={todayOrders}
+        pendingFin={pendingFin}
+        next7Orders={next7Orders}
+        next7Tasks={next7Tasks}
+        quickActions={quickActions}
+      />
+    )
+  }
+
+  return (
+    <DashboardEssencialView
+      greetingHeader={greetingHeader}
+      pastDueBanner={pastDueBanner}
+      isLoading={isLoading}
+      isError={isError}
+      data={data}
+      companyId={companyId}
+      todayTasks={todayTasks}
+      todayOrders={todayOrders}
+      next7Tasks={next7Tasks}
+      next7Orders={next7Orders}
+    />
+  )
+}
+
+/* ═══════════════════ VIEW — PRO (extraída sem alteração) ═══════════════════
+   Dashboard completo atual: cards + alertas + parcelas/recebíveis + 4
+   gráficos Recharts + últimas atividades + agenda + próximos 7 dias +
+   ações rápidas. Nenhuma linha de JSX foi alterada aqui — só virou
+   componente separado pra poder conviver com a DashboardEssencialView. ═══ */
+function DashboardProView({
+  greetingHeader, pastDueBanner, isLoading, isError, data, sub, companyName,
+  metricCards, pieData, invData, alerts, alertBgClasses, alertIconClasses, alertTextClasses,
+  todayTasks, todayOrders, pendingFin, next7Orders, next7Tasks, quickActions,
+}: any) {
   return (
     <div className="page-enter">
-      <Header
-        title={`${greeting}, ${userName || 'Usuária'}! 👋`}
-        subtitle={companyName || 'Carregando...'}
-      />
+      {greetingHeader}
 
       <div className="p-3 sm:p-5 lg:p-6 space-y-4">
 
         {/* ── Banner past_due ── */}
-        {sub?.status === 'past_due' && (
-          <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-red-200/50 dark:border-red-700/30 bg-red-50/50 dark:bg-red-900/10 flex-wrap">
-            <p className="text-sm text-red-700 dark:text-red-400">
-              ⚠️ <strong>Pagamento pendente.</strong> Renove para manter o acesso.
-            </p>
-            <a href="/assinatura/upgrade"
-              className="text-xs font-bold text-white px-4 py-2 rounded-lg flex-shrink-0 hover:opacity-90"
-              style={{ background: 'linear-gradient(135deg, rgb(var(--color-primary)), rgb(var(--color-secondary)))' }}>
-              Renovar agora
-            </a>
-          </div>
-        )}
+        {pastDueBanner}
         {isLoading ? (
           <SkeletonDashboard />
         ) : isError ? (
@@ -373,7 +453,7 @@ export default function DashboardPage() {
 
             {/* ─── METRIC CARDS ─── */}
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-              {metricCards.map(card => {
+              {metricCards.map((card: any) => {
                 const Icon = card.icon
                 return (
                   <div
@@ -416,7 +496,7 @@ export default function DashboardPage() {
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                  {alerts.map(alert => {
+                  {alerts.map((alert: any) => {
                     const Icon = alert.icon
                     return (
                       <Link
@@ -587,13 +667,13 @@ export default function DashboardPage() {
                     <ResponsiveContainer width="100%" height={140}>
                       <PieChart>
                         <Pie data={pieData} cx="50%" cy="50%" innerRadius={42} outerRadius={60} paddingAngle={3} dataKey="value">
-                          {pieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                          {pieData.map((e: any, i: number) => <Cell key={i} fill={e.color} />)}
                         </Pie>
                         <Tooltip formatter={(v: number) => [v, 'pedidos']} contentStyle={{ borderRadius: '12px', fontSize: 11, border: '1px solid rgba(var(--color-primary) / 0.15)' }} />
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="space-y-1.5 mt-1">
-                      {pieData.map(e => (
+                      {pieData.map((e: any) => (
                         <div key={e.name} className="flex items-center justify-between text-xs">
                           <span className="flex items-center gap-1.5 text-text-secondary dark:text-stone-400">
                             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: e.color }} />
@@ -642,7 +722,7 @@ export default function DashboardPage() {
                         contentStyle={{ borderRadius: '12px', fontSize: 11 }}
                       />
                       <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                        {pieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                        {pieData.map((e: any, i: number) => <Cell key={i} fill={e.color} />)}
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
@@ -669,13 +749,13 @@ export default function DashboardPage() {
                     <ResponsiveContainer width="100%" height={130}>
                       <PieChart>
                         <Pie data={invData} cx="50%" cy="50%" innerRadius={38} outerRadius={56} paddingAngle={3} dataKey="value">
-                          {invData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                          {invData.map((e: any, i: number) => <Cell key={i} fill={e.color} />)}
                         </Pie>
                         <Tooltip formatter={(v: number) => [v, 'itens']} contentStyle={{ borderRadius: '12px', fontSize: 11 }} />
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="space-y-1.5 mt-1">
-                      {invData.map(e => (
+                      {invData.map((e: any) => (
                         <div key={e.name} className="flex items-center justify-between text-xs">
                           <span className="flex items-center gap-1.5 text-text-secondary dark:text-stone-400">
                             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: e.color }} />
@@ -1005,7 +1085,7 @@ export default function DashboardPage() {
                 <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">Ações Rápidas</h2>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {quickActions.map(action => {
+                {quickActions.map((action: any) => {
                   const Icon = action.icon
                   return (
                     <Link
@@ -1024,6 +1104,181 @@ export default function DashboardPage() {
                 })}
               </div>
             </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ═══════════════════ VIEW — ESSENCIAL / BASIC (novo) ═══════════════════
+   Projeto "Reestruturação do Precy Essencial", seção 2: só o que importa
+   na rotina — 4 indicadores grandes, pedidos recentes, próximos
+   compromissos e atalhos pras 3 ações mais comuns. Sem gráfico, sem
+   densidade visual alta. ═══ */
+function DashboardEssencialView({
+  greetingHeader, pastDueBanner, isLoading, isError, data, companyId,
+  todayTasks, todayOrders, next7Tasks, next7Orders,
+}: any) {
+  const supabase = createClient()
+
+  // Total de clientes cadastrados — único dado que o useDashboard (pensado
+  // pra view Pro) não calcula; consulta simples e isolada, não altera o
+  // hook compartilhado.
+  const { data: customersCount } = useQuery({
+    queryKey: ['dashboard-essencial-customers-count', companyId],
+    enabled: !!companyId,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('customers')
+        .select('id', { count: 'exact', head: true })
+        .eq('company_id', companyId!)
+      return count ?? 0
+    },
+  })
+
+  const emAndamento = (data?.ordersByStatus?.production ?? 0) + (data?.ordersByStatus?.ready ?? 0)
+  const aguardando   = data?.ordersByStatus?.pending ?? 0
+
+  const indicators = [
+    { label: 'Pedidos em andamento',               value: emAndamento,            icon: ShoppingCart, color: 'text-info',    bg: 'bg-info-light dark:bg-info/10' },
+    { label: 'Aguardando aprovação ou pagamento',  value: aguardando,              icon: Clock,        color: 'text-warning', bg: 'bg-warning-light dark:bg-warning/10' },
+    { label: 'Vendas do mês',                      value: fmt(data?.revenue ?? 0), icon: TrendingUp,   color: 'text-success', bg: 'bg-success-light dark:bg-success/10' },
+    { label: 'Clientes cadastrados',               value: String(customersCount ?? 0), icon: Users,    color: 'text-primary', bg: 'bg-primary-50 dark:bg-primary/10' },
+  ]
+
+  const atalhos = [
+    { href: '/produtos',     icon: Package,      label: 'Cadastrar produto' },
+    { href: '/pedidos',      icon: ShoppingCart, label: 'Criar pedido' },
+    { href: '/precificacao', icon: Calculator,   label: 'Fazer precificação' },
+  ]
+
+  // Próximos compromissos: hoje primeiro, depois os próximos 7 dias — lista
+  // curta e direta, sem seção separada de "agenda completa" na home.
+  const compromissos = [
+    ...(todayOrders ?? []).map((o: any) => ({ id: `o-${o.id}`, title: o.service_name || 'Pedido', sub: o.customers?.name ?? '—', when: 'Hoje', href: '/pedidos' })),
+    ...(todayTasks  ?? []).map((t: any) => ({ id: `t-${t.id}`, title: t.title, sub: t.time ? t.time.slice(0, 5) + ' h' : 'Hoje', when: 'Hoje', href: '/agenda' })),
+    ...(next7Orders ?? []).map((o: any) => ({ id: `o7-${o.id}`, title: o.service_name || 'Pedido', sub: o.customers?.name ?? '—', when: format(new Date((o.due_date ?? '').split('T')[0] + 'T12:00:00'), "dd/MM", { locale: ptBR }), href: '/pedidos' })),
+    ...(next7Tasks  ?? []).map((t: any) => ({ id: `t7-${t.id}`, title: t.title, sub: t.time ? t.time.slice(0, 5) + ' h' : '', when: format(new Date(t.date + 'T12:00:00'), "dd/MM", { locale: ptBR }), href: '/agenda' })),
+  ].slice(0, 6)
+
+  return (
+    <div className="page-enter">
+      {greetingHeader}
+
+      <div className="p-3 sm:p-5 lg:p-6 space-y-4">
+        {pastDueBanner}
+
+        {isLoading ? (
+          <SkeletonDashboard />
+        ) : isError ? (
+          <div className="card text-center py-12">
+            <AlertTriangle size={28} className="text-error mx-auto mb-3" />
+            <p className="text-error font-medium text-sm">Erro ao carregar dados. Tente novamente.</p>
+          </div>
+        ) : (
+          <>
+            {/* ─── INDICADORES PRINCIPAIS ─── */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              {indicators.map(card => {
+                const Icon = card.icon
+                return (
+                  <div key={card.label} className="card">
+                    <div className="flex items-start justify-between mb-3">
+                      <p className="text-xs font-semibold text-text-muted dark:text-stone-400 uppercase tracking-wider">
+                        {card.label}
+                      </p>
+                      <div className={clsx('p-2 rounded-xl', card.bg)}>
+                        <Icon size={16} className={card.color} />
+                      </div>
+                    </div>
+                    <p className="text-2xl font-bold text-text-primary dark:text-stone-100">
+                      {card.value}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* ─── ATALHOS ─── */}
+            <div className="card">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {atalhos.map(a => {
+                  const Icon = a.icon
+                  return (
+                    <Link key={a.href} href={a.href}
+                      className="flex items-center gap-3 p-4 rounded-xl border border-border dark:border-border-dark hover:border-primary/50 hover:shadow-card-hover transition-all">
+                      <div className="p-2.5 rounded-xl bg-primary-50 dark:bg-primary/10 text-primary flex-shrink-0">
+                        <Icon size={18} />
+                      </div>
+                      <span className="text-sm font-semibold text-text-primary dark:text-stone-100">{a.label}</span>
+                    </Link>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* ─── PEDIDOS RECENTES ─── */}
+            <div className="card">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">Pedidos recentes</h2>
+                <Link href="/pedidos" className="text-xs text-primary hover:underline flex items-center gap-1">
+                  Ver todos <ArrowRight size={10} />
+                </Link>
+              </div>
+              {data?.latestOrders && data.latestOrders.length > 0 ? (
+                <div className="space-y-2.5">
+                  {data.latestOrders.slice(0, 5).map((order: any) => (
+                    <div key={order.id} className="flex items-center gap-3 py-2 border-b border-border dark:border-border-dark last:border-0">
+                      <div className="w-8 h-8 rounded-xl bg-primary-50 dark:bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <ShoppingCart size={13} className="text-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-text-primary dark:text-stone-100 truncate">
+                          {order.customers?.name ?? 'Cliente'}
+                        </p>
+                        <p className="text-[10px] text-text-muted dark:text-stone-500">{order.order_number}</p>
+                      </div>
+                      <span className="text-xs font-bold text-primary flex-shrink-0">{fmt(Number(order.total))}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center py-8 text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-primary-50 dark:bg-primary/10 flex items-center justify-center mb-3">
+                    <ShoppingCart size={20} className="text-primary" />
+                  </div>
+                  <p className="text-sm font-medium text-text-primary dark:text-stone-100">Nenhum pedido cadastrado</p>
+                  <Link href="/pedidos" className="mt-3 btn-primary text-xs py-2 px-4">+ Novo pedido</Link>
+                </div>
+              )}
+            </div>
+
+            {/* ─── PRÓXIMOS COMPROMISSOS ─── */}
+            {compromissos.length > 0 && (
+              <div className="card">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <CalendarDays size={15} className="text-primary" />
+                    <h2 className="text-sm font-semibold text-text-primary dark:text-stone-100">Próximos compromissos</h2>
+                  </div>
+                  <Link href="/agenda" className="text-xs text-primary hover:underline">Ver agenda →</Link>
+                </div>
+                <div className="space-y-1.5">
+                  {compromissos.map(c => (
+                    <Link key={c.id} href={c.href}
+                      className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-primary-50/30 dark:hover:bg-primary/5 transition-all">
+                      <span className="text-[10px] font-bold text-text-muted uppercase w-10 flex-shrink-0">{c.when}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-text-primary dark:text-stone-100 truncate">{c.title}</p>
+                        {c.sub && <p className="text-[11px] text-text-muted truncate">{c.sub}</p>}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
